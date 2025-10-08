@@ -484,9 +484,182 @@ async function optimizeLineup() {
     current_active: activePlayers.length,
     current_bench: benchPlayers.length,
     recommendations,
-    analysis: recommendations.length === 0 
+    analysis: recommendations.length === 0
       ? "Lineup looks optimal - all healthy players are active"
       : `Found ${recommendations.length} potential lineup improvements`,
+  };
+}
+
+// Helper function to calculate streaming score
+function calculateStreamingScore(player: any, teamData: any, trendingRank: number | null): number {
+  let score = 0;
+
+  // Games remaining bonus (0-40 points)
+  score += Math.min(teamData.remaining_games * 2, 40);
+
+  // Low ownership bonus (0-30 points)
+  const ownership = parseFloat(player.percent_owned);
+  score += Math.max(30 - ownership, 0);
+
+  // Trending bonus (0-20 points)
+  if (trendingRank !== null) {
+    score += Math.max(20 - trendingRank, 0);
+  }
+
+  // Position scarcity bonus (goalies get extra points)
+  if (player.position === 'G') {
+    score += 10;
+  }
+
+  return Math.round(score);
+}
+
+// Helper function for timing recommendations
+function getOptimalTiming(strategyType: string): any {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sunday, 6 = Saturday
+
+  if (strategyType === "weekend") {
+    return {
+      pickup_day: "Friday",
+      drop_day: "Sunday night",
+      reasoning: "Pick up before weekend games, drop after Sunday games complete"
+    };
+  }
+
+  return {
+    pickup_day: dayOfWeek < 3 ? "Tuesday" : "Friday",
+    drop_day: "Next Tuesday",
+    reasoning: "Pick up early in week or before weekend, reassess weekly"
+  };
+}
+
+// Tool: Get Streaming Recommendations
+async function getStreamingRecommendations(
+  daysAhead: number = 7,
+  positionFilter?: string,
+  strategyType: string = "weekly"
+) {
+  // Get scoreboard data for game counts
+  const scoreboard = await yahooApiRequest(`/league/nhl.l.${LEAGUE_ID}/scoreboard`);
+
+  // Extract team game information
+  const teamGameData = new Map();
+  const matchupsData = scoreboard.fantasy_content.league[1].scoreboard[0].matchups;
+
+  // Process all matchups to get team game counts
+  Object.keys(matchupsData)
+    .filter(key => key !== 'count')
+    .forEach(key => {
+      const matchup = matchupsData[key].matchup[0];
+      const teams = matchup.teams;
+
+      [teams['0'], teams['1']].forEach((teamData: any) => {
+        const teamArray = teamData.team[0];
+        const gameStats = teamData.team[1].team_remaining_games;
+
+        // Extract team name using .find()
+        const teamName = teamArray.find((item: any) => item.name)?.name;
+        const remaining = gameStats.total.remaining_games;
+        const completed = gameStats.total.completed_games;
+        const live = gameStats.total.live_games;
+
+        if (teamName) {
+          teamGameData.set(teamName, {
+            remaining_games: remaining,
+            completed_games: completed,
+            live_games: live,
+            total_games: remaining + completed,
+            games_per_day: remaining / Math.max(daysAhead, 1)
+          });
+        }
+      });
+    });
+
+  // Get trending players for cross-reference
+  const trending = await getTrendingPlayers("add", 50);
+  const availablePlayers = await searchPlayers(positionFilter, 50);
+
+  // Calculate average games remaining for comparison
+  const allGameCounts = Array.from(teamGameData.values()).map(team => team.remaining_games);
+  const avgGamesRemaining = allGameCounts.reduce((a, b) => a + b, 0) / allGameCounts.length;
+
+  // Find teams with schedule advantages
+  const favorableTeams = Array.from(teamGameData.entries())
+    .filter(([_, data]) => data.remaining_games > avgGamesRemaining)
+    .sort((a, b) => b[1].remaining_games - a[1].remaining_games)
+    .slice(0, 10);
+
+  // Build streaming recommendations
+  const streamingTargets = [];
+
+  // Cross-reference trending players with favorable schedules
+  for (const player of trending.players) {
+    const playerTeamData = teamGameData.get(player.team);
+    if (playerTeamData && playerTeamData.remaining_games > avgGamesRemaining) {
+      streamingTargets.push({
+        player_id: player.player_id,
+        name: player.name,
+        position: player.position,
+        team: player.team,
+        percent_owned: player.percent_owned,
+        games_remaining: playerTeamData.remaining_games,
+        games_advantage: Math.round((playerTeamData.remaining_games - avgGamesRemaining) * 10) / 10,
+        trending_rank: trending.players.indexOf(player) + 1,
+        streaming_score: calculateStreamingScore(player, playerTeamData, trending.players.indexOf(player)),
+        reason: `${player.team} has ${playerTeamData.remaining_games} games remaining (${(playerTeamData.remaining_games - avgGamesRemaining).toFixed(1)} above average)`
+      });
+    }
+  }
+
+  // Also check low-owned players on favorable teams
+  for (const player of availablePlayers.players) {
+    const playerTeamData = teamGameData.get(player.team);
+    const ownership = parseFloat(player.percent_owned);
+
+    if (playerTeamData &&
+        playerTeamData.remaining_games > avgGamesRemaining &&
+        ownership < 20 && // Low ownership threshold
+        !streamingTargets.find(p => p.player_id === player.player_id)) {
+
+      streamingTargets.push({
+        player_id: player.player_id,
+        name: player.name,
+        position: player.position,
+        team: player.team,
+        percent_owned: player.percent_owned,
+        games_remaining: playerTeamData.remaining_games,
+        games_advantage: Math.round((playerTeamData.remaining_games - avgGamesRemaining) * 10) / 10,
+        trending_rank: null,
+        streaming_score: calculateStreamingScore(player, playerTeamData, null),
+        reason: `Low-owned player (${ownership}%) on ${player.team} with ${playerTeamData.remaining_games} games remaining`
+      });
+    }
+  }
+
+  // Sort by streaming score
+  streamingTargets.sort((a, b) => b.streaming_score - a.streaming_score);
+
+  // Extract week context safely
+  const firstMatchup = matchupsData['0']?.matchup?.[0];
+  const weekContext = firstMatchup ? {
+    week_start: firstMatchup.week_start,
+    week_end: firstMatchup.week_end,
+    current_week: firstMatchup.week
+  } : null;
+
+  return {
+    strategy_type: strategyType,
+    analysis_period: `${daysAhead} days`,
+    average_games_remaining: Math.round(avgGamesRemaining * 10) / 10,
+    favorable_teams: favorableTeams.map(([name, data]) => ({
+      team: name,
+      games_remaining: data.remaining_games,
+      games_advantage: Math.round((data.remaining_games - avgGamesRemaining) * 10) / 10
+    })),
+    streaming_targets: streamingTargets.slice(0, 15),
+    optimal_timing: getOptimalTiming(strategyType),
+    week_context: weekContext
   };
 }
 
@@ -621,6 +794,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["endpoint"],
         },
       },
+      {
+        name: "get_streaming_recommendations",
+        description: "Get AI-powered streaming recommendations based on team schedules, player trends, and ownership. Identifies players on teams with favorable schedules (more games remaining this week) for optimal waiver pickups.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            days_ahead: {
+              type: "number",
+              description: "Look ahead window in days (default 7)",
+              default: 7,
+            },
+            position_filter: {
+              type: "string",
+              description: "Filter by position: C, LW, RW, D, G, or leave empty for all",
+            },
+            strategy_type: {
+              type: "string",
+              description: "Streaming strategy: 'weekly' (full week holds), 'weekend' (Fri-Sun pickups), or 'daily' (day-to-day streaming)",
+              enum: ["weekly", "weekend", "daily"],
+              default: "weekly",
+            },
+          },
+        },
+      },
     ],
   };
 });
@@ -710,6 +907,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const rawData = await yahooApiRequest(endpoint);
         return {
           content: [{ type: "text", text: JSON.stringify(rawData, null, 2) }],
+        };
+      }
+
+      case "get_streaming_recommendations": {
+        const daysAhead = (args?.days_ahead as number) || 7;
+        const positionFilter = args?.position_filter as string | undefined;
+        const strategyType = (args?.strategy_type as string) || "weekly";
+        const recommendations = await getStreamingRecommendations(daysAhead, positionFilter, strategyType);
+        return {
+          content: [{ type: "text", text: JSON.stringify(recommendations, null, 2) }],
         };
       }
 
