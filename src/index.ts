@@ -292,20 +292,28 @@ async function searchPlayers(position?: string, count: number = 25) {
   if (position) {
     endpoint += `;position=${position}`;
   }
-  
+
   const data = await yahooApiRequest(endpoint);
   const playersData = data.fantasy_content.league[1].players;
-  
+
   const players = Object.keys(playersData)
     .filter(key => key !== 'count')
     .map(key => {
-      const player = playersData[key].player[0];
+      const playerData = playersData[key].player[0];
+
+      // Find attributes in the array using .find() to handle dynamic structure
+      const playerId = playerData.find((item: any) => item.player_id)?.player_id;
+      const name = playerData.find((item: any) => item.name)?.name?.full;
+      const displayPosition = playerData.find((item: any) => item.display_position)?.display_position;
+      const team = playerData.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr;
+      const percentOwned = playerData.find((item: any) => item.percent_owned)?.percent_owned?.value || "0";
+
       return {
-        player_id: player[0].player_id,
-        name: player[1].name.full,
-        position: player[2].display_position,
-        team: player[3].editorial_team_abbr,
-        percent_owned: player[5]?.percent_owned?.value || "0",
+        player_id: playerId,
+        name: name,
+        position: displayPosition,
+        team: team,
+        percent_owned: percentOwned,
       };
     });
 
@@ -315,15 +323,21 @@ async function searchPlayers(position?: string, count: number = 25) {
 // Tool: Get Player Stats
 async function getPlayerStats(playerId: string) {
   const data = await yahooApiRequest(`/player/nhl.p.${playerId}/stats`);
-  
-  const player = data.fantasy_content.player[0];
+
+  const playerData = data.fantasy_content.player[0];
   const stats = data.fantasy_content.player[1]?.player_stats?.stats || [];
-  
+
+  // Find attributes in the array using .find() to handle dynamic structure
+  const playerIdResult = playerData.find((item: any) => item.player_id)?.player_id;
+  const name = playerData.find((item: any) => item.name)?.name?.full;
+  const displayPosition = playerData.find((item: any) => item.display_position)?.display_position;
+  const team = playerData.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr;
+
   return {
-    player_id: player[0].player_id,
-    name: player[1].name.full,
-    position: player[2].display_position,
-    team: player[3].editorial_team_abbr,
+    player_id: playerIdResult,
+    name: name,
+    position: displayPosition,
+    team: team,
     stats: stats,
   };
 }
@@ -400,20 +414,28 @@ async function compareMatchup() {
 async function getTrendingPlayers(trendType: string = "add", count: number = 25) {
   const sortParam = trendType === "add" ? "AR" : "OR";
   const endpoint = `/league/nhl.l.${LEAGUE_ID}/players;status=A;sort=${sortParam};count=${count}`;
-  
+
   const data = await yahooApiRequest(endpoint);
   const playersData = data.fantasy_content.league[1].players;
-  
+
   const players = Object.keys(playersData)
     .filter(key => key !== 'count')
     .map(key => {
-      const player = playersData[key].player[0];
+      const playerData = playersData[key].player[0];
+
+      // Find attributes in the array using .find() to handle dynamic structure
+      const playerId = playerData.find((item: any) => item.player_id)?.player_id;
+      const name = playerData.find((item: any) => item.name)?.name?.full;
+      const displayPosition = playerData.find((item: any) => item.display_position)?.display_position;
+      const team = playerData.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr;
+      const percentOwned = playerData.find((item: any) => item.percent_owned)?.percent_owned?.value || "0";
+
       return {
-        player_id: player[0].player_id,
-        name: player[1].name.full,
-        position: player[2].display_position,
-        team: player[3].editorial_team_abbr,
-        percent_owned: player[5]?.percent_owned?.value || "0",
+        player_id: playerId,
+        name: name,
+        position: displayPosition,
+        team: team,
+        percent_owned: percentOwned,
       };
     });
 
