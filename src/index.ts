@@ -540,126 +540,113 @@ async function getStreamingRecommendations(
   positionFilter?: string,
   strategyType: string = "weekly"
 ) {
-  // Get scoreboard data for game counts
-  const scoreboard = await yahooApiRequest(`/league/nhl.l.${LEAGUE_ID}/scoreboard`);
-
-  // Extract team game information
-  const teamGameData = new Map();
-  const matchupsData = scoreboard.fantasy_content.league[1].scoreboard[0].matchups;
-
-  // Process all matchups to get team game counts
-  Object.keys(matchupsData)
-    .filter(key => key !== 'count')
-    .forEach(key => {
-      const matchup = matchupsData[key].matchup[0];
-      const teams = matchup.teams;
-
-      [teams['0'], teams['1']].forEach((teamData: any) => {
-        const teamArray = teamData.team[0];
-        const gameStats = teamData.team[1].team_remaining_games;
-
-        // Extract team name using .find()
-        const teamName = teamArray.find((item: any) => item.name)?.name;
-        const remaining = gameStats.total.remaining_games;
-        const completed = gameStats.total.completed_games;
-        const live = gameStats.total.live_games;
-
-        if (teamName) {
-          teamGameData.set(teamName, {
-            remaining_games: remaining,
-            completed_games: completed,
-            live_games: live,
-            total_games: remaining + completed,
-            games_per_day: remaining / Math.max(daysAhead, 1)
-          });
-        }
-      });
-    });
-
-  // Get trending players for cross-reference
+  // Get trending players and available players
   const trending = await getTrendingPlayers("add", 50);
   const availablePlayers = await searchPlayers(positionFilter, 50);
 
-  // Calculate average games remaining for comparison
-  const allGameCounts = Array.from(teamGameData.values()).map(team => team.remaining_games);
-  const avgGamesRemaining = allGameCounts.reduce((a, b) => a + b, 0) / allGameCounts.length;
+  // Use trending patterns as schedule proxy - teams with multiple trending players
+  // likely have favorable schedules (market intelligence)
+  const teamTrendingCount = new Map<string, number>();
+  const teamTrendingPlayers = new Map<string, any[]>();
 
-  // Find teams with schedule advantages
-  const favorableTeams = Array.from(teamGameData.entries())
-    .filter(([_, data]) => data.remaining_games > avgGamesRemaining)
-    .sort((a, b) => b[1].remaining_games - a[1].remaining_games)
+  // Count how many trending players each NHL team has
+  trending.players.forEach((player, index) => {
+    const team = player.team;
+    if (team) {
+      teamTrendingCount.set(team, (teamTrendingCount.get(team) || 0) + 1);
+      if (!teamTrendingPlayers.has(team)) {
+        teamTrendingPlayers.set(team, []);
+      }
+      teamTrendingPlayers.get(team)!.push({...player, trending_rank: index + 1});
+    }
+  });
+
+  // Teams with multiple trending players likely have schedule advantages
+  const favorableTeams = Array.from(teamTrendingCount.entries())
+    .filter(([team, count]) => count >= 2) // Teams with 2+ trending players
+    .sort((a, b) => b[1] - a[1]) // Sort by trending player count
     .slice(0, 10);
 
   // Build streaming recommendations
-  const streamingTargets = [];
+  const streamingTargets: any[] = [];
 
-  // Cross-reference trending players with favorable schedules
-  for (const player of trending.players) {
-    const playerTeamData = teamGameData.get(player.team);
-    if (playerTeamData && playerTeamData.remaining_games > avgGamesRemaining) {
-      streamingTargets.push({
-        player_id: player.player_id,
-        name: player.name,
-        position: player.position,
-        team: player.team,
-        percent_owned: player.percent_owned,
-        games_remaining: playerTeamData.remaining_games,
-        games_advantage: Math.round((playerTeamData.remaining_games - avgGamesRemaining) * 10) / 10,
-        trending_rank: trending.players.indexOf(player) + 1,
-        streaming_score: calculateStreamingScore(player, playerTeamData, trending.players.indexOf(player)),
-        reason: `${player.team} has ${playerTeamData.remaining_games} games remaining (${(playerTeamData.remaining_games - avgGamesRemaining).toFixed(1)} above average)`
-      });
+  // Add trending players from favorable teams
+  for (const [team, count] of favorableTeams) {
+    const teamPlayers = teamTrendingPlayers.get(team) || [];
+    for (const player of teamPlayers) {
+      if (!positionFilter || player.position === positionFilter) {
+        streamingTargets.push({
+          player_id: player.player_id,
+          name: player.name,
+          position: player.position,
+          team: player.team,
+          percent_owned: player.percent_owned,
+          team_trending_count: count,
+          trending_rank: player.trending_rank,
+          streaming_score: calculateStreamingScore(player, {remaining_games: count * 10}, player.trending_rank - 1),
+          reason: `${player.team} has ${count} trending players, suggesting favorable schedule`
+        });
+      }
     }
   }
 
-  // Also check low-owned players on favorable teams
-  for (const player of availablePlayers.players) {
-    const playerTeamData = teamGameData.get(player.team);
-    const ownership = parseFloat(player.percent_owned);
-
-    if (playerTeamData &&
-        playerTeamData.remaining_games > avgGamesRemaining &&
-        ownership < 20 && // Low ownership threshold
+  // Add other highly trending players (top 10)
+  trending.players.slice(0, 10).forEach((player, index) => {
+    if ((!positionFilter || player.position === positionFilter) &&
         !streamingTargets.find(p => p.player_id === player.player_id)) {
-
       streamingTargets.push({
         player_id: player.player_id,
         name: player.name,
         position: player.position,
         team: player.team,
         percent_owned: player.percent_owned,
-        games_remaining: playerTeamData.remaining_games,
-        games_advantage: Math.round((playerTeamData.remaining_games - avgGamesRemaining) * 10) / 10,
-        trending_rank: null,
-        streaming_score: calculateStreamingScore(player, playerTeamData, null),
-        reason: `Low-owned player (${ownership}%) on ${player.team} with ${playerTeamData.remaining_games} games remaining`
+        team_trending_count: teamTrendingCount.get(player.team) || 1,
+        trending_rank: index + 1,
+        streaming_score: calculateStreamingScore(player, {remaining_games: 25}, index),
+        reason: `#${index + 1} most added player - high pickup activity`
       });
     }
-  }
+  });
+
+  // Add low-owned players (under 5% ownership)
+  availablePlayers.players
+    .filter(player => parseFloat(player.percent_owned) < 5)
+    .slice(0, 10)
+    .forEach(player => {
+      if ((!positionFilter || player.position === positionFilter) &&
+          !streamingTargets.find(p => p.player_id === player.player_id)) {
+        streamingTargets.push({
+          player_id: player.player_id,
+          name: player.name,
+          position: player.position,
+          team: player.team,
+          percent_owned: player.percent_owned,
+          team_trending_count: teamTrendingCount.get(player.team) || 0,
+          trending_rank: null,
+          streaming_score: calculateStreamingScore(player, {remaining_games: 20}, null),
+          reason: `Low ownership (${player.percent_owned}%) - potential sleeper pick`
+        });
+      }
+    });
 
   // Sort by streaming score
   streamingTargets.sort((a, b) => b.streaming_score - a.streaming_score);
 
-  // Extract week context safely
-  const firstMatchup = matchupsData['0']?.matchup?.[0];
-  const weekContext = firstMatchup ? {
-    week_start: firstMatchup.week_start,
-    week_end: firstMatchup.week_end,
-    current_week: firstMatchup.week
-  } : null;
-
   return {
     strategy_type: strategyType,
     analysis_period: `${daysAhead} days`,
-    average_games_remaining: Math.round(avgGamesRemaining * 10) / 10,
-    favorable_teams: favorableTeams.map(([name, data]) => ({
-      team: name,
-      games_remaining: data.remaining_games,
-      games_advantage: Math.round((data.remaining_games - avgGamesRemaining) * 10) / 10
+    favorable_teams: favorableTeams.map(([team, count]) => ({
+      team: team,
+      trending_players: count,
+      reason: `${count} players trending - likely favorable schedule`
     })),
     streaming_targets: streamingTargets.slice(0, 15),
     optimal_timing: getOptimalTiming(strategyType),
-    week_context: weekContext
+    market_intelligence: {
+      total_trending: trending.players.length,
+      favorable_teams_count: favorableTeams.length,
+      top_trending_team: favorableTeams[0]?.[0] || "None identified"
+    }
   };
 }
 
