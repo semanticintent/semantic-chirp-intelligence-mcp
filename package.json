@@ -1,0 +1,31 @@
+{
+  "name": "yahoo-fantasy-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Yahoo Fantasy Hockey management",
+  "type": "module",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "dev": "node --watch build/index.js",
+    "start": "node build/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "yahoo-fantasy",
+    "hockey"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.7.0",
+    "@types/xml2js": "^0.4.14",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.19.1",
+    "dotenv": "^17.2.3",
+    "selfsigned": "^3.0.1",
+    "xml2js": "^0.6.2"
+  }
+}
