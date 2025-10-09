@@ -1,7 +1,7 @@
 {
-  "name": "yahoo-fantasy-mcp",
-  "version": "1.0.0",
-  "description": "MCP server for Yahoo Fantasy Hockey management",
+  "name": "@semanticintent/semantic-chirp-intelligence-mcp",
+  "version": "2.0.0",
+  "description": "Semantic Intent pattern implementation for fantasy hockey intelligence - AI analysis that chirps you into championships",
   "type": "module",
   "main": "build/index.js",
   "scripts": {
@@ -12,11 +12,19 @@
   },
   "keywords": [
     "mcp",
+    "semantic-intent",
+    "fantasy-hockey",
+    "chirp",
+    "intelligence",
     "yahoo-fantasy",
-    "hockey"
+    "ice"
   ],
-  "author": "",
+  "author": "semanticintent",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/semanticintent/semantic-chirp-intelligence-mcp.git"
+  },
   "devDependencies": {
     "@types/node": "^24.7.0",
     "@types/xml2js": "^0.4.14",

@@ -967,7 +967,7 @@ async function getStreamingRecommendations(
 // Initialize MCP Server
 const server = new Server(
   {
-    name: "yahoo-fantasy-hockey",
+    name: "semantic-chirp-intelligence-mcp",
     version: "2.0.0",
   },
   {
