@@ -352,20 +352,36 @@ async function getWeeklyStats() {
     return { message: "No current matchup" };
   }
 
-  const currentMatchup = matchups['0'].matchup;
+    const currentMatchup = matchups['0'].matchup;
   const teams = currentMatchup[0].teams;
-  
+
+  // Extract games remaining data
+  const yourGames = teams['0'].team[1]?.team_remaining_games?.total;
+  const oppGames = teams['1'].team[1]?.team_remaining_games?.total;
+
   return {
     week: currentMatchup[0].week,
     status: currentMatchup[0].status,
     your_team: {
       name: teams['0'].team[0][2].name,
       stats: teams['0'].team[1]?.team_stats?.stats || [],
+      games_remaining: yourGames?.remaining_games || 0,
+      games_completed: yourGames?.completed_games || 0,
+      live_games: yourGames?.live_games || 0,
     },
     opponent: {
       name: teams['1'].team[0][2].name,
       stats: teams['1'].team[1]?.team_stats?.stats || [],
+      games_remaining: oppGames?.remaining_games || 0,
+      games_completed: oppGames?.completed_games || 0,
+      live_games: oppGames?.live_games || 0,
     },
+    games_in_hand: {
+      your_remaining: yourGames?.remaining_games || 0,
+      opponent_remaining: oppGames?.remaining_games || 0,
+      difference: (yourGames?.remaining_games || 0) - (oppGames?.remaining_games || 0),
+      advantage: (yourGames?.remaining_games || 0) > (oppGames?.remaining_games || 0) ? "You" : "Opponent"
+    }
   };
 }
 
@@ -408,6 +424,51 @@ async function compareMatchup() {
     categories_total: comparison.length,
     category_breakdown: comparison,
   };
+}
+
+// Tool: Get Games In Hand
+async function getGamesInHand() {
+  const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/matchups`);
+
+  const matchups = data.fantasy_content.team[1].matchups;
+
+  if (!matchups || matchups.count === '0') {
+    return { message: "No current matchup" };
+  }
+
+  const currentMatchup = matchups['0'].matchup;
+  const teams = currentMatchup[0].teams;
+
+  const yourGames = teams['0'].team[1]?.team_remaining_games?.total;
+  const oppGames = teams['1'].team[1]?.team_remaining_games?.total;
+
+  return {
+    week: currentMatchup[0].week,
+    your_team: teams['0'].team[0][2].name,
+    opponent: teams['1'].team[0][2].name,
+    your_games_remaining: yourGames?.remaining_games || 0,
+    your_games_completed: yourGames?.completed_games || 0,
+    your_live_games: yourGames?.live_games || 0,
+    opponent_games_remaining: oppGames?.remaining_games || 0,
+    opponent_games_completed: oppGames?.completed_games || 0,
+    opponent_live_games: oppGames?.live_games || 0,
+    games_in_hand_difference: (yourGames?.remaining_games || 0) - (oppGames?.remaining_games || 0),
+    advantage: (yourGames?.remaining_games || 0) > (oppGames?.remaining_games || 0) ? "you" : "opponent",
+    analysis: getGamesInHandAnalysis(yourGames?.remaining_games || 0, oppGames?.remaining_games || 0)
+  };
+}
+
+// Helper function for games in hand analysis
+function getGamesInHandAnalysis(yourGames: number, oppGames: number): string {
+  const diff = yourGames - oppGames;
+
+  if (diff === 0) {
+    return "Equal games remaining - no games in hand advantage";
+  } else if (diff > 0) {
+    return `You have ${diff} more game${diff > 1 ? 's' : ''} remaining - significant advantage for accumulating stats`;
+  } else {
+    return `Opponent has ${Math.abs(diff)} more game${Math.abs(diff) > 1 ? 's' : ''} remaining - they have the games in hand advantage`;
+  }
 }
 
 // Tool: Get Trending Players
@@ -805,6 +866,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: "get_games_in_hand",
+        description: "Get games in hand analysis - shows remaining games for you vs opponent to identify schedule advantages",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
     ],
   };
 });
@@ -904,6 +973,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const recommendations = await getStreamingRecommendations(daysAhead, positionFilter, strategyType);
         return {
           content: [{ type: "text", text: JSON.stringify(recommendations, null, 2) }],
+        };
+      }
+
+      case "get_games_in_hand": {
+        const gamesInHand = await getGamesInHand();
+        return {
+          content: [{ type: "text", text: JSON.stringify(gamesInHand, null, 2) }],
         };
       }
 
