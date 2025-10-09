@@ -859,7 +859,20 @@ function enhanceWithChirpIntelligence(
   originalData: any,
   chirpOptions: ChirpParameters = {}
 ) {
-  if (chirpOptions.enable_chirp === false) {
+  // 🛡️ Semantic Anchoring (Rule 4): Freeze semantic contract to prevent violations
+  const frozenChirpOptions = Object.freeze({...chirpOptions});
+
+  // 🛡️ Protected semantic contract with Proxy for runtime enforcement
+  const protectedChirpOptions = new Proxy(frozenChirpOptions, {
+    set() {
+      throw new Error('🚨 Semantic contract violation: ChirpParameters are immutable after creation');
+    },
+    deleteProperty() {
+      throw new Error('🚨 Semantic contract violation: Cannot delete ChirpParameters properties');
+    }
+  });
+
+  if (protectedChirpOptions.enable_chirp === false) {
     return originalData;
   }
 
@@ -868,8 +881,8 @@ function enhanceWithChirpIntelligence(
     return originalData;
   }
 
-  const chirpStyle = CHIRP_STYLES[chirpOptions.chirp_intensity || 'standard'];
-  const personality = PERSONALITY_MODES[chirpOptions.personality_mode || 'analytical'];
+  const chirpStyle = CHIRP_STYLES[protectedChirpOptions.chirp_intensity || 'standard'];
+  const personality = PERSONALITY_MODES[protectedChirpOptions.personality_mode || 'analytical'];
 
   return {
     // Original data preserved
@@ -883,7 +896,7 @@ function enhanceWithChirpIntelligence(
         : `${toolName} with chirp intelligence`,
       style: chirpStyle.tone,
       personality: personality.voice,
-      intensity: chirpOptions.chirp_intensity || 'standard',
+      intensity: protectedChirpOptions.chirp_intensity || 'standard',
       semantic_context: metadata.hockey_context,
 
       // Dynamic chirp based on data
