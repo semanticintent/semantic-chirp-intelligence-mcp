@@ -76,6 +76,49 @@ const PERSONALITY_MODES = {
   }
 };
 
+// ==========================================
+// 📚 Semantic Anchoring Documentation
+// ==========================================
+//
+// This metadata structure implements Semantic Anchoring Governance principles
+// to ensure that tool behavior is driven by semantic meaning, not implementation details.
+//
+// 🏛️ Governance Rules Applied:
+// - Rule 1 (Semantic Over Structural): Tool identity determined by semantic properties
+//   (is_ice_engine, tool_semantic_identity) rather than string comparisons
+// - Rule 3 (Observable Anchoring): Behavioral decisions based on directly observable
+//   properties that carry semantic meaning
+// - Rule 4 (Immutability): Metadata is immutable at runtime (frozen in production)
+//
+// 🎯 Semantic Markers Defined:
+//
+// 1. is_ice_engine: boolean (optional)
+//    Purpose: Distinguishes ICE (Intent Chirp Engine) tools from standard tools
+//    Governance: Used for semantic branching instead of toolName string comparison
+//    Example: if (metadata.is_ice_engine) { /* ICE-specific behavior */ }
+//
+// 2. tool_semantic_identity: string (optional)
+//    Purpose: Human-readable semantic identity describing tool's domain purpose
+//    Governance: Used in chirp intelligence layer for contextual awareness
+//    Example: "ICE - Intent Chirp Engine" for ultimate advisor tools
+//
+// 3. chirp_style: string (required)
+//    Purpose: Semantic descriptor of the tool's chirp personality and approach
+//    Example: "ice_cold_truth", "analytical_assessment", "opportunity_hunter"
+//
+// 4. intent_category: string (required)
+//    Purpose: Semantic classification of user intent served by this tool
+//    Governance: Groups tools by user goals rather than technical implementation
+//    Example: "ultimate_advisor", "competitive_intelligence", "team_assessment"
+//
+// 5. hockey_context: string (required)
+//    Purpose: Domain-specific semantic context for chirp generation
+//    Example: "league_domination", "roster_analysis", "waiver_wire_mastery"
+//
+// 6. chirp_potential: string (required)
+//    Purpose: Semantic descriptor of chirp opportunities and focus areas
+//    Example: "brutal_optimization", "standings_truth", "lineup_fixes"
+
 const TOOL_METADATA: Record<string, any> = {
   get_team_roster: {
     chirp_style: "analytical_assessment",
@@ -180,6 +223,43 @@ const YAHOO_API_BASE = "https://fantasysports.yahooapis.com/fantasy/v2";
 // ==========================================
 // 🏒 Chirp Intelligence Interfaces
 // ==========================================
+//
+// 📚 Semantic Contract Documentation:
+// These interfaces define the semantic contracts for chirp intelligence parameters.
+//
+// 🏛️ ChirpParameters Interface:
+// Base interface for chirp behavior configuration. Represents the user-facing API
+// for controlling chirp intelligence behavior.
+//
+// Properties:
+// - chirp_intensity: Semantic descriptor of response tone/energy level
+//   Values map to semantic contexts: gentle (encouraging), standard (direct),
+//   savage (aggressive), ice_cold (championship enforcer)
+//   Governance: This is a semantic choice, not technical - drives tone generation
+//
+// - personality_mode: Semantic descriptor of chirp voice and focus
+//   Values map to semantic personas: analytical (data-driven), motivational
+//   (championship mindset), roast_master (entertainment), championship_coach (winning strategy)
+//   Governance: Determines semantic approach to commentary generation
+//
+// - enable_chirp: Semantic toggle for chirp intelligence layer
+//   Governance: When false, preserves raw data without semantic enhancement
+//   This is a semantic intent signal, not just a boolean flag
+//
+// 🏛️ SemanticChirpContract Interface:
+// Extended interface that adds semantic intent tracking and validation context.
+// Used internally to enforce Semantic Anchoring Governance Rule 2 (Intent Preservation).
+//
+// Additional Properties (readonly for immutability):
+// - semantic_intent: Tracks the origin and purpose of the chirp configuration
+//   "user_requested": User explicitly set these parameters (highest priority)
+//   "system_default": System-provided defaults (standard behavior)
+//   "tool_override": Tool-specific override (only valid within tool context)
+//   Governance: Ensures semantic intent is preserved through transformations
+//
+// - tool_context: The tool name that created this semantic contract
+//   Governance: Validates that tool_override intent matches actual tool context
+//   Prevents semantic contract violations across tool boundaries
 
 interface ChirpParameters {
   chirp_intensity?: "gentle" | "standard" | "savage" | "ice_cold";
@@ -192,6 +272,54 @@ interface SemanticChirpContract extends ChirpParameters {
   readonly semantic_intent?: "user_requested" | "system_default" | "tool_override";
   readonly tool_context?: string;
 }
+
+// ==========================================
+// 📚 Semantic Contract Validation Function
+// ==========================================
+//
+// 🏛️ validateSemanticChirpContract Function:
+// Enforces Semantic Anchoring Governance Rule 2 (Intent Preservation) by validating
+// that semantic intent is preserved through chirp parameter transformations.
+//
+// Purpose:
+// Ensures that chirp parameters maintain semantic coherence and prevents accidental
+// or malicious violations of user intent.
+//
+// Governance Principles:
+// - User intent has highest priority and must never be overridden
+// - System defaults should be semantically consistent
+// - Tool-specific overrides must be confined to their tool context
+// - Conflicting intentions should be detected and reported
+//
+// Validation Cases:
+//
+// Case 1: User-Requested Disable
+//   Scenario: User explicitly sets enable_chirp=false with semantic_intent="user_requested"
+//   Action: Allow and preserve user intent (highest priority)
+//   Governance: Protects user autonomy and semantic control
+//
+// Case 2: Default Behavior
+//   Scenario: enable_chirp is undefined or true (system default)
+//   Action: Allow as valid default semantic behavior
+//   Governance: System defaults are semantically consistent
+//
+// Case 3: Ice Cold Intensity Validation
+//   Scenario: chirp_intensity="ice_cold" without explicit semantic intent
+//   Action: Warn if used on non-ICE tools (may be accidental)
+//   Governance: Prevents unintentional semantic shifts in tool behavior
+//   Rationale: ice_cold is semantically strong and should be intentional
+//
+// Case 4: Conflicting Intent Detection
+//   Scenario: enable_chirp=false but chirp_intensity is specified
+//   Action: Log warning about semantic contradiction
+//   Governance: Detects semantic incoherence in parameters
+//   Rationale: Disabled chirp with intensity setting is semantically inconsistent
+//
+// Case 5: Tool Override Protection
+//   Scenario: semantic_intent="tool_override" with mismatched tool_context
+//   Action: Throw error (strict enforcement)
+//   Governance: Prevents semantic contract violations across tool boundaries
+//   Rationale: Tool overrides must stay within their semantic domain
 
 // 🏛️ Semantic Anchoring (Rule 2): Validate semantic contract preservation
 function validateSemanticChirpContract(
