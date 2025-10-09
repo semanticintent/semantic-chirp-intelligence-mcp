@@ -117,7 +117,10 @@ const TOOL_METADATA: Record<string, any> = {
     discovery_tags: ["optimization", "ICE", "championship", "decisions", "transactions"],
     intent_category: "ultimate_advisor",
     hockey_context: "league_domination",
-    chirp_potential: "brutal_optimization"
+    chirp_potential: "brutal_optimization",
+    // 🎯 Semantic Anchoring: Observable property for tool identity
+    is_ice_engine: true,
+    tool_semantic_identity: "ICE - Intent Chirp Engine"
   },
   get_weekly_stats: {
     chirp_style: "performance_review",
@@ -874,7 +877,10 @@ function enhanceWithChirpIntelligence(
 
     // NEW: Chirp Intelligence Layer
     chirp_intelligence: {
-      tool_identity: toolName === "get_roster_transaction_recommendations" ? "ICE - Intent Chirp Engine" : `${toolName} with chirp intelligence`,
+      // 🎯 Semantic Anchoring (Rule 1): Use observable semantic property instead of string comparison
+      tool_identity: metadata.is_ice_engine
+        ? metadata.tool_semantic_identity
+        : `${toolName} with chirp intelligence`,
       style: chirpStyle.tone,
       personality: personality.voice,
       intensity: chirpOptions.chirp_intensity || 'standard',
