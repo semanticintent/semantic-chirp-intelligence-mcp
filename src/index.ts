@@ -426,6 +426,259 @@ async function compareMatchup() {
   };
 }
 
+async function getRosterTransactionRecommendations(lookAheadDays: number = 7, targetPositions?: string[]) {
+  try {
+    // Get all the data we need
+    const roster = await getTeamRoster();
+    const gamesInHand = await getGamesInHand();
+    const streaming = await getStreamingRecommendations(lookAheadDays, undefined, "weekly");
+    
+    // Analyze current roster
+    const analysis = analyzeRosterStrengths(roster);
+    
+    // Find transaction opportunities
+    const recommendations = [];
+    
+    // 1. IMMEDIATE FIXES (injured players)
+    const injuredActive = roster.roster.filter(p => 
+      p.status && p.status !== "" && !p.selected_position.includes("IR")
+    );
+    
+    for (const player of injuredActive) {
+      recommendations.push({
+        priority: "CRITICAL",
+        action: "move_to_ir",
+        player: player.name,
+        player_id: player.player_id,
+        current_position: player.selected_position,
+        status: player.status,
+        reason: `${player.name} is ${player.status} but still in active lineup`,
+        suggested_action: player.status === "O" ? "Move to IR+" : "Move to IR or bench"
+      });
+    }
+    
+    // 2. POSITION WEAKNESS ANALYSIS
+    const weakPositions = identifyWeakPositions(roster, analysis);
+    
+    for (const position of weakPositions) {
+      const bestAvailable = streaming.streaming_targets
+        .filter(p => targetPositions ? targetPositions.includes(position.position) : true)
+        .filter(p => p.position.includes(position.position))
+        .slice(0, 3);
+      
+      if (bestAvailable.length > 0) {
+        const dropCandidate = findBestDropCandidate(roster, position.position);
+        
+        recommendations.push({
+          priority: "HIGH",
+          action: "pickup_drop",
+          pickup: {
+            name: bestAvailable[0].name,
+            player_id: bestAvailable[0].player_id,
+            position: bestAvailable[0].position,
+            team: bestAvailable[0].team,
+            reason: bestAvailable[0].reason,
+            streaming_score: bestAvailable[0].streaming_score,
+            percent_owned: bestAvailable[0].percent_owned
+          },
+          drop: dropCandidate,
+          position_need: position.position,
+          reasoning: `Strengthen ${position.position} - ${position.weakness_reason}`
+        });
+      }
+    }
+    
+ // 3. SCHEDULE OPTIMIZATION
+    const gamesDiff = gamesInHand.games_in_hand_difference || 0;
+    if (gamesDiff < 0) {
+      // Opponent has more games - prioritize volume players
+      const volumePickups = streaming.streaming_targets
+        .filter(t => t.team_trending_count >= 3)
+        .slice(0, 2);
+
+      for (const pickup of volumePickups) {
+        recommendations.push({
+          priority: "MEDIUM",
+          action: "volume_play",
+          pickup: pickup,
+          reasoning: `Opponent has ${Math.abs(gamesDiff)} more games - need volume players from teams with favorable schedules`
+        });
+      }
+    }
+    // 4. BENCH OPTIMIZATION
+    const benchUpgrades = findBenchUpgrades(roster, streaming);
+    recommendations.push(...benchUpgrades);
+    
+    return {
+      roster_analysis: analysis,
+      immediate_issues: injuredActive.length,
+      games_disadvantage: gamesInHand.games_in_hand_difference,
+      weak_positions: weakPositions,
+      recommendations: recommendations
+        .sort((a, b) => {
+          const priorityOrder: Record<string, number> = { "CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3 };
+          return (priorityOrder[a.priority] || 99) - (priorityOrder[b.priority] || 99);
+        })
+        .slice(0, 8), // Top 8 recommendations
+      optimal_timing: streaming.optimal_timing,
+      market_intelligence: streaming.market_intelligence
+    };
+  } catch (error: any) {
+    return {
+      error: `Failed to get roster recommendations: ${error.message}`,
+      recommendations: []
+    };
+  }
+}
+
+// Helper functions
+function analyzeRosterStrengths(roster: any) {
+  const positions: {
+    C: any[]; LW: any[]; RW: any[]; D: any[]; G: any[];
+    bench: any[]; ir: any[]; active: any[];
+  } = {
+    C: [], LW: [], RW: [], D: [], G: [],
+    bench: [], ir: [], active: []
+  };
+  
+  roster.roster.forEach((player: any) => {
+    if (player.selected_position === "BN") {
+      positions.bench.push(player);
+    } else if (player.selected_position.includes("IR")) {
+      positions.ir.push(player);
+    } else {
+      positions.active.push(player);
+      // Analyze by primary position
+      if (player.position.includes("C")) positions.C.push(player);
+      if (player.position.includes("LW")) positions.LW.push(player);
+      if (player.position.includes("RW")) positions.RW.push(player);
+      if (player.position.includes("D")) positions.D.push(player);
+      if (player.position.includes("G")) positions.G.push(player);
+    }
+  });
+  
+  return {
+    ...positions,
+    position_counts: {
+      C: positions.C.length,
+      LW: positions.LW.length, 
+      RW: positions.RW.length,
+      D: positions.D.length,
+      G: positions.G.length,
+      bench: positions.bench.length,
+      ir: positions.ir.length
+    }
+  };
+}
+
+function identifyWeakPositions(roster: any, analysis: any) {
+  const weaknesses = [];
+  
+  // Check goalies first (most critical)
+  const healthyGoalies = analysis.G.filter((p: any) => !p.status || p.status === "");
+  if (healthyGoalies.length < 2) {
+    weaknesses.push({
+      position: "G", 
+      weakness_reason: `Only ${healthyGoalies.length} healthy goalie(s) - need backup`,
+      severity: "HIGH"
+    });
+  }
+  
+  // Check defense depth
+  const healthyDefense = analysis.D.filter((p: any) => !p.status || p.status === "");
+  if (healthyDefense.length < 4) {
+    weaknesses.push({
+      position: "D",
+      weakness_reason: `Only ${healthyDefense.length} healthy defensemen - need depth`,
+      severity: "MEDIUM"
+    });
+  }
+  
+  // Check forward positions
+  const healthyC = analysis.C.filter((p: any) => !p.status || p.status === "");
+  if (healthyC.length < 2) {
+    weaknesses.push({
+      position: "C",
+      weakness_reason: `Only ${healthyC.length} healthy center(s) - need depth`,
+      severity: "MEDIUM"
+    });
+  }
+  
+  return weaknesses;
+}
+
+function findBestDropCandidate(roster: any, positionNeed: string) {
+  // Priority order for drops: bench players > injured players > worst performers
+  const benchPlayers = roster.roster.filter((p: any) => p.selected_position === "BN");
+  
+  if (benchPlayers.length > 0) {
+    // Find bench player with lowest priority (could be enhanced with stats)
+    const dropCandidate = benchPlayers[benchPlayers.length - 1]; // Last bench player
+    return {
+      name: dropCandidate.name,
+      player_id: dropCandidate.player_id,
+      position: dropCandidate.position,
+      team: dropCandidate.team,
+      current_position: dropCandidate.selected_position,
+      reason: "Lowest priority bench player for position upgrade"
+    };
+  }
+  
+  // If no bench players, suggest dropping injured player not on IR
+  const injuredNotOnIR = roster.roster.filter((p: any) => 
+    p.status && p.status !== "" && !p.selected_position.includes("IR")
+  );
+  
+  if (injuredNotOnIR.length > 0) {
+    const dropCandidate = injuredNotOnIR[0];
+    return {
+      name: dropCandidate.name,
+      player_id: dropCandidate.player_id,
+      position: dropCandidate.position,
+      team: dropCandidate.team,
+      current_position: dropCandidate.selected_position,
+      reason: `Injured player (${dropCandidate.status}) - consider dropping if no IR space`
+    };
+  }
+  
+  return {
+    name: "Manual Review Needed",
+    reason: "No obvious drop candidates - review roster manually"
+  };
+}
+
+function findBenchUpgrades(roster: any, streaming: any) {
+  const recommendations = [];
+  const benchPlayers = roster.roster.filter((p: any) => p.selected_position === "BN");
+  
+  // Look for significantly better available players
+  for (const benchPlayer of benchPlayers) {
+    const betterOptions = streaming.streaming_targets
+      .filter((available: any) => {
+        // Same position and significantly higher score
+        return available.position.includes(benchPlayer.position.split(',')[0]) && 
+               available.streaming_score > 75; // High threshold for bench upgrades
+      })
+      .slice(0, 1);
+    
+    if (betterOptions.length > 0) {
+      recommendations.push({
+        priority: "LOW",
+        action: "bench_upgrade",
+        pickup: betterOptions[0],
+        drop: {
+          name: benchPlayer.name,
+          player_id: benchPlayer.player_id,
+          reason: "Upgrade bench depth"
+        },
+        reasoning: `${betterOptions[0].name} (score: ${betterOptions[0].streaming_score}) could upgrade over ${benchPlayer.name}`
+      });
+    }
+  }
+  
+  return recommendations;
+}
+
 // Tool: Get Games In Hand
 async function getGamesInHand() {
   const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/matchups`);
@@ -874,6 +1127,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {},
         },
       },
+      {
+        name: "get_roster_transaction_recommendations",
+        description: "Get comprehensive roster optimization recommendations including pickup/drop suggestions, IR management, and position analysis for end-of-week roster decisions",
+        inputSchema: {
+          type: "object",
+          properties: {
+            look_ahead_days: {
+              type: "number",
+              description: "Days to look ahead for schedule analysis (default 7)",
+              default: 7,
+            },
+            target_positions: {
+              type: "array",
+              items: { type: "string" },
+              description: "Specific positions to focus on (C, LW, RW, D, G)",
+            },
+          },
+        },
+      },
     ],
   };
 });
@@ -980,6 +1252,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const gamesInHand = await getGamesInHand();
         return {
           content: [{ type: "text", text: JSON.stringify(gamesInHand, null, 2) }],
+        };
+      }
+
+      case "get_roster_transaction_recommendations": {
+        const lookAheadDays = (args?.look_ahead_days as number) || 7;
+        const targetPositions = args?.target_positions as string[] | undefined;
+        const recommendations = await getRosterTransactionRecommendations(lookAheadDays, targetPositions);
+        return {
+          content: [{ type: "text", text: JSON.stringify(recommendations, null, 2) }],
         };
       }
 
