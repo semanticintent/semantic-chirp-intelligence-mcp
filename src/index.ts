@@ -274,6 +274,143 @@ interface SemanticChirpContract extends ChirpParameters {
 }
 
 // ==========================================
+// 🛡️ Phase 5: Runtime Governance Enforcement
+// ==========================================
+
+// 📊 Governance violation tracking for monitoring and debugging
+interface GovernanceViolation {
+  timestamp: Date;
+  rule: string;
+  severity: "warning" | "error";
+  tool_name: string;
+  violation_type: string;
+  details: string;
+}
+
+// 📈 Runtime governance monitoring state
+const GOVERNANCE_MONITOR = {
+  violations: [] as GovernanceViolation[],
+  contracts_validated: 0,
+  immutability_enforced: 0,
+  semantic_decisions: 0,
+
+  // Track a governance violation
+  trackViolation(violation: Omit<GovernanceViolation, 'timestamp'>): void {
+    this.violations.push({
+      ...violation,
+      timestamp: new Date()
+    });
+
+    // Keep only last 100 violations to prevent memory growth
+    if (this.violations.length > 100) {
+      this.violations = this.violations.slice(-100);
+    }
+  },
+
+  // Get governance health report
+  getHealthReport(): {
+    total_violations: number;
+    warnings: number;
+    errors: number;
+    contracts_validated: number;
+    immutability_enforced: number;
+    semantic_decisions: number;
+    recent_violations: GovernanceViolation[];
+  } {
+    const warnings = this.violations.filter(v => v.severity === "warning").length;
+    const errors = this.violations.filter(v => v.severity === "error").length;
+
+    return {
+      total_violations: this.violations.length,
+      warnings,
+      errors,
+      contracts_validated: this.contracts_validated,
+      immutability_enforced: this.immutability_enforced,
+      semantic_decisions: this.semantic_decisions,
+      recent_violations: this.violations.slice(-10) // Last 10 violations
+    };
+  },
+
+  // Reset monitoring counters (for testing)
+  reset(): void {
+    this.violations = [];
+    this.contracts_validated = 0;
+    this.immutability_enforced = 0;
+    this.semantic_decisions = 0;
+  }
+};
+
+// 🔍 Semantic contract audit logger for debugging and compliance
+function auditSemanticContract(
+  contract: SemanticChirpContract,
+  toolName: string,
+  phase: "validation" | "enforcement" | "decision"
+): void {
+  const audit = {
+    phase,
+    tool_name: toolName,
+    semantic_intent: contract.semantic_intent,
+    enable_chirp: contract.enable_chirp,
+    chirp_intensity: contract.chirp_intensity,
+    personality_mode: contract.personality_mode,
+    tool_context: contract.tool_context,
+    timestamp: new Date().toISOString()
+  };
+
+  // Log to console in development mode
+  if (process.env.NODE_ENV === "development") {
+    console.log(`🔍 Semantic Audit [${phase}]:`, JSON.stringify(audit, null, 2));
+  }
+
+  // Update monitoring counters
+  if (phase === "validation") {
+    GOVERNANCE_MONITOR.contracts_validated++;
+  } else if (phase === "enforcement") {
+    GOVERNANCE_MONITOR.immutability_enforced++;
+  } else if (phase === "decision") {
+    GOVERNANCE_MONITOR.semantic_decisions++;
+  }
+}
+
+// 🏥 Governance health check function
+function checkGovernanceHealth(): {
+  status: "healthy" | "degraded" | "critical";
+  report: ReturnType<typeof GOVERNANCE_MONITOR.getHealthReport>;
+  recommendations: string[];
+} {
+  const report = GOVERNANCE_MONITOR.getHealthReport();
+  const recommendations: string[] = [];
+
+  let status: "healthy" | "degraded" | "critical" = "healthy";
+
+  // Check error rate
+  if (report.errors > 10) {
+    status = "critical";
+    recommendations.push("Critical: High error rate detected. Review recent violations immediately.");
+  } else if (report.errors > 0) {
+    status = "degraded";
+    recommendations.push("Warning: Governance errors detected. Review violation logs.");
+  }
+
+  // Check warning rate
+  if (report.warnings > 20) {
+    if (status !== "critical") status = "degraded";
+    recommendations.push("Warning: High warning rate. Review semantic contract usage patterns.");
+  }
+
+  // Check validation rate
+  if (report.contracts_validated === 0) {
+    recommendations.push("Info: No contracts validated yet. System may not be processing requests.");
+  }
+
+  if (recommendations.length === 0) {
+    recommendations.push("System is operating within governance parameters.");
+  }
+
+  return { status, report, recommendations };
+}
+
+// ==========================================
 // 📚 Semantic Contract Validation Function
 // ==========================================
 //
@@ -326,6 +463,9 @@ function validateSemanticChirpContract(
   contract: SemanticChirpContract,
   toolName: string
 ): void {
+  // 🔍 Phase 5: Audit contract validation
+  auditSemanticContract(contract, toolName, "validation");
+
   // Rule 2: Intent Preservation - validate semantic coherence
 
   // Case 1: User explicitly disabled chirp - valid semantic intent
@@ -344,18 +484,49 @@ function validateSemanticChirpContract(
     // Log warning but allow (ICE tool deliberately uses ice_cold as default)
     const metadata = TOOL_METADATA[toolName];
     if (!metadata?.is_ice_engine) {
-      console.error(`⚠️ Semantic Warning: ice_cold intensity without explicit intent on non-ICE tool '${toolName}'`);
+      const warning = `ice_cold intensity without explicit intent on non-ICE tool '${toolName}'`;
+      console.error(`⚠️ Semantic Warning: ${warning}`);
+
+      // 📊 Phase 5: Track governance violation
+      GOVERNANCE_MONITOR.trackViolation({
+        rule: "Rule 2 - Intent Preservation",
+        severity: "warning",
+        tool_name: toolName,
+        violation_type: "unintentional_intensity",
+        details: warning
+      });
     }
   }
 
   // Case 4: Detect conflicting semantic intentions
   if (contract.enable_chirp === false && contract.chirp_intensity) {
-    console.error(`⚠️ Semantic Warning: Conflicting intent - chirp disabled but intensity specified for '${toolName}'`);
+    const warning = `Conflicting intent - chirp disabled but intensity specified for '${toolName}'`;
+    console.error(`⚠️ Semantic Warning: ${warning}`);
+
+    // 📊 Phase 5: Track governance violation
+    GOVERNANCE_MONITOR.trackViolation({
+      rule: "Rule 2 - Intent Preservation",
+      severity: "warning",
+      tool_name: toolName,
+      violation_type: "conflicting_intent",
+      details: warning
+    });
   }
 
   // Case 5: Tool override should only be used by system, not user input
   if (contract.semantic_intent === "tool_override" && contract.tool_context !== toolName) {
-    throw new Error(`🚨 Semantic contract violation: tool_override intent mismatch for '${toolName}'`);
+    const error = `tool_override intent mismatch for '${toolName}' - expected context '${toolName}', got '${contract.tool_context}'`;
+
+    // 📊 Phase 5: Track governance violation
+    GOVERNANCE_MONITOR.trackViolation({
+      rule: "Rule 2 - Intent Preservation",
+      severity: "error",
+      tool_name: toolName,
+      violation_type: "tool_override_mismatch",
+      details: error
+    });
+
+    throw new Error(`🚨 Semantic contract violation: ${error}`);
   }
 }
 
@@ -1043,12 +1214,31 @@ function enhanceWithChirpIntelligence(
   // 🛡️ Semantic Anchoring (Rule 4): Freeze semantic contract to prevent violations
   const frozenChirpOptions = Object.freeze({...chirpOptions});
 
+  // 🔍 Phase 5: Audit immutability enforcement
+  auditSemanticContract(semanticContract, toolName, "enforcement");
+
   // 🛡️ Protected semantic contract with Proxy for runtime enforcement
   const protectedChirpOptions = new Proxy(frozenChirpOptions, {
     set() {
+      // 📊 Phase 5: Track immutability violation
+      GOVERNANCE_MONITOR.trackViolation({
+        rule: "Rule 4 - Immutability Protection",
+        severity: "error",
+        tool_name: toolName,
+        violation_type: "attempted_mutation",
+        details: "Attempted to set property on immutable ChirpParameters"
+      });
       throw new Error('🚨 Semantic contract violation: ChirpParameters are immutable after creation');
     },
     deleteProperty() {
+      // 📊 Phase 5: Track immutability violation
+      GOVERNANCE_MONITOR.trackViolation({
+        rule: "Rule 4 - Immutability Protection",
+        severity: "error",
+        tool_name: toolName,
+        violation_type: "attempted_property_deletion",
+        details: "Attempted to delete property from immutable ChirpParameters"
+      });
       throw new Error('🚨 Semantic contract violation: Cannot delete ChirpParameters properties');
     }
   });
