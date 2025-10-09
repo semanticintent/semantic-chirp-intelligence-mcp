@@ -1338,7 +1338,7 @@ async function getStreamingRecommendations(
 const server = new Server(
   {
     name: "semantic-chirp-intelligence-mcp",
-    version: "2.0.0", // About to upgrade to 3.0.0 with ICE!
+    version: "3.0.0",
   },
   {
     capabilities: {
@@ -1520,6 +1520,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: "ice",
+        description: "❄️ ICE - Intent Chirp Engine: The ultimate fantasy hockey advisor with ice-cold analysis and championship-level chirp intelligence. Multi-mode analysis tool that combines all insights.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            analysis_type: {
+              type: "string",
+              enum: ["full_roster", "weekly_matchup", "pickup_strategy", "lineup_optimization"],
+              description: "Type of ICE analysis to perform (default: full_roster)"
+            },
+            ...baseChirpSchema,
+            look_ahead_days: {
+              type: "number",
+              default: 7,
+              description: "Days ahead for schedule analysis"
+            }
+          },
+        },
+      },
     ],
   };
 });
@@ -1671,6 +1691,44 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case "ice": {
+        const analysisType = (args?.analysis_type as string) || "full_roster";
+        const chirpOptions: ChirpParameters = {
+          chirp_intensity: (args?.chirp_intensity as any) || "ice_cold",
+          personality_mode: (args?.personality_mode as any) || "championship_coach",
+          enable_chirp: true
+        };
+        const lookAheadDays = (args?.look_ahead_days as number) || 7;
+
+        let result;
+        switch (analysisType) {
+          case "full_roster":
+            result = await getRosterTransactionRecommendations(lookAheadDays);
+            break;
+          case "weekly_matchup":
+            result = await getGamesInHand();
+            break;
+          case "pickup_strategy":
+            result = await getStreamingRecommendations(lookAheadDays);
+            break;
+          case "lineup_optimization":
+            result = await optimizeLineup();
+            break;
+          default:
+            result = await getRosterTransactionRecommendations(lookAheadDays);
+        }
+
+        const iceAnalysis = enhanceWithChirpIntelligence(
+          "get_roster_transaction_recommendations",
+          result,
+          chirpOptions
+        );
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(iceAnalysis, null, 2) }],
+        };
+      }
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -1686,7 +1744,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("🏒 Yahoo Fantasy Hockey MCP Server v2.0 running (Official API)");
+  console.error("🏒❄️ Semantic Chirp Intelligence MCP v3.0 - ICE is ON! (Official API)");
 }
 
 main().catch(console.error);

@@ -1,6 +1,6 @@
 {
   "name": "@semanticintent/semantic-chirp-intelligence-mcp",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Semantic Intent pattern implementation for fantasy hockey intelligence - AI analysis that chirps you into championships",
   "type": "module",
   "main": "build/index.js",
