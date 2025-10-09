@@ -187,6 +187,50 @@ interface ChirpParameters {
   enable_chirp?: boolean;
 }
 
+// 🏛️ Semantic Anchoring: Extended interface with semantic intent tracking
+interface SemanticChirpContract extends ChirpParameters {
+  readonly semantic_intent?: "user_requested" | "system_default" | "tool_override";
+  readonly tool_context?: string;
+}
+
+// 🏛️ Semantic Anchoring (Rule 2): Validate semantic contract preservation
+function validateSemanticChirpContract(
+  contract: SemanticChirpContract,
+  toolName: string
+): void {
+  // Rule 2: Intent Preservation - validate semantic coherence
+
+  // Case 1: User explicitly disabled chirp - valid semantic intent
+  if (contract.enable_chirp === false && contract.semantic_intent === "user_requested") {
+    return; // Valid: User intent to disable is preserved
+  }
+
+  // Case 2: Default behavior - chirp enabled unless explicitly disabled
+  if (contract.enable_chirp === undefined || contract.enable_chirp === true) {
+    // This is valid default behavior
+    return;
+  }
+
+  // Case 3: ice_cold intensity should be intentional, not accidental
+  if (contract.chirp_intensity === "ice_cold" && !contract.semantic_intent) {
+    // Log warning but allow (ICE tool deliberately uses ice_cold as default)
+    const metadata = TOOL_METADATA[toolName];
+    if (!metadata?.is_ice_engine) {
+      console.error(`⚠️ Semantic Warning: ice_cold intensity without explicit intent on non-ICE tool '${toolName}'`);
+    }
+  }
+
+  // Case 4: Detect conflicting semantic intentions
+  if (contract.enable_chirp === false && contract.chirp_intensity) {
+    console.error(`⚠️ Semantic Warning: Conflicting intent - chirp disabled but intensity specified for '${toolName}'`);
+  }
+
+  // Case 5: Tool override should only be used by system, not user input
+  if (contract.semantic_intent === "tool_override" && contract.tool_context !== toolName) {
+    throw new Error(`🚨 Semantic contract violation: tool_override intent mismatch for '${toolName}'`);
+  }
+}
+
 const baseChirpSchema = {
   chirp_intensity: {
     type: "string",
@@ -859,6 +903,15 @@ function enhanceWithChirpIntelligence(
   originalData: any,
   chirpOptions: ChirpParameters = {}
 ) {
+  // 🏛️ Semantic Anchoring (Rule 2): Validate semantic contract before processing
+  const semanticContract: SemanticChirpContract = {
+    ...chirpOptions,
+    semantic_intent: chirpOptions.enable_chirp === false ? "user_requested" : "system_default",
+    tool_context: toolName
+  };
+
+  validateSemanticChirpContract(semanticContract, toolName);
+
   // 🛡️ Semantic Anchoring (Rule 4): Freeze semantic contract to prevent violations
   const frozenChirpOptions = Object.freeze({...chirpOptions});
 
