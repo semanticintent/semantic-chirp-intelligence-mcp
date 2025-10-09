@@ -18,6 +18,151 @@ dotenv.config();
 
 const parseXML = promisify(parseString);
 
+// ==========================================
+// 🏒 ICE - Intent Chirp Engine Configuration
+// ==========================================
+
+const CHIRP_STYLES = {
+  gentle: {
+    tone: "encouraging",
+    energy: "supportive",
+    prefix: "Consider",
+    suffix: "when you're ready"
+  },
+  standard: {
+    tone: "direct_honest",
+    energy: "confident",
+    prefix: "Time to",
+    suffix: "and improve your game"
+  },
+  savage: {
+    tone: "brutal_truth",
+    energy: "aggressive",
+    prefix: "Bro,",
+    suffix: "Get it together!"
+  },
+  ice_cold: {
+    tone: "championship_enforcer",
+    energy: "intimidating_confidence",
+    prefix: "Listen up, future champion -",
+    suffix: "That's how legends are made."
+  }
+};
+
+const PERSONALITY_MODES = {
+  analytical: {
+    focus: "data_driven",
+    style: "smart chirps with stats backing",
+    voice: "hockey_statistician",
+    phrases: ["The data shows", "Analysis indicates", "Stats don't lie"]
+  },
+  motivational: {
+    focus: "championship_mindset",
+    style: "pump-up chirps that inspire action",
+    voice: "championship_coach",
+    phrases: ["You've got this", "Championship teams", "Winners do this"]
+  },
+  roast_master: {
+    focus: "entertainment_value",
+    style: "savage roasts with hockey humor",
+    voice: "locker_room_comedian",
+    phrases: ["Buddy,", "That's like", "Even my grandmother"]
+  },
+  championship_coach: {
+    focus: "winning_strategy",
+    style: "tough love with clear direction",
+    voice: "elite_level_mentor",
+    phrases: ["Elite players", "Championship strategy", "Next level thinking"]
+  }
+};
+
+const TOOL_METADATA: Record<string, any> = {
+  get_team_roster: {
+    chirp_style: "analytical_assessment",
+    discovery_tags: ["roster", "lineup", "players", "status", "team"],
+    intent_category: "team_assessment",
+    hockey_context: "roster_analysis",
+    chirp_potential: "roster_weaknesses"
+  },
+  get_league_standings: {
+    chirp_style: "competitive_reality",
+    discovery_tags: ["standings", "league", "competition", "rankings", "position"],
+    intent_category: "league_awareness",
+    hockey_context: "competitive_landscape",
+    chirp_potential: "standings_truth"
+  },
+  get_current_matchup: {
+    chirp_style: "matchup_assessment",
+    discovery_tags: ["matchup", "opponent", "week", "competition", "stats"],
+    intent_category: "weekly_strategy",
+    hockey_context: "head_to_head_battle",
+    chirp_potential: "matchup_reality"
+  },
+  get_games_in_hand: {
+    chirp_style: "strategic_advantage",
+    discovery_tags: ["schedule", "advantage", "games", "strategy", "matchup"],
+    intent_category: "competitive_intelligence",
+    hockey_context: "schedule_warfare",
+    chirp_potential: "schedule_domination"
+  },
+  get_streaming_recommendations: {
+    chirp_style: "opportunity_hunter",
+    discovery_tags: ["pickups", "waivers", "streaming", "schedule", "trends"],
+    intent_category: "acquisition_strategy",
+    hockey_context: "waiver_wire_mastery",
+    chirp_potential: "pickup_strategy"
+  },
+  get_roster_transaction_recommendations: {
+    chirp_style: "ice_cold_truth",
+    discovery_tags: ["optimization", "ICE", "championship", "decisions", "transactions"],
+    intent_category: "ultimate_advisor",
+    hockey_context: "league_domination",
+    chirp_potential: "brutal_optimization"
+  },
+  get_weekly_stats: {
+    chirp_style: "performance_review",
+    discovery_tags: ["stats", "weekly", "performance", "matchup", "analysis"],
+    intent_category: "performance_tracking",
+    hockey_context: "stat_battle",
+    chirp_potential: "weekly_performance"
+  },
+  compare_matchup: {
+    chirp_style: "head_to_head_analysis",
+    discovery_tags: ["comparison", "matchup", "opponent", "strategy", "categories"],
+    intent_category: "tactical_analysis",
+    hockey_context: "category_warfare",
+    chirp_potential: "matchup_insights"
+  },
+  optimize_lineup: {
+    chirp_style: "lineup_optimization",
+    discovery_tags: ["lineup", "optimization", "active", "bench", "strategy"],
+    intent_category: "daily_management",
+    hockey_context: "lineup_strategy",
+    chirp_potential: "lineup_fixes"
+  },
+  search_players: {
+    chirp_style: "player_discovery",
+    discovery_tags: ["search", "players", "available", "free_agents", "discovery"],
+    intent_category: "player_research",
+    hockey_context: "talent_scouting",
+    chirp_potential: "player_insights"
+  },
+  get_player_stats: {
+    chirp_style: "player_evaluation",
+    discovery_tags: ["stats", "player", "performance", "evaluation", "analysis"],
+    intent_category: "player_analysis",
+    hockey_context: "individual_assessment",
+    chirp_potential: "player_reality"
+  },
+  get_trending_players: {
+    chirp_style: "trend_hunting",
+    discovery_tags: ["trends", "hot", "cold", "momentum", "pickups"],
+    intent_category: "market_intelligence",
+    hockey_context: "waiver_trends",
+    chirp_potential: "trend_opportunities"
+  }
+};
+
 // Configuration
 const YAHOO_CLIENT_ID = process.env.YAHOO_CLIENT_ID!;
 const YAHOO_CLIENT_SECRET = process.env.YAHOO_CLIENT_SECRET!;
@@ -28,6 +173,33 @@ const __dirname = path.dirname(__filename);
 const TOKEN_FILE = path.join(__dirname, "..", ".yahoo-oauth.json");
 
 const YAHOO_API_BASE = "https://fantasysports.yahooapis.com/fantasy/v2";
+
+// ==========================================
+// 🏒 Chirp Intelligence Interfaces
+// ==========================================
+
+interface ChirpParameters {
+  chirp_intensity?: "gentle" | "standard" | "savage" | "ice_cold";
+  personality_mode?: "analytical" | "motivational" | "roast_master" | "championship_coach";
+  enable_chirp?: boolean;
+}
+
+const baseChirpSchema = {
+  chirp_intensity: {
+    type: "string",
+    enum: ["gentle", "standard", "savage", "ice_cold"],
+    description: "Level of chirp intensity in responses (default: standard)"
+  },
+  personality_mode: {
+    type: "string",
+    enum: ["analytical", "motivational", "roast_master", "championship_coach"],
+    description: "Chirp personality style for responses (default: analytical)"
+  },
+  enable_chirp: {
+    type: "boolean",
+    description: "Enable chirp intelligence in responses (default: true)"
+  }
+};
 
 // Token management
 interface YahooToken {
@@ -531,6 +703,204 @@ async function getRosterTransactionRecommendations(lookAheadDays: number = 7, ta
   }
 }
 
+// ==========================================
+// 🏒 Chirp Intelligence Engine
+// ==========================================
+
+function generateContextualChirp(
+  toolName: string,
+  data: any,
+  chirpStyle: any,
+  personality: any
+): string {
+  const metadata = TOOL_METADATA[toolName];
+
+  if (!metadata) return "";
+
+  switch (metadata.chirp_potential) {
+    case "roster_weaknesses":
+      return generateRosterChirp(data, chirpStyle, personality);
+    case "schedule_domination":
+      return generateScheduleChirp(data, chirpStyle, personality);
+    case "brutal_optimization":
+      return generateOptimizationChirp(data, chirpStyle, personality);
+    case "weekly_performance":
+      return generateWeeklyPerformanceChirp(data, chirpStyle, personality);
+    case "pickup_strategy":
+      return generatePickupStrategyChirp(data, chirpStyle, personality);
+    default:
+      return generateGenericChirp(data, chirpStyle, personality);
+  }
+}
+
+function generateRosterChirp(data: any, chirpStyle: any, personality: any): string {
+  const injured = data.roster?.filter((p: any) => p.status && p.status !== "").length || 0;
+
+  if (injured > 0 && chirpStyle.tone === "brutal_truth") {
+    return `${chirpStyle.prefix} you've got ${injured} injured players mucking up your lineup. That's not championship material! ${chirpStyle.suffix}`;
+  }
+
+  if (injured > 0 && chirpStyle.tone === "encouraging") {
+    return `${chirpStyle.prefix} moving those ${injured} injured players to IR to optimize your roster. ${chirpStyle.suffix}`;
+  }
+
+  if (injured > 0 && chirpStyle.tone === "championship_enforcer") {
+    return `${chirpStyle.prefix} ${injured} injured players dragging down your roster. Champions handle their IR like pros. ${chirpStyle.suffix}`;
+  }
+
+  return `${personality.phrases[0]} your team composition looks solid.`;
+}
+
+function generateScheduleChirp(data: any, chirpStyle: any, personality: any): string {
+  const advantage = data.advantage;
+  const diff = Math.abs(data.games_in_hand_difference || 0);
+
+  if (advantage === "opponent" && chirpStyle.tone === "brutal_truth") {
+    return `${chirpStyle.prefix} your opponent has ${diff} more games than you and you're just sitting there? Time to drop the mittens and get aggressive! ${chirpStyle.suffix}`;
+  }
+
+  if (advantage === "you" && chirpStyle.tone === "championship_enforcer") {
+    return `${chirpStyle.prefix} You've got ${diff} more games. This is where champions separate from the pretenders. ${chirpStyle.suffix}`;
+  }
+
+  if (advantage === "you" && chirpStyle.tone === "direct_honest") {
+    return `${chirpStyle.prefix} capitalize on your ${diff}-game advantage ${chirpStyle.suffix}`;
+  }
+
+  return `${personality.phrases[0]} the schedule advantage situation.`;
+}
+
+function generateOptimizationChirp(data: any, chirpStyle: any, personality: any): string {
+  const criticalIssues = data.immediate_issues || 0;
+  const recommendations = data.recommendations?.length || 0;
+
+  if (criticalIssues > 0 && chirpStyle.tone === "brutal_truth") {
+    return `${chirpStyle.prefix} you've got ${criticalIssues} critical lineup issues and ${recommendations} ways to fix them. Stop window shopping and start dominating! ${chirpStyle.suffix}`;
+  }
+
+  if (criticalIssues === 0 && chirpStyle.tone === "championship_enforcer") {
+    return `${chirpStyle.prefix} Your lineup is solid but ICE found ${recommendations} ways to push you over the top. ${chirpStyle.suffix}`;
+  }
+
+  if (recommendations > 5 && chirpStyle.tone === "direct_honest") {
+    return `${chirpStyle.prefix} execute these ${recommendations} optimizations ${chirpStyle.suffix}`;
+  }
+
+  return `${personality.phrases[0]} ${recommendations} optimization opportunities to consider.`;
+}
+
+function generateWeeklyPerformanceChirp(data: any, chirpStyle: any, personality: any): string {
+  const yourGames = data.games_in_hand?.your_remaining || 0;
+  const oppGames = data.games_in_hand?.opponent_remaining || 0;
+
+  if (yourGames > oppGames && chirpStyle.tone === "championship_enforcer") {
+    return `${chirpStyle.prefix} You've got more games left - time to bury them. ${chirpStyle.suffix}`;
+  }
+
+  if (yourGames < oppGames && chirpStyle.tone === "brutal_truth") {
+    return `${chirpStyle.prefix} they've got more games - every stat matters now! ${chirpStyle.suffix}`;
+  }
+
+  return `${personality.phrases[0]} your weekly matchup positioning.`;
+}
+
+function generatePickupStrategyChirp(data: any, chirpStyle: any, personality: any): string {
+  const targets = data.streaming_targets?.length || 0;
+  const hotTeam = data.market_intelligence?.top_trending_team || "unknown";
+
+  if (targets > 10 && chirpStyle.tone === "championship_enforcer") {
+    return `${chirpStyle.prefix} ${targets} targets identified. Focus on ${hotTeam} players for maximum impact. ${chirpStyle.suffix}`;
+  }
+
+  if (targets > 10 && chirpStyle.tone === "brutal_truth") {
+    return `${chirpStyle.prefix} ${targets} players better than what you've got - are you here to compete or participate? ${chirpStyle.suffix}`;
+  }
+
+  return `${personality.phrases[0]} ${targets} streaming opportunities on the wire.`;
+}
+
+function generateGenericChirp(data: any, chirpStyle: any, personality: any): string {
+  return `${personality.phrases[0]} the data patterns. ${chirpStyle.prefix} taking action based on these insights. ${chirpStyle.suffix}`;
+}
+
+function generateIntentSummary(data: any, personality: any): string {
+  switch (personality.focus) {
+    case "championship_mindset":
+      return "Championship strategy: Execute these moves for league domination";
+    case "data_driven":
+      return "Statistical analysis: Data-driven recommendations for optimal performance";
+    case "entertainment_value":
+      return "Bottom line: Time to separate the contenders from the pretenders";
+    case "winning_strategy":
+      return "Elite strategy: Next-level moves for next-level results";
+    default:
+      return "Action required: Strategic improvements identified";
+  }
+}
+
+function generateICETruth(data: any, chirpStyle: any): string {
+  if (chirpStyle.tone === "championship_enforcer") {
+    return "❄️ ICE Cold Truth: Champions make moves, pretenders make excuses.";
+  }
+  if (chirpStyle.tone === "brutal_truth") {
+    return "🔥 Savage Reality: Your competition isn't waiting - neither should you.";
+  }
+  if (chirpStyle.tone === "direct_honest") {
+    return "💪 Real Talk: Smart players act on good intel.";
+  }
+  return "🧠 Smart Play: Optimal decisions lead to optimal results.";
+}
+
+function enhanceWithChirpIntelligence(
+  toolName: string,
+  originalData: any,
+  chirpOptions: ChirpParameters = {}
+) {
+  if (chirpOptions.enable_chirp === false) {
+    return originalData;
+  }
+
+  const metadata = TOOL_METADATA[toolName];
+  if (!metadata) {
+    return originalData;
+  }
+
+  const chirpStyle = CHIRP_STYLES[chirpOptions.chirp_intensity || 'standard'];
+  const personality = PERSONALITY_MODES[chirpOptions.personality_mode || 'analytical'];
+
+  return {
+    // Original data preserved
+    ...originalData,
+
+    // NEW: Chirp Intelligence Layer
+    chirp_intelligence: {
+      tool_identity: toolName === "get_roster_transaction_recommendations" ? "ICE - Intent Chirp Engine" : `${toolName} with chirp intelligence`,
+      style: chirpStyle.tone,
+      personality: personality.voice,
+      intensity: chirpOptions.chirp_intensity || 'standard',
+      semantic_context: metadata.hockey_context,
+
+      // Dynamic chirp based on data
+      analysis_chirp: generateContextualChirp(toolName, originalData, chirpStyle, personality),
+
+      // Intent-driven one-liner
+      intent_summary: generateIntentSummary(originalData, personality),
+
+      // Hockey wisdom
+      ice_cold_truth: generateICETruth(originalData, chirpStyle)
+    },
+
+    // Discovery metadata
+    metadata: {
+      tool_tags: metadata.discovery_tags,
+      intent_category: metadata.intent_category,
+      chirp_energy: chirpStyle.energy,
+      hockey_wisdom_level: "ICE_tier",
+      semantic_depth: "enhanced"
+    }
+  };
+}
+
 // Helper functions
 function analyzeRosterStrengths(roster: any) {
   const positions: {
@@ -968,7 +1338,7 @@ async function getStreamingRecommendations(
 const server = new Server(
   {
     name: "semantic-chirp-intelligence-mcp",
-    version: "2.0.0",
+    version: "2.0.0", // About to upgrade to 3.0.0 with ICE!
   },
   {
     capabilities: {
@@ -1116,20 +1486,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               enum: ["weekly", "weekend", "daily"],
               default: "weekly",
             },
+            ...baseChirpSchema
           },
         },
       },
       {
         name: "get_games_in_hand",
-        description: "Get games in hand analysis - shows remaining games for you vs opponent to identify schedule advantages",
+        description: "Get games in hand analysis with optional chirp intelligence - shows remaining games for you vs opponent to identify schedule advantages",
         inputSchema: {
           type: "object",
-          properties: {},
+          properties: {
+            ...baseChirpSchema
+          },
         },
       },
       {
         name: "get_roster_transaction_recommendations",
-        description: "Get comprehensive roster optimization recommendations including pickup/drop suggestions, IR management, and position analysis for end-of-week roster decisions",
+        description: "🏒 ICE - Intent Chirp Engine: Get championship-level roster optimization with savage analysis and brutal honesty about your lineup decisions",
         inputSchema: {
           type: "object",
           properties: {
@@ -1143,6 +1516,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               items: { type: "string" },
               description: "Specific positions to focus on (C, LW, RW, D, G)",
             },
+            ...baseChirpSchema
           },
         },
       },
@@ -1242,25 +1616,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const daysAhead = (args?.days_ahead as number) || 7;
         const positionFilter = args?.position_filter as string | undefined;
         const strategyType = (args?.strategy_type as string) || "weekly";
+
+        const chirpOptions: ChirpParameters = {
+          chirp_intensity: args?.chirp_intensity as any,
+          personality_mode: args?.personality_mode as any,
+          enable_chirp: args?.enable_chirp as boolean
+        };
+
         const recommendations = await getStreamingRecommendations(daysAhead, positionFilter, strategyType);
+        const enhanced = enhanceWithChirpIntelligence("get_streaming_recommendations", recommendations, chirpOptions);
+
         return {
-          content: [{ type: "text", text: JSON.stringify(recommendations, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify(enhanced, null, 2) }],
         };
       }
 
       case "get_games_in_hand": {
+        const chirpOptions: ChirpParameters = {
+          chirp_intensity: args?.chirp_intensity as any,
+          personality_mode: args?.personality_mode as any,
+          enable_chirp: args?.enable_chirp as boolean
+        };
+
         const gamesInHand = await getGamesInHand();
+        const enhanced = enhanceWithChirpIntelligence("get_games_in_hand", gamesInHand, chirpOptions);
+
         return {
-          content: [{ type: "text", text: JSON.stringify(gamesInHand, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify(enhanced, null, 2) }],
         };
       }
 
       case "get_roster_transaction_recommendations": {
         const lookAheadDays = (args?.look_ahead_days as number) || 7;
         const targetPositions = args?.target_positions as string[] | undefined;
+
+        // Extract chirp options
+        const chirpOptions: ChirpParameters = {
+          chirp_intensity: args?.chirp_intensity as any,
+          personality_mode: args?.personality_mode as any,
+          enable_chirp: args?.enable_chirp as boolean
+        };
+
         const recommendations = await getRosterTransactionRecommendations(lookAheadDays, targetPositions);
+
+        // Enhance with chirp intelligence
+        const enhancedRecommendations = enhanceWithChirpIntelligence(
+          "get_roster_transaction_recommendations",
+          recommendations,
+          chirpOptions
+        );
+
         return {
-          content: [{ type: "text", text: JSON.stringify(recommendations, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify(enhancedRecommendations, null, 2) }],
         };
       }
 
