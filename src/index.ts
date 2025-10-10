@@ -50,6 +50,13 @@ import { GamesInHandAnalysis } from './analyses/GamesInHandAnalysis.js';
 import { StreamingAnalysis } from './analyses/StreamingAnalysis.js';
 import { LineupAnalysis } from './analyses/LineupAnalysis.js';
 
+// Experimental: Semantic Intent Parser
+import {
+  SEMANTIC_PLAYER_COMPARISON,
+  getPlayerComparisonInputSchema,
+  executePlayerComparison
+} from './experimental/semantic-tool-integration.js';
+
 dotenv.config();
 
 const parseXML = promisify(parseString);
@@ -1260,9 +1267,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "Type of report: 'health' (governance status), 'analyses' (performance metrics), 'violations' (error logs), 'full' (complete report)",
               default: "full"
             }
-          },
-        },
+          }
+        }
       },
+      {
+        name: SEMANTIC_PLAYER_COMPARISON.name,
+        description: `${SEMANTIC_PLAYER_COMPARISON.description} - Auto-configured from semantic intent!`,
+        inputSchema: getPlayerComparisonInputSchema()
+      }
     ],
   };
 });
@@ -1560,6 +1572,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [{ type: "text", text: JSON.stringify(reportData, null, 2) }]
         };
       }
+      case "semantic_player_comparison": {
+        try {
+          const result = await executePlayerComparison(
+            args as { player1?: string; player2?: string },
+            getPlayerStats,
+            searchPlayers
+          );
+
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              error: errorMessage,
+              note: "This is an experimental semantic intent-driven tool"
+            }, null, 2) }],
+            isError: true
+          };
+        }
+      }
+
+
 
       default:
         throw new Error(`Unknown tool: ${name}`);
