@@ -40,6 +40,13 @@ import { CHIRP_STYLES } from './config/chirp-styles.js';
 import { PERSONALITY_MODES } from './config/personality-modes.js';
 import { TOOL_METADATA } from './config/tool-metadata.js';
 
+// Services layer
+import { YahooApiClient } from './services/YahooApiClient.js';
+import { ChirpIntelligence } from './services/ChirpIntelligence.js';
+
+// Analysis layer
+import { IceAnalysis } from './analyses/IceAnalysis.js';
+
 dotenv.config();
 
 const parseXML = promisify(parseString);
@@ -76,6 +83,20 @@ const baseChirpSchema = {
     description: "Enable chirp intelligence in responses (default: true)"
   }
 };
+
+// ==========================================
+// 🏗️ Service Initialization
+// ==========================================
+
+// Initialize Yahoo API client
+const yahooClient = new YahooApiClient(
+  YAHOO_CLIENT_ID,
+  YAHOO_CLIENT_SECRET,
+  YAHOO_API_BASE
+);
+
+// Initialize analysis instances
+const iceAnalysis = new IceAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 
 let cachedToken: YahooToken | null = null;
 
