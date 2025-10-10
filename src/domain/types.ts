@@ -22,6 +22,9 @@
  */
 export type AnalysisType =
   | 'ice_roster'
+  | 'streaming_strategy'
+  | 'schedule_advantage'
+  | 'lineup_optimization'
   | 'streaming_recommendations'
   | 'games_in_hand'
   | 'weekly_matchup';
@@ -182,10 +185,12 @@ export interface Player {
   readonly position: string;
   readonly team: string;
   readonly status?: string;
-  readonly selected_position?: string;
+  readonly selected_position: string[];
   readonly injury_note?: string;
   readonly percent_owned?: number;
   readonly trending?: string;
+  readonly has_game_today?: boolean;
+  readonly stats?: any;
 }
 
 /**
@@ -201,9 +206,11 @@ export interface Roster {
  * Opponent data
  */
 export interface OpponentData {
+  readonly team_key?: string;
   readonly team_name?: string;
   readonly remaining_games?: number;
   readonly schedule?: any;
+  readonly players?: Player[];
 }
 
 /**
@@ -305,6 +312,8 @@ export interface FantasyData {
   readonly teamSchedules?: TeamSchedule[];
   readonly weeklySchedules?: WeeklySchedule[];
   readonly favorableTeams?: FavorableTeam[];
+  readonly matchup?: any;
+  readonly scoreboard?: any;
 }
 
 /**
@@ -322,6 +331,11 @@ export interface AnalysisInsights {
   readonly games_advantage?: number;
   readonly favorable_players?: Player[];
   readonly optimal_timing?: OptimalTiming;
+  readonly schedule_advantage?: any;
+  readonly streaming_summary?: any;
+  readonly top_targets?: any[];
+  readonly lineup_health?: any;
+  readonly immediate_actions?: string[];
 }
 
 // ==========================================
@@ -366,12 +380,15 @@ export interface Recommendation {
 export interface AnalysisMetadata {
   readonly analysis_type: AnalysisType;
   readonly tool_identity?: string;
-  readonly generated_at: string;
-  readonly tool_tags: string[];
-  readonly intent_category: string;
-  readonly chirp_energy: string;
-  readonly hockey_wisdom_level: string;
-  readonly semantic_depth: string;
+  readonly generated_at?: string;
+  readonly timestamp?: string;
+  readonly tool_tags?: string[];
+  readonly intent_category?: string;
+  readonly chirp_energy?: string;
+  readonly hockey_wisdom_level?: string;
+  readonly semantic_depth?: string;
+  readonly team_context?: any;
+  readonly semantic_contract_applied?: boolean;
 }
 
 /**
