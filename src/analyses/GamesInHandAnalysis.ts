@@ -114,16 +114,38 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
     const yourRoster = yourTeamData.roster?.players || [];
     const opponentRoster = opponentTeamData.roster?.players || [];
 
-    // Parse player data
+    // Parse player data using .find() pattern like IceAnalysis and LineupAnalysis
     const parsePlayer = (playerData: any): Player => {
       const player = playerData.player?.[0] || playerData;
+
+      // Use .find() pattern since player is an array of property objects
+      const player_id = Array.isArray(player)
+        ? player.find((item: any) => item.player_id)?.player_id
+        : player.player_id;
+      const name = Array.isArray(player)
+        ? player.find((item: any) => item.name)?.name?.full
+        : player.name?.full;
+      const position = Array.isArray(player)
+        ? player.find((item: any) => item.display_position)?.display_position ||
+          player.find((item: any) => item.primary_positions)?.primary_positions?.[0]
+        : player.display_position || player.primary_positions?.[0];
+      const team = Array.isArray(player)
+        ? player.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr
+        : player.editorial_team_abbr;
+      const status = Array.isArray(player)
+        ? player.find((item: any) => item.status)?.status
+        : player.status;
+      const selected_position = Array.isArray(player)
+        ? player.find((item: any) => item.selected_position)?.selected_position
+        : player.selected_position;
+
       return {
-        player_id: player.player_id,
-        name: player.name?.full || 'Unknown',
-        position: player.display_position || player.primary_positions?.[0] || 'Unknown',
-        team: player.editorial_team_abbr || '',
-        selected_position: player.selected_position || [],
-        status: player.status
+        player_id: player_id || '',
+        name: name || 'Unknown',
+        position: position || 'Unknown',
+        team: team || '',
+        selected_position: selected_position || [],
+        status: status || ''
       };
     };
 
@@ -132,19 +154,19 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
 
     return {
       roster: {
-        team_key: yourTeam.team_key,
-        team_name: yourTeam.name || 'Your Team',
+        team_key: yourTeamData.team_key || '',
+        team_name: yourTeamData.name || 'Your Team',
         players: yourPlayers
       },
       opponent: {
-        team_key: opponentTeam.team_key,
-        team_name: opponentTeam.name || 'Opponent',
+        team_key: opponentTeamData.team_key || '',
+        team_name: opponentTeamData.name || 'Opponent',
         players: opponentPlayers
       } as OpponentData,
       matchup: {
         week: matchup.fantasy_content?.team?.[0]?.matchups?.['0']?.matchup?.week || 'current',
-        your_team_key: yourTeam.team_key,
-        opponent_team_key: opponentTeam.team_key
+        your_team_key: yourTeamData.team_key || '',
+        opponent_team_key: opponentTeamData.team_key || ''
       },
       scoreboard: scoreboard
     };
