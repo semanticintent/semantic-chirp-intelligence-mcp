@@ -76,29 +76,45 @@ export async function executePlayerComparison(
   }
 
   try {
-    // Step 1: Search for players to get their IDs
-    const [player1Search, player2Search] = await Promise.all([
-      searchPlayersFunc(undefined, 100),  // Search all positions
-      searchPlayersFunc(undefined, 100)
-    ]);
+    // Step 1: Search for players across multiple position groups for better coverage
+    // Yahoo API limits results per query, so we search across positions and combine
+    const positions = ['C', 'LW', 'RW', 'D', 'G', undefined]; // undefined = all positions
+    const searchPromises = positions.map(pos => searchPlayersFunc(pos, 100));
+    const allSearchResults = await Promise.all(searchPromises);
 
-    // Find matching players by name
-    const findPlayer = (searchResults: any, playerName: string) => {
-      const players = searchResults.players || [];
-      return players.find((p: any) =>
-        p.name.toLowerCase().includes(playerName.toLowerCase()) ||
-        playerName.toLowerCase().includes(p.name.toLowerCase())
-      );
+    // Combine all players from different searches
+    const allPlayers: any[] = [];
+    for (const result of allSearchResults) {
+      if (result.players) {
+        allPlayers.push(...result.players);
+      }
+    }
+
+    // Remove duplicates based on player_id
+    const uniquePlayers = Array.from(
+      new Map(allPlayers.map((p: any) => [p.player_id, p])).values()
+    );
+
+    // Find matching players by name (case-insensitive, flexible matching)
+    const findPlayer = (playerName: string) => {
+      const searchName = playerName.toLowerCase().trim();
+      return uniquePlayers.find((p: any) => {
+        const playerFullName = (p.name || '').toLowerCase();
+        // Match if either name contains the other, or exact match
+        return playerFullName.includes(searchName) ||
+               searchName.includes(playerFullName) ||
+               playerFullName === searchName;
+      });
     };
 
-    const player1Match = findPlayer(player1Search, args.player1);
-    const player2Match = findPlayer(player2Search, args.player2);
+    const player1Match = findPlayer(args.player1);
+    const player2Match = findPlayer(args.player2);
 
     if (!player1Match) {
-      throw new Error(`Could not find player: ${args.player1}`);
+      throw new Error(`Could not find player: ${args.player1}. Searched ${uniquePlayers.length} unique players across ${allSearchResults.length} position groups.`);
     }
     if (!player2Match) {
-      throw new Error(`Could not find player: ${args.player2}`);
+      throw new Error(`Could not find player: ${args.player2}. Searched ${uniquePlayers.length} unique players across ${allSearchResults.length} position groups.`);
     }
 
     // Step 2: Get detailed stats for both players
