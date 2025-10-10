@@ -75,11 +75,20 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
 
     // Parse matchup to find opponent
     const teams = matchup.fantasy_content?.team?.[1]?.matchup?.['0']?.teams?.['0']?.team || [];
-    const yourTeam = teams.find((t: any) => t.team_key === `${this.leagueId}.t.${this.teamId}`);
-    const opponentTeam = teams.find((t: any) => t.team_key !== `${this.leagueId}.t.${this.teamId}`);
+
+    // Handle both full team IDs (nhl.l.123.t.1) and partial (just the number)
+    const yourTeamKey = this.teamId.includes('.t.') ? this.teamId : `${this.leagueId}.t.${this.teamId}`;
+    const yourTeam = teams.find((t: any) => {
+      const teamKey = t.team_key || t[0]?.team_key;
+      return teamKey === yourTeamKey || teamKey?.endsWith(`.t.${this.teamId}`);
+    });
+    const opponentTeam = teams.find((t: any) => {
+      const teamKey = t.team_key || t[0]?.team_key;
+      return teamKey !== yourTeamKey && !teamKey?.endsWith(`.t.${this.teamId}`);
+    });
 
     if (!yourTeam || !opponentTeam) {
-      throw new Error('Could not find matchup data');
+      throw new Error(`Could not find matchup data. Teams found: ${teams.length}, Looking for: ${yourTeamKey}`);
     }
 
     // Extract team rosters

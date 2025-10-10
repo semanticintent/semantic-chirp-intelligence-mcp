@@ -213,40 +213,63 @@ export class YahooApiClient {
   }
 
   /**
+   * Helper: Strip nhl.l. prefix from league ID if present
+   */
+  private stripLeaguePrefix(leagueId: string): string {
+    return leagueId.replace(/^nhl\.l\./, '');
+  }
+
+  /**
+   * Helper: Strip team number from full team ID (nhl.l.12345.t.6 -> 6)
+   */
+  private extractTeamNumber(teamId: string): string {
+    const match = teamId.match(/\.t\.(\d+)$/);
+    return match ? match[1] : teamId.replace(/^.*\.t\./, '');
+  }
+
+  /**
    * Convenience method: Get team roster
    */
   public async getTeamRoster(leagueId: string, teamId: string): Promise<any> {
-    return this.request(`/team/nhl.l.${leagueId}.t.${teamId}/roster`);
+    const cleanLeagueId = this.stripLeaguePrefix(leagueId);
+    const cleanTeamId = this.extractTeamNumber(teamId);
+    return this.request(`/team/nhl.l.${cleanLeagueId}.t.${cleanTeamId}/roster`);
   }
 
   /**
    * Convenience method: Get league standings
    */
   public async getLeagueStandings(leagueId: string): Promise<any> {
-    return this.request(`/league/nhl.l.${leagueId}/standings`);
+    const cleanLeagueId = this.stripLeaguePrefix(leagueId);
+    return this.request(`/league/nhl.l.${cleanLeagueId}/standings`);
   }
 
   /**
    * Convenience method: Get team matchup
    */
   public async getTeamMatchup(leagueId: string, teamId: string, week?: number): Promise<any> {
+    const cleanLeagueId = this.stripLeaguePrefix(leagueId);
+    const cleanTeamId = this.extractTeamNumber(teamId);
     const weekParam = week ? `;week=${week}` : '';
-    return this.request(`/team/nhl.l.${leagueId}.t.${teamId}/matchups${weekParam}`);
+    return this.request(`/team/nhl.l.${cleanLeagueId}.t.${cleanTeamId}/matchups${weekParam}`);
   }
 
   /**
    * Convenience method: Get league scoreboard
    */
   public async getLeagueScoreboard(leagueId: string, week?: number): Promise<any> {
+    const cleanLeagueId = this.stripLeaguePrefix(leagueId);
     const weekParam = week ? `;week=${week}` : '';
-    return this.request(`/league/nhl.l.${leagueId}/scoreboard${weekParam}`);
+    return this.request(`/league/nhl.l.${cleanLeagueId}/scoreboard${weekParam}`);
   }
 
   /**
    * Convenience method: Get team stats
    */
   public async getTeamStats(leagueId: string, teamId: string): Promise<any> {
-    return this.request(`/team/nhl.l.${leagueId}.t.${teamId}/stats`);
+    const cleanLeagueId = this.stripLeaguePrefix(leagueId);
+    const cleanTeamId = this.extractTeamNumber(teamId);
+    return this.request(`/team/nhl.l.${cleanLeagueId}.t.${cleanTeamId}/stats`);
   }
 
   /**

@@ -122,17 +122,19 @@ export class IceAnalysis extends AnalysisTemplate {
     });
 
     // Return FantasyData with roster structure
-    // Store extra context in a private property for use in analyzeData
+    // Store extra context (gamesInHand, streaming) for use in analyzeData
+    // Exclude 'roster' from spread to prevent overwriting our parsed roster
+    const { roster: _roster, ...extendedData } = rawData;
+
     return {
       roster: {
         team_key: teamKey,
         team_name: teamName,
         players: players
       },
-      // TODO: Add proper types for these extended properties
-      // For now, casting to any to store additional context
-      ...(rawData as any)
-    };
+      // Include extended data (gamesInHand, streaming) without overwriting roster
+      ...extendedData
+    } as FantasyData;
   }
 
   /**
@@ -154,7 +156,7 @@ export class IceAnalysis extends AnalysisTemplate {
     const extendedData = data as any;
 
     // 1. CRITICAL: Injured players in active lineup
-    const injuredActive = data.roster.players.filter((p: any) =>
+    const injuredActive = (data.roster?.players || []).filter((p: any) =>
       p.status && p.status !== "" && !p.selected_position.includes("IR")
     );
 
@@ -287,7 +289,7 @@ export class IceAnalysis extends AnalysisTemplate {
       weakest_position: ""
     };
 
-    if (!data.roster) return positions;
+    if (!data.roster || !data.roster.players) return positions;
 
     data.roster.players.forEach((player: any) => {
       if (player.selected_position === "BN") {
@@ -343,14 +345,14 @@ export class IceAnalysis extends AnalysisTemplate {
   }
 
   private findBestDropCandidate(data: FantasyData, position: string): any {
-    if (!data.roster) return null;
+    if (!data.roster || !data.roster.players) return null;
     const benchPlayers = data.roster.players.filter((p: any) => p.selected_position === "BN");
     return benchPlayers.length > 0 ? benchPlayers[0] : null;
   }
 
   private findBenchUpgrades(data: FantasyData): Recommendation[] {
     const recommendations: Recommendation[] = [];
-    if (!data.roster) return recommendations;
+    if (!data.roster || !data.roster.players) return recommendations;
 
     const extendedData = data as any;
     const benchPlayers = data.roster.players.filter((p: any) => p.selected_position === "BN");
