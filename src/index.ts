@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 
+// ==========================================
+// 📦 Imports - Organized by Domain
+// ==========================================
+
+// Core MCP
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+
+// Node.js
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -14,200 +21,28 @@ import https from "https";
 import { parseString } from "xml2js";
 import { promisify } from "util";
 
+// Domain layer
+import type {
+  ChirpParameters,
+  SemanticChirpContract,
+  YahooToken
+} from './domain/types.js';
+
+import {
+  GOVERNANCE_MONITOR,
+  validateSemanticChirpContract,
+  auditSemanticContract,
+  checkGovernanceHealth
+} from './domain/governance.js';
+
+// Config layer
+import { CHIRP_STYLES } from './config/chirp-styles.js';
+import { PERSONALITY_MODES } from './config/personality-modes.js';
+import { TOOL_METADATA } from './config/tool-metadata.js';
+
 dotenv.config();
 
 const parseXML = promisify(parseString);
-
-// ==========================================
-// 🏒 ICE - Intent Chirp Engine Configuration
-// ==========================================
-
-const CHIRP_STYLES = {
-  gentle: {
-    tone: "encouraging",
-    energy: "supportive",
-    prefix: "Consider",
-    suffix: "when you're ready"
-  },
-  standard: {
-    tone: "direct_honest",
-    energy: "confident",
-    prefix: "Time to",
-    suffix: "and improve your game"
-  },
-  savage: {
-    tone: "brutal_truth",
-    energy: "aggressive",
-    prefix: "Bro,",
-    suffix: "Get it together!"
-  },
-  ice_cold: {
-    tone: "championship_enforcer",
-    energy: "intimidating_confidence",
-    prefix: "Listen up, future champion -",
-    suffix: "That's how legends are made."
-  }
-};
-
-const PERSONALITY_MODES = {
-  analytical: {
-    focus: "data_driven",
-    style: "smart chirps with stats backing",
-    voice: "hockey_statistician",
-    phrases: ["The data shows", "Analysis indicates", "Stats don't lie"]
-  },
-  motivational: {
-    focus: "championship_mindset",
-    style: "pump-up chirps that inspire action",
-    voice: "championship_coach",
-    phrases: ["You've got this", "Championship teams", "Winners do this"]
-  },
-  roast_master: {
-    focus: "entertainment_value",
-    style: "savage roasts with hockey humor",
-    voice: "locker_room_comedian",
-    phrases: ["Buddy,", "That's like", "Even my grandmother"]
-  },
-  championship_coach: {
-    focus: "winning_strategy",
-    style: "tough love with clear direction",
-    voice: "elite_level_mentor",
-    phrases: ["Elite players", "Championship strategy", "Next level thinking"]
-  }
-};
-
-// ==========================================
-// 📚 Semantic Anchoring Documentation
-// ==========================================
-//
-// This metadata structure implements Semantic Anchoring Governance principles
-// to ensure that tool behavior is driven by semantic meaning, not implementation details.
-//
-// 🏛️ Governance Rules Applied:
-// - Rule 1 (Semantic Over Structural): Tool identity determined by semantic properties
-//   (is_ice_engine, tool_semantic_identity) rather than string comparisons
-// - Rule 3 (Observable Anchoring): Behavioral decisions based on directly observable
-//   properties that carry semantic meaning
-// - Rule 4 (Immutability): Metadata is immutable at runtime (frozen in production)
-//
-// 🎯 Semantic Markers Defined:
-//
-// 1. is_ice_engine: boolean (optional)
-//    Purpose: Distinguishes ICE (Intent Chirp Engine) tools from standard tools
-//    Governance: Used for semantic branching instead of toolName string comparison
-//    Example: if (metadata.is_ice_engine) { /* ICE-specific behavior */ }
-//
-// 2. tool_semantic_identity: string (optional)
-//    Purpose: Human-readable semantic identity describing tool's domain purpose
-//    Governance: Used in chirp intelligence layer for contextual awareness
-//    Example: "ICE - Intent Chirp Engine" for ultimate advisor tools
-//
-// 3. chirp_style: string (required)
-//    Purpose: Semantic descriptor of the tool's chirp personality and approach
-//    Example: "ice_cold_truth", "analytical_assessment", "opportunity_hunter"
-//
-// 4. intent_category: string (required)
-//    Purpose: Semantic classification of user intent served by this tool
-//    Governance: Groups tools by user goals rather than technical implementation
-//    Example: "ultimate_advisor", "competitive_intelligence", "team_assessment"
-//
-// 5. hockey_context: string (required)
-//    Purpose: Domain-specific semantic context for chirp generation
-//    Example: "league_domination", "roster_analysis", "waiver_wire_mastery"
-//
-// 6. chirp_potential: string (required)
-//    Purpose: Semantic descriptor of chirp opportunities and focus areas
-//    Example: "brutal_optimization", "standings_truth", "lineup_fixes"
-
-const TOOL_METADATA: Record<string, any> = {
-  get_team_roster: {
-    chirp_style: "analytical_assessment",
-    discovery_tags: ["roster", "lineup", "players", "status", "team"],
-    intent_category: "team_assessment",
-    hockey_context: "roster_analysis",
-    chirp_potential: "roster_weaknesses"
-  },
-  get_league_standings: {
-    chirp_style: "competitive_reality",
-    discovery_tags: ["standings", "league", "competition", "rankings", "position"],
-    intent_category: "league_awareness",
-    hockey_context: "competitive_landscape",
-    chirp_potential: "standings_truth"
-  },
-  get_current_matchup: {
-    chirp_style: "matchup_assessment",
-    discovery_tags: ["matchup", "opponent", "week", "competition", "stats"],
-    intent_category: "weekly_strategy",
-    hockey_context: "head_to_head_battle",
-    chirp_potential: "matchup_reality"
-  },
-  get_games_in_hand: {
-    chirp_style: "strategic_advantage",
-    discovery_tags: ["schedule", "advantage", "games", "strategy", "matchup"],
-    intent_category: "competitive_intelligence",
-    hockey_context: "schedule_warfare",
-    chirp_potential: "schedule_domination"
-  },
-  get_streaming_recommendations: {
-    chirp_style: "opportunity_hunter",
-    discovery_tags: ["pickups", "waivers", "streaming", "schedule", "trends"],
-    intent_category: "acquisition_strategy",
-    hockey_context: "waiver_wire_mastery",
-    chirp_potential: "pickup_strategy"
-  },
-  get_roster_transaction_recommendations: {
-    chirp_style: "ice_cold_truth",
-    discovery_tags: ["optimization", "ICE", "championship", "decisions", "transactions"],
-    intent_category: "ultimate_advisor",
-    hockey_context: "league_domination",
-    chirp_potential: "brutal_optimization",
-    // 🎯 Semantic Anchoring: Observable property for tool identity
-    is_ice_engine: true,
-    tool_semantic_identity: "ICE - Intent Chirp Engine"
-  },
-  get_weekly_stats: {
-    chirp_style: "performance_review",
-    discovery_tags: ["stats", "weekly", "performance", "matchup", "analysis"],
-    intent_category: "performance_tracking",
-    hockey_context: "stat_battle",
-    chirp_potential: "weekly_performance"
-  },
-  compare_matchup: {
-    chirp_style: "head_to_head_analysis",
-    discovery_tags: ["comparison", "matchup", "opponent", "strategy", "categories"],
-    intent_category: "tactical_analysis",
-    hockey_context: "category_warfare",
-    chirp_potential: "matchup_insights"
-  },
-  optimize_lineup: {
-    chirp_style: "lineup_optimization",
-    discovery_tags: ["lineup", "optimization", "active", "bench", "strategy"],
-    intent_category: "daily_management",
-    hockey_context: "lineup_strategy",
-    chirp_potential: "lineup_fixes"
-  },
-  search_players: {
-    chirp_style: "player_discovery",
-    discovery_tags: ["search", "players", "available", "free_agents", "discovery"],
-    intent_category: "player_research",
-    hockey_context: "talent_scouting",
-    chirp_potential: "player_insights"
-  },
-  get_player_stats: {
-    chirp_style: "player_evaluation",
-    discovery_tags: ["stats", "player", "performance", "evaluation", "analysis"],
-    intent_category: "player_analysis",
-    hockey_context: "individual_assessment",
-    chirp_potential: "player_reality"
-  },
-  get_trending_players: {
-    chirp_style: "trend_hunting",
-    discovery_tags: ["trends", "hot", "cold", "momentum", "pickups"],
-    intent_category: "market_intelligence",
-    hockey_context: "waiver_trends",
-    chirp_potential: "trend_opportunities"
-  }
-};
 
 // Configuration
 const YAHOO_CLIENT_ID = process.env.YAHOO_CLIENT_ID!;
@@ -221,315 +56,10 @@ const TOKEN_FILE = path.join(__dirname, "..", ".yahoo-oauth.json");
 const YAHOO_API_BASE = "https://fantasysports.yahooapis.com/fantasy/v2";
 
 // ==========================================
-// 🏒 Chirp Intelligence Interfaces
-// ==========================================
-//
-// 📚 Semantic Contract Documentation:
-// These interfaces define the semantic contracts for chirp intelligence parameters.
-//
-// 🏛️ ChirpParameters Interface:
-// Base interface for chirp behavior configuration. Represents the user-facing API
-// for controlling chirp intelligence behavior.
-//
-// Properties:
-// - chirp_intensity: Semantic descriptor of response tone/energy level
-//   Values map to semantic contexts: gentle (encouraging), standard (direct),
-//   savage (aggressive), ice_cold (championship enforcer)
-//   Governance: This is a semantic choice, not technical - drives tone generation
-//
-// - personality_mode: Semantic descriptor of chirp voice and focus
-//   Values map to semantic personas: analytical (data-driven), motivational
-//   (championship mindset), roast_master (entertainment), championship_coach (winning strategy)
-//   Governance: Determines semantic approach to commentary generation
-//
-// - enable_chirp: Semantic toggle for chirp intelligence layer
-//   Governance: When false, preserves raw data without semantic enhancement
-//   This is a semantic intent signal, not just a boolean flag
-//
-// 🏛️ SemanticChirpContract Interface:
-// Extended interface that adds semantic intent tracking and validation context.
-// Used internally to enforce Semantic Anchoring Governance Rule 2 (Intent Preservation).
-//
-// Additional Properties (readonly for immutability):
-// - semantic_intent: Tracks the origin and purpose of the chirp configuration
-//   "user_requested": User explicitly set these parameters (highest priority)
-//   "system_default": System-provided defaults (standard behavior)
-//   "tool_override": Tool-specific override (only valid within tool context)
-//   Governance: Ensures semantic intent is preserved through transformations
-//
-// - tool_context: The tool name that created this semantic contract
-//   Governance: Validates that tool_override intent matches actual tool context
-//   Prevents semantic contract violations across tool boundaries
-
-interface ChirpParameters {
-  chirp_intensity?: "gentle" | "standard" | "savage" | "ice_cold";
-  personality_mode?: "analytical" | "motivational" | "roast_master" | "championship_coach";
-  enable_chirp?: boolean;
-}
-
-// 🏛️ Semantic Anchoring: Extended interface with semantic intent tracking
-interface SemanticChirpContract extends ChirpParameters {
-  readonly semantic_intent?: "user_requested" | "system_default" | "tool_override";
-  readonly tool_context?: string;
-}
-
-// ==========================================
-// 🛡️ Phase 5: Runtime Governance Enforcement
+// 🔧 MCP Tool Schema Base
 // ==========================================
 
-// 📊 Governance violation tracking for monitoring and debugging
-interface GovernanceViolation {
-  timestamp: Date;
-  rule: string;
-  severity: "warning" | "error";
-  tool_name: string;
-  violation_type: string;
-  details: string;
-}
-
-// 📈 Runtime governance monitoring state
-const GOVERNANCE_MONITOR = {
-  violations: [] as GovernanceViolation[],
-  contracts_validated: 0,
-  immutability_enforced: 0,
-  semantic_decisions: 0,
-
-  // Track a governance violation
-  trackViolation(violation: Omit<GovernanceViolation, 'timestamp'>): void {
-    this.violations.push({
-      ...violation,
-      timestamp: new Date()
-    });
-
-    // Keep only last 100 violations to prevent memory growth
-    if (this.violations.length > 100) {
-      this.violations = this.violations.slice(-100);
-    }
-  },
-
-  // Get governance health report
-  getHealthReport(): {
-    total_violations: number;
-    warnings: number;
-    errors: number;
-    contracts_validated: number;
-    immutability_enforced: number;
-    semantic_decisions: number;
-    recent_violations: GovernanceViolation[];
-  } {
-    const warnings = this.violations.filter(v => v.severity === "warning").length;
-    const errors = this.violations.filter(v => v.severity === "error").length;
-
-    return {
-      total_violations: this.violations.length,
-      warnings,
-      errors,
-      contracts_validated: this.contracts_validated,
-      immutability_enforced: this.immutability_enforced,
-      semantic_decisions: this.semantic_decisions,
-      recent_violations: this.violations.slice(-10) // Last 10 violations
-    };
-  },
-
-  // Reset monitoring counters (for testing)
-  reset(): void {
-    this.violations = [];
-    this.contracts_validated = 0;
-    this.immutability_enforced = 0;
-    this.semantic_decisions = 0;
-  }
-};
-
-// 🔍 Semantic contract audit logger for debugging and compliance
-function auditSemanticContract(
-  contract: SemanticChirpContract,
-  toolName: string,
-  phase: "validation" | "enforcement" | "decision"
-): void {
-  const audit = {
-    phase,
-    tool_name: toolName,
-    semantic_intent: contract.semantic_intent,
-    enable_chirp: contract.enable_chirp,
-    chirp_intensity: contract.chirp_intensity,
-    personality_mode: contract.personality_mode,
-    tool_context: contract.tool_context,
-    timestamp: new Date().toISOString()
-  };
-
-  // Log to console in development mode
-  if (process.env.NODE_ENV === "development") {
-    console.log(`🔍 Semantic Audit [${phase}]:`, JSON.stringify(audit, null, 2));
-  }
-
-  // Update monitoring counters
-  if (phase === "validation") {
-    GOVERNANCE_MONITOR.contracts_validated++;
-  } else if (phase === "enforcement") {
-    GOVERNANCE_MONITOR.immutability_enforced++;
-  } else if (phase === "decision") {
-    GOVERNANCE_MONITOR.semantic_decisions++;
-  }
-}
-
-// 🏥 Governance health check function
-function checkGovernanceHealth(): {
-  status: "healthy" | "degraded" | "critical";
-  report: ReturnType<typeof GOVERNANCE_MONITOR.getHealthReport>;
-  recommendations: string[];
-} {
-  const report = GOVERNANCE_MONITOR.getHealthReport();
-  const recommendations: string[] = [];
-
-  let status: "healthy" | "degraded" | "critical" = "healthy";
-
-  // Check error rate
-  if (report.errors > 10) {
-    status = "critical";
-    recommendations.push("Critical: High error rate detected. Review recent violations immediately.");
-  } else if (report.errors > 0) {
-    status = "degraded";
-    recommendations.push("Warning: Governance errors detected. Review violation logs.");
-  }
-
-  // Check warning rate
-  if (report.warnings > 20) {
-    if (status !== "critical") status = "degraded";
-    recommendations.push("Warning: High warning rate. Review semantic contract usage patterns.");
-  }
-
-  // Check validation rate
-  if (report.contracts_validated === 0) {
-    recommendations.push("Info: No contracts validated yet. System may not be processing requests.");
-  }
-
-  if (recommendations.length === 0) {
-    recommendations.push("System is operating within governance parameters.");
-  }
-
-  return { status, report, recommendations };
-}
-
-// ==========================================
-// 📚 Semantic Contract Validation Function
-// ==========================================
-//
-// 🏛️ validateSemanticChirpContract Function:
-// Enforces Semantic Anchoring Governance Rule 2 (Intent Preservation) by validating
-// that semantic intent is preserved through chirp parameter transformations.
-//
-// Purpose:
-// Ensures that chirp parameters maintain semantic coherence and prevents accidental
-// or malicious violations of user intent.
-//
-// Governance Principles:
-// - User intent has highest priority and must never be overridden
-// - System defaults should be semantically consistent
-// - Tool-specific overrides must be confined to their tool context
-// - Conflicting intentions should be detected and reported
-//
-// Validation Cases:
-//
-// Case 1: User-Requested Disable
-//   Scenario: User explicitly sets enable_chirp=false with semantic_intent="user_requested"
-//   Action: Allow and preserve user intent (highest priority)
-//   Governance: Protects user autonomy and semantic control
-//
-// Case 2: Default Behavior
-//   Scenario: enable_chirp is undefined or true (system default)
-//   Action: Allow as valid default semantic behavior
-//   Governance: System defaults are semantically consistent
-//
-// Case 3: Ice Cold Intensity Validation
-//   Scenario: chirp_intensity="ice_cold" without explicit semantic intent
-//   Action: Warn if used on non-ICE tools (may be accidental)
-//   Governance: Prevents unintentional semantic shifts in tool behavior
-//   Rationale: ice_cold is semantically strong and should be intentional
-//
-// Case 4: Conflicting Intent Detection
-//   Scenario: enable_chirp=false but chirp_intensity is specified
-//   Action: Log warning about semantic contradiction
-//   Governance: Detects semantic incoherence in parameters
-//   Rationale: Disabled chirp with intensity setting is semantically inconsistent
-//
-// Case 5: Tool Override Protection
-//   Scenario: semantic_intent="tool_override" with mismatched tool_context
-//   Action: Throw error (strict enforcement)
-//   Governance: Prevents semantic contract violations across tool boundaries
-//   Rationale: Tool overrides must stay within their semantic domain
-
-// 🏛️ Semantic Anchoring (Rule 2): Validate semantic contract preservation
-function validateSemanticChirpContract(
-  contract: SemanticChirpContract,
-  toolName: string
-): void {
-  // 🔍 Phase 5: Audit contract validation
-  auditSemanticContract(contract, toolName, "validation");
-
-  // Rule 2: Intent Preservation - validate semantic coherence
-
-  // Case 1: User explicitly disabled chirp - valid semantic intent
-  if (contract.enable_chirp === false && contract.semantic_intent === "user_requested") {
-    return; // Valid: User intent to disable is preserved
-  }
-
-  // Case 2: Default behavior - chirp enabled unless explicitly disabled
-  if (contract.enable_chirp === undefined || contract.enable_chirp === true) {
-    // This is valid default behavior
-    return;
-  }
-
-  // Case 3: ice_cold intensity should be intentional, not accidental
-  if (contract.chirp_intensity === "ice_cold" && !contract.semantic_intent) {
-    // Log warning but allow (ICE tool deliberately uses ice_cold as default)
-    const metadata = TOOL_METADATA[toolName];
-    if (!metadata?.is_ice_engine) {
-      const warning = `ice_cold intensity without explicit intent on non-ICE tool '${toolName}'`;
-      console.error(`⚠️ Semantic Warning: ${warning}`);
-
-      // 📊 Phase 5: Track governance violation
-      GOVERNANCE_MONITOR.trackViolation({
-        rule: "Rule 2 - Intent Preservation",
-        severity: "warning",
-        tool_name: toolName,
-        violation_type: "unintentional_intensity",
-        details: warning
-      });
-    }
-  }
-
-  // Case 4: Detect conflicting semantic intentions
-  if (contract.enable_chirp === false && contract.chirp_intensity) {
-    const warning = `Conflicting intent - chirp disabled but intensity specified for '${toolName}'`;
-    console.error(`⚠️ Semantic Warning: ${warning}`);
-
-    // 📊 Phase 5: Track governance violation
-    GOVERNANCE_MONITOR.trackViolation({
-      rule: "Rule 2 - Intent Preservation",
-      severity: "warning",
-      tool_name: toolName,
-      violation_type: "conflicting_intent",
-      details: warning
-    });
-  }
-
-  // Case 5: Tool override should only be used by system, not user input
-  if (contract.semantic_intent === "tool_override" && contract.tool_context !== toolName) {
-    const error = `tool_override intent mismatch for '${toolName}' - expected context '${toolName}', got '${contract.tool_context}'`;
-
-    // 📊 Phase 5: Track governance violation
-    GOVERNANCE_MONITOR.trackViolation({
-      rule: "Rule 2 - Intent Preservation",
-      severity: "error",
-      tool_name: toolName,
-      violation_type: "tool_override_mismatch",
-      details: error
-    });
-
-    throw new Error(`🚨 Semantic contract violation: ${error}`);
-  }
-}
-
+// Base chirp schema for MCP tool definitions
 const baseChirpSchema = {
   chirp_intensity: {
     type: "string",
@@ -546,15 +76,6 @@ const baseChirpSchema = {
     description: "Enable chirp intelligence in responses (default: true)"
   }
 };
-
-// Token management
-interface YahooToken {
-  access_token: string;
-  refresh_token: string;
-  expires_in: number;
-  token_type: string;
-  expires_at?: number;
-}
 
 let cachedToken: YahooToken | null = null;
 
