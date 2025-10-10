@@ -73,27 +73,46 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
   protected async prepareData(rawData: any, args: GamesInHandArgs): Promise<FantasyData> {
     const { matchup, scoreboard } = rawData;
 
-    // Parse matchup to find opponent
-    const teams = matchup.fantasy_content?.team?.[1]?.matchup?.['0']?.teams?.['0']?.team || [];
+    // Parse matchup to find opponent - try multiple potential structures
+    let teams = matchup.fantasy_content?.team?.[1]?.matchup?.['0']?.teams?.['0']?.team || [];
+
+    // If teams is empty, try alternative structure (matchups array)
+    if (teams.length === 0) {
+      const matchups = matchup.fantasy_content?.team?.[1]?.matchups;
+      if (matchups && matchups['0'] && matchups['0'].matchup && matchups['0'].matchup['0']) {
+        teams = matchups['0'].matchup['0'].teams?.['0']?.team || [];
+      }
+    }
 
     // Handle both full team IDs (nhl.l.123.t.1) and partial (just the number)
-    const yourTeamKey = this.teamId.includes('.t.') ? this.teamId : `${this.leagueId}.t.${this.teamId}`;
+    const cleanLeagueId = this.leagueId.replace(/^nhl\.l\./, '');
+    const cleanTeamId = this.teamId.replace(/^.*\.t\./, '');
+    const fullTeamKey = `nhl.l.${cleanLeagueId}.t.${cleanTeamId}`;
+
     const yourTeam = teams.find((t: any) => {
-      const teamKey = t.team_key || t[0]?.team_key;
-      return teamKey === yourTeamKey || teamKey?.endsWith(`.t.${this.teamId}`);
+      // Team data can be nested as an array or direct object
+      const teamData = Array.isArray(t) ? t[0] : t;
+      const teamKey = teamData?.team_key;
+      return teamKey === fullTeamKey || teamKey === this.teamId || teamKey?.endsWith(`.t.${cleanTeamId}`);
     });
+
     const opponentTeam = teams.find((t: any) => {
-      const teamKey = t.team_key || t[0]?.team_key;
-      return teamKey !== yourTeamKey && !teamKey?.endsWith(`.t.${this.teamId}`);
+      const teamData = Array.isArray(t) ? t[0] : t;
+      const teamKey = teamData?.team_key;
+      return teamKey && teamKey !== fullTeamKey && !teamKey?.endsWith(`.t.${cleanTeamId}`);
     });
 
     if (!yourTeam || !opponentTeam) {
-      throw new Error(`Could not find matchup data. Teams found: ${teams.length}, Looking for: ${yourTeamKey}`);
+      throw new Error(`Could not find matchup data. Teams found: ${teams.length}, Structure: ${JSON.stringify(matchup.fantasy_content?.team?.[1], null, 2).substring(0, 500)}`);
     }
 
+    // Extract team data (handle both array and object structures)
+    const yourTeamData = Array.isArray(yourTeam) ? yourTeam[0] : yourTeam;
+    const opponentTeamData = Array.isArray(opponentTeam) ? opponentTeam[0] : opponentTeam;
+
     // Extract team rosters
-    const yourRoster = yourTeam.roster?.players || [];
-    const opponentRoster = opponentTeam.roster?.players || [];
+    const yourRoster = yourTeamData.roster?.players || [];
+    const opponentRoster = opponentTeamData.roster?.players || [];
 
     // Parse player data
     const parsePlayer = (playerData: any): Player => {

@@ -47,8 +47,10 @@ export class StreamingAnalysis extends AnalysisTemplate {
   protected async fetchData(args: StreamingArgs): Promise<any> {
     try {
       // Fetch trending players (hot pickups)
+      // Note: apiClient.request() already includes /fantasy/v2 base
+      const cleanLeagueId = this.leagueId.replace(/^nhl\.l\./, '');
       const trendingData = await this.apiClient.request(
-        `/fantasy/v2/league/${this.leagueId}/players;status=A;sort=AR`
+        `/league/nhl.l.${cleanLeagueId}/players;status=A;sort=AR`
       );
 
       // Fetch your current roster to avoid recommending owned players
