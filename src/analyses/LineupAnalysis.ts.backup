@@ -70,40 +70,18 @@ export class LineupAnalysis extends AnalysisTemplate {
     const rosterPlayers = roster.fantasy_content?.team?.[1]?.roster?.['0']?.players?.['0']?.player || [];
 
     const players: Player[] = rosterPlayers.map((playerData: any) => {
-      // Yahoo API returns player data as nested arrays
-      // player[0] is an array of objects, player[1] contains position info
       const player = playerData.player?.[0] || playerData;
-      const positionInfo = playerData.player?.[1] || {};
-
-      // Use .find() pattern like IceAnalysis since player is an array of property objects
-      const player_id = Array.isArray(player)
-        ? player.find((item: any) => item.player_id)?.player_id
-        : player.player_id;
-      const name = Array.isArray(player)
-        ? player.find((item: any) => item.name)?.name?.full
-        : player.name?.full;
-      const position = Array.isArray(player)
-        ? player.find((item: any) => item.display_position)?.display_position ||
-          player.find((item: any) => item.primary_positions)?.primary_positions?.[0]
-        : player.display_position || player.primary_positions?.[0];
-      const team = Array.isArray(player)
-        ? player.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr
-        : player.editorial_team_abbr;
-      const status = Array.isArray(player)
-        ? player.find((item: any) => item.status)?.status
-        : player.status;
-
-      const selectedPosition = positionInfo.selected_position?.[1]?.position ||
-                              positionInfo.selected_position?.position ||
+      const selectedPosition = player.selected_position?.[1]?.position ||
+                              player.selected_position?.position ||
                               'BN';
 
       return {
-        player_id: player_id || '',
-        name: name || 'Unknown',
-        position: position || 'Unknown',
-        team: team || '',
+        player_id: player.player_id,
+        name: player.name?.full || 'Unknown',
+        position: player.display_position || player.primary_positions?.[0] || 'Unknown',
+        team: player.editorial_team_abbr || '',
         selected_position: Array.isArray(selectedPosition) ? selectedPosition : [selectedPosition],
-        status: status || '',
+        status: player.status,
         has_game_today: this.hasGameToday(player, scoreboard)
       };
     });
