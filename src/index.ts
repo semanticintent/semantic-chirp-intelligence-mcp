@@ -1248,6 +1248,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: "governance_dashboard",
+        description: "🏛️ View Semantic Anchoring Governance health metrics and analysis performance statistics. Monitor violations, contract validations, and template pattern execution metrics.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            report_type: {
+              type: "string",
+              enum: ["health", "analyses", "violations", "full"],
+              description: "Type of report: 'health' (governance status), 'analyses' (performance metrics), 'violations' (error logs), 'full' (complete report)",
+              default: "full"
+            }
+          },
+        },
+      },
     ],
   };
 });
@@ -1469,6 +1484,80 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "governance_dashboard": {
+        // 🏛️ Governance Dashboard: View health metrics and analysis performance
+        const reportType = (args?.report_type as string) || "full";
+        const health = checkGovernanceHealth();
+
+        let reportData: any;
+
+        switch (reportType) {
+          case "health":
+            reportData = {
+              status: health.status,
+              total_violations: health.report.total_violations,
+              warnings: health.report.warnings,
+              errors: health.report.errors,
+              contracts_validated: health.report.contracts_validated,
+              recommendations: health.recommendations
+            };
+            break;
+
+          case "analyses":
+            reportData = {
+              total_analyses: health.report.analyses_executed,
+              by_type: health.report.analysis_by_type,
+              performance: {
+                avg_duration_ms: health.report.avg_duration_ms,
+                slowest_analysis: health.report.slowest_analysis
+              }
+            };
+            break;
+
+          case "violations":
+            reportData = {
+              total_violations: health.report.total_violations,
+              warnings: health.report.warnings,
+              errors: health.report.errors,
+              recent_violations: health.report.recent_violations
+            };
+            break;
+
+          case "full":
+          default:
+            reportData = {
+              governance_health: {
+                status: health.status,
+                recommendations: health.recommendations
+              },
+              metrics: {
+                violations: {
+                  total: health.report.total_violations,
+                  warnings: health.report.warnings,
+                  errors: health.report.errors,
+                  recent: health.report.recent_violations
+                },
+                governance: {
+                  contracts_validated: health.report.contracts_validated,
+                  immutability_enforced: health.report.immutability_enforced,
+                  semantic_decisions: health.report.semantic_decisions
+                },
+                analyses: {
+                  total_executed: health.report.analyses_executed,
+                  by_type: health.report.analysis_by_type,
+                  avg_duration_ms: health.report.avg_duration_ms,
+                  slowest: health.report.slowest_analysis
+                }
+              }
+            };
+            break;
+        }
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(reportData, null, 2) }]
         };
       }
 

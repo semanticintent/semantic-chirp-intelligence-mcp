@@ -31,14 +31,24 @@ export const TOOL_METADATA: Record<string, any> = {
     discovery_tags: ["schedule", "advantage", "games", "strategy", "matchup"],
     intent_category: "competitive_intelligence",
     hockey_context: "schedule_warfare",
-    chirp_potential: "schedule_domination"
+    chirp_potential: "schedule_domination",
+    // 🆕 Template Pattern Metadata
+    uses_template_pattern: true,
+    analysis_class: "GamesInHandAnalysis",
+    template_version: "1.0.0",
+    analysis_type: "schedule_advantage"
   },
   get_streaming_recommendations: {
     chirp_style: "opportunity_hunter",
     discovery_tags: ["pickups", "waivers", "streaming", "schedule", "trends"],
     intent_category: "acquisition_strategy",
     hockey_context: "waiver_wire_mastery",
-    chirp_potential: "pickup_strategy"
+    chirp_potential: "pickup_strategy",
+    // 🆕 Template Pattern Metadata
+    uses_template_pattern: true,
+    analysis_class: "StreamingAnalysis",
+    template_version: "1.0.0",
+    analysis_type: "streaming_strategy"
   },
   get_roster_transaction_recommendations: {
     chirp_style: "ice_cold_truth",
@@ -47,7 +57,12 @@ export const TOOL_METADATA: Record<string, any> = {
     hockey_context: "league_domination",
     chirp_potential: "brutal_optimization",
     is_ice_engine: true,
-    tool_semantic_identity: "ICE - Intent Chirp Engine"
+    tool_semantic_identity: "ICE - Intent Chirp Engine",
+    // 🆕 Template Pattern Metadata
+    uses_template_pattern: true,
+    analysis_class: "IceAnalysis",
+    template_version: "1.0.0",
+    analysis_type: "ice_roster"
   },
   get_weekly_stats: {
     chirp_style: "performance_review",
@@ -68,7 +83,12 @@ export const TOOL_METADATA: Record<string, any> = {
     discovery_tags: ["lineup", "optimization", "active", "bench", "strategy"],
     intent_category: "daily_management",
     hockey_context: "lineup_strategy",
-    chirp_potential: "lineup_fixes"
+    chirp_potential: "lineup_fixes",
+    // 🆕 Template Pattern Metadata
+    uses_template_pattern: true,
+    analysis_class: "LineupAnalysis",
+    template_version: "1.0.0",
+    analysis_type: "lineup_optimization"
   },
   search_players: {
     chirp_style: "player_discovery",

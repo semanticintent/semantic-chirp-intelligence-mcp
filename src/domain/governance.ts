@@ -131,17 +131,10 @@ export const GOVERNANCE_MONITOR = {
     analyses_executed: number;
     analysis_by_type: Record<string, number>;
     avg_duration_ms: number;
+    slowest_analysis: { type: AnalysisType; duration_ms: number } | null;
   } {
     const warnings = this.violations.filter(v => v.severity === "warning").length;
     const errors = this.violations.filter(v => v.severity === "error").length;
-
-    // Calculate average duration
-    const avgDuration = this.analysis_durations.length > 0
-      ? Math.round(
-          this.analysis_durations.reduce((sum, d) => sum + d.duration_ms, 0) /
-          this.analysis_durations.length
-        )
-      : 0;
 
     return {
       total_violations: this.violations.length,
@@ -154,8 +147,28 @@ export const GOVERNANCE_MONITOR = {
       // 🆕 Analysis metrics
       analyses_executed: this.analyses_executed,
       analysis_by_type: Object.fromEntries(this.analysis_by_type),
-      avg_duration_ms: avgDuration
+      avg_duration_ms: this.calculateAverageDuration(),
+      slowest_analysis: this.getSlowestAnalysis()
     };
+  },
+
+  /**
+   * 🆕 Calculate average analysis duration
+   */
+  calculateAverageDuration(): number {
+    if (this.analysis_durations.length === 0) return 0;
+    const total = this.analysis_durations.reduce((sum, d) => sum + d.duration_ms, 0);
+    return Math.round(total / this.analysis_durations.length);
+  },
+
+  /**
+   * 🆕 Get slowest analysis from recent executions
+   */
+  getSlowestAnalysis(): { type: AnalysisType; duration_ms: number } | null {
+    if (this.analysis_durations.length === 0) return null;
+    return this.analysis_durations.reduce((slowest, current) =>
+      current.duration_ms > slowest.duration_ms ? current : slowest
+    );
   },
 
   /**
