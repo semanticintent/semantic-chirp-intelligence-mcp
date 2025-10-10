@@ -171,10 +171,8 @@ export abstract class AnalysisTemplate {
    */
   protected validateContract(contract: SemanticChirpContract): void {
     // 🏛️ Rule 2: Intent Preservation
+    // Note: validateSemanticChirpContract internally calls auditSemanticContract
     validateSemanticChirpContract(contract, this.toolName);
-
-    // 🔍 Audit contract for debugging
-    auditSemanticContract(contract, this.toolName, "validation");
   }
 
   /**
