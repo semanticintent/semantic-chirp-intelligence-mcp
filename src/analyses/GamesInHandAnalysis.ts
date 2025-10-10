@@ -135,7 +135,7 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
     const advantage = yourGamesRemaining - opponentGamesRemaining;
 
     // Generate strategic recommendation based on advantage
-    const strategicRecommendation: string;
+    let strategicRecommendation: string;
     if (advantage > 5) {
       strategicRecommendation = "MASSIVE ADVANTAGE: Maximize starts to dominate volume categories";
     } else if (advantage > 2) {
