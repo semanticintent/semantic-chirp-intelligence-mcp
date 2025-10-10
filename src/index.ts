@@ -1599,65 +1599,73 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "get_roster_transaction_recommendations": {
-        const lookAheadDays = (args?.look_ahead_days as number) || 7;
-        const targetPositions = args?.target_positions as string[] | undefined;
-
-        // Extract chirp options
-        const chirpOptions: ChirpParameters = {
+        // 🎯 Template Method Pattern: Use IceAnalysis class
+        const semanticContract: SemanticChirpContract = {
           chirp_intensity: args?.chirp_intensity as any,
           personality_mode: args?.personality_mode as any,
-          enable_chirp: args?.enable_chirp as boolean
+          enable_chirp: args?.enable_chirp as boolean,
+          semantic_intent: "user_requested",
+          tool_context: "get_roster_transaction_recommendations"
         };
 
-        const recommendations = await getRosterTransactionRecommendations(lookAheadDays, targetPositions);
+        const analysisArgs = {
+          look_ahead_days: (args?.look_ahead_days as number) || 7,
+          target_positions: args?.target_positions as string[] | undefined
+        };
 
-        // Enhance with chirp intelligence
-        const enhancedRecommendations = enhanceWithChirpIntelligence(
-          "get_roster_transaction_recommendations",
-          recommendations,
-          chirpOptions
-        );
+        const result = await iceAnalysis.executeAnalysis(analysisArgs, semanticContract);
 
         return {
-          content: [{ type: "text", text: JSON.stringify(enhancedRecommendations, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       }
 
       case "ice": {
+        // 🎯 Template Method Pattern: Use IceAnalysis class for "full_roster" mode
         const analysisType = (args?.analysis_type as string) || "full_roster";
-        const chirpOptions: ChirpParameters = {
+        const lookAheadDays = (args?.look_ahead_days as number) || 7;
+
+        const semanticContract: SemanticChirpContract = {
           chirp_intensity: (args?.chirp_intensity as any) || "ice_cold",
           personality_mode: (args?.personality_mode as any) || "championship_coach",
-          enable_chirp: true
+          enable_chirp: true,
+          semantic_intent: "tool_override",
+          tool_context: "ice"
         };
-        const lookAheadDays = (args?.look_ahead_days as number) || 7;
 
         let result;
         switch (analysisType) {
           case "full_roster":
-            result = await getRosterTransactionRecommendations(lookAheadDays);
+            // Use new IceAnalysis class
+            result = await iceAnalysis.executeAnalysis(
+              { look_ahead_days: lookAheadDays },
+              semanticContract
+            );
             break;
           case "weekly_matchup":
-            result = await getGamesInHand();
+            // TODO: Migrate to GamesInHandAnalysis class in Phase 4
+            const gamesData = await getGamesInHand();
+            result = enhanceWithChirpIntelligence("ice", gamesData, semanticContract);
             break;
           case "pickup_strategy":
-            result = await getStreamingRecommendations(lookAheadDays);
+            // TODO: Migrate to StreamingAnalysis class in Phase 4
+            const streamingData = await getStreamingRecommendations(lookAheadDays);
+            result = enhanceWithChirpIntelligence("ice", streamingData, semanticContract);
             break;
           case "lineup_optimization":
-            result = await optimizeLineup();
+            // TODO: Migrate to LineupAnalysis class in Phase 4
+            const lineupData = await optimizeLineup();
+            result = enhanceWithChirpIntelligence("ice", lineupData, semanticContract);
             break;
           default:
-            result = await getRosterTransactionRecommendations(lookAheadDays);
+            result = await iceAnalysis.executeAnalysis(
+              { look_ahead_days: lookAheadDays },
+              semanticContract
+            );
         }
 
-        const iceAnalysis = enhanceWithChirpIntelligence(
-          "get_roster_transaction_recommendations",
-          result,
-          chirpOptions
-        );
-
         return {
-          content: [{ type: "text", text: JSON.stringify(iceAnalysis, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       }
 
