@@ -66,14 +66,16 @@ export class LineupAnalysis extends AnalysisTemplate {
   protected async prepareData(rawData: any, args: LineupArgs): Promise<FantasyData> {
     const { roster, scoreboard } = rawData;
 
-    const team = roster.fantasy_content?.team?.[0] || {};
-    const rosterPlayers = roster.fantasy_content?.team?.[1]?.roster?.['0']?.players?.['0']?.player || [];
+    const teamArray = roster.fantasy_content?.team?.[0] || [];
+    const rosterData = roster.fantasy_content?.team?.[1]?.roster?.['0']?.players || {};
 
-    const players: Player[] = rosterPlayers.map((playerData: any) => {
+    // Use object key iteration like IceAnalysis for consistent player parsing
+    const playerKeys = Object.keys(rosterData).filter(key => key !== 'count');
+    const players: Player[] = playerKeys.map(key => {
       // Yahoo API returns player data as nested arrays
       // player[0] is an array of objects, player[1] contains position info
-      const player = playerData.player?.[0] || playerData;
-      const positionInfo = playerData.player?.[1] || {};
+      const player = rosterData[key].player?.[0] || rosterData[key];
+      const positionInfo = rosterData[key].player?.[1] || {};
 
       // Use .find() pattern like IceAnalysis since player is an array of property objects
       const player_id = Array.isArray(player)
@@ -108,10 +110,18 @@ export class LineupAnalysis extends AnalysisTemplate {
       };
     });
 
+    // Extract team info using .find() pattern like IceAnalysis
+    const team_key = Array.isArray(teamArray)
+      ? teamArray.find((item: any) => item.team_key)?.team_key
+      : teamArray.team_key;
+    const team_name = Array.isArray(teamArray)
+      ? teamArray.find((item: any) => item.name)?.name
+      : teamArray.name;
+
     return {
       roster: {
-        team_key: team.team_key || '',
-        team_name: team.name || 'Your Team',
+        team_key: team_key || '',
+        team_name: team_name || 'Your Team',
         players
       },
       scoreboard: scoreboard
