@@ -57,6 +57,14 @@ import {
   executePlayerComparison
 } from './experimental/semantic-tool-integration.js';
 
+import {
+  SEMANTIC_BREAKOUT_ANALYSIS,
+  getBreakoutAnalysisInputSchema,
+  executeBreakoutAnalysis
+} from './experimental/semantic-breakout-tool.js';
+
+import { BreakoutAnalysis } from './analyses/BreakoutAnalysis.js';
+
 dotenv.config();
 
 const parseXML = promisify(parseString);
@@ -110,6 +118,7 @@ const iceAnalysis = new IceAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const gamesInHandAnalysis = new GamesInHandAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const streamingAnalysis = new StreamingAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const lineupAnalysis = new LineupAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
+const breakoutAnalysis = new BreakoutAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 
 let cachedToken: YahooToken | null = null;
 
@@ -1274,6 +1283,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: SEMANTIC_PLAYER_COMPARISON.name,
         description: `${SEMANTIC_PLAYER_COMPARISON.description} - Auto-configured from semantic intent!`,
         inputSchema: getPlayerComparisonInputSchema()
+      },
+      {
+        name: SEMANTIC_BREAKOUT_ANALYSIS.name,
+        description: `${SEMANTIC_BREAKOUT_ANALYSIS.description} - 🏒 Comprehensive breakout analysis with data-driven scoring (40% recent, 30% projections, 20% opportunity, 10% risk)`,
+        inputSchema: getBreakoutAnalysisInputSchema()
       }
     ],
   };
@@ -1595,7 +1609,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
+      case "analyze_breakout_players": {
+        try {
+          const result = await executeBreakoutAnalysis(
+            args as {
+              position_filter?: string[];
+              ownership_threshold?: number;
+              breakout_age_max?: number;
+              min_score?: number;
+              max_results?: number;
+              chirp_intensity?: string;
+              personality_mode?: string;
+              enable_chirp?: boolean;
+            },
+            breakoutAnalysis
+          );
 
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              error: errorMessage,
+              note: "Breakout analysis failed - this is a semantic intent-driven tool with comprehensive scoring"
+            }, null, 2) }],
+            isError: true
+          };
+        }
+      }
 
       default:
         throw new Error(`Unknown tool: ${name}`);

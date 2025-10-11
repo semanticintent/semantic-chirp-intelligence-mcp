@@ -285,4 +285,82 @@ export class YahooApiClient {
   public async getPlayers(leagueId: string, queryParams: string = ''): Promise<any> {
     return this.request(`/league/nhl.l.${leagueId}/players${queryParams}`);
   }
+
+  /**
+   * Convenience method: Search players by position
+   */
+  public async searchPlayers(position?: string, count: number = 25, leagueId?: string): Promise<any> {
+    const league = leagueId || process.env.YAHOO_LEAGUE_ID!;
+    const cleanLeagueId = this.stripLeaguePrefix(league);
+
+    let queryParams = `;status=A;count=${count}`;
+    if (position) {
+      queryParams += `;position=${position}`;
+    }
+
+    const data = await this.request(`/league/nhl.l.${cleanLeagueId}/players${queryParams}`);
+
+    // Parse player data
+    const playersData = data.fantasy_content.league[1].players;
+
+    const players = Object.keys(playersData)
+      .filter(key => key !== 'count')
+      .map(key => {
+        const playerData = playersData[key].player[0];
+
+        const playerId = playerData.find((item: any) => item.player_id)?.player_id;
+        const name = playerData.find((item: any) => item.name)?.name?.full;
+        const displayPosition = playerData.find((item: any) => item.display_position)?.display_position;
+        const team = playerData.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr;
+        const percentOwned = playerData.find((item: any) => item.percent_owned)?.percent_owned?.value || "0";
+
+        return {
+          player_id: playerId,
+          name: name,
+          position: displayPosition,
+          team: team,
+          percent_owned: parseFloat(percentOwned),
+          selected_position: []
+        };
+      });
+
+    return { players };
+  }
+
+  /**
+   * Convenience method: Get trending players
+   */
+  public async getTrendingPlayers(trendType: string = 'add', count: number = 25, leagueId?: string): Promise<any> {
+    const league = leagueId || process.env.YAHOO_LEAGUE_ID!;
+    const cleanLeagueId = this.stripLeaguePrefix(league);
+    const sortParam = trendType === 'add' ? 'AR' : 'OR';
+
+    const data = await this.request(`/league/nhl.l.${cleanLeagueId}/players;status=A;sort=${sortParam};count=${count}`);
+
+    const playersData = data.fantasy_content.league[1].players;
+
+    const players = Object.keys(playersData)
+      .filter(key => key !== 'count')
+      .map(key => {
+        const playerData = playersData[key].player[0];
+
+        const playerId = playerData.find((item: any) => item.player_id)?.player_id;
+        const name = playerData.find((item: any) => item.name)?.name?.full;
+        const displayPosition = playerData.find((item: any) => item.display_position)?.display_position;
+        const team = playerData.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr;
+        const percentOwned = playerData.find((item: any) => item.percent_owned)?.percent_owned?.value || "0";
+
+        return {
+          player_id: playerId,
+          name: name,
+          position: displayPosition,
+          team: team,
+          percent_owned: parseFloat(percentOwned),
+          trending: trendType,
+          selected_position: []
+        };
+      });
+
+    return { players, trend_type: trendType };
+  }
 }
