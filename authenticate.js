@@ -2,13 +2,11 @@
 // Run this ONCE to get your access token
 // Usage: node authenticate.js
 
-import YahooFantasy from 'yahoo-fantasy';
 import * as fs from 'fs';
 import * as dotenv from 'dotenv';
 import * as https from 'https';
 import * as url from 'url';
 import selfsigned from 'selfsigned';
-import http from 'http';
 
 dotenv.config();
 
@@ -23,22 +21,6 @@ if (!CLIENT_ID || !CLIENT_SECRET) {
   console.error('   Get them from: https://developer.yahoo.com/apps/create/');
   process.exit(1);
 }
-
-// Token callback function (called when token is refreshed)
-function tokenCallback(err, token) {
-  if (err) {
-    console.error('Token refresh error:', err);
-    return;
-  }
-  const tokenWithTimestamp = {
-    ...token,
-    timestamp: Date.now(),
-  };
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokenWithTimestamp, null, 2));
-  console.log('✅ Token refreshed and saved');
-}
-
-const yf = new YahooFantasy(CLIENT_ID, CLIENT_SECRET, tokenCallback, REDIRECT_URI);
 
 // Generate self-signed certificate for local HTTPS
 console.log('🔐 Generating self-signed certificate for HTTPS...');
@@ -71,8 +53,7 @@ const server = https.createServer(serverOptions, async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
 
   if (parsedUrl.pathname === '/') {
-    // Manual redirect to Yahoo OAuth - the library's auth() expects Express res object
-    // So we'll build the auth URL ourselves
+    // Build Yahoo OAuth authorization URL
     const authUrl = `https://api.login.yahoo.com/oauth2/request_auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&language=en-us`;
 
     res.writeHead(302, { 'Location': authUrl });
@@ -97,7 +78,7 @@ const server = https.createServer(serverOptions, async (req, res) => {
     try {
       console.log('📝 Exchanging authorization code for access token...');
 
-      // Manually exchange the code for a token using fetch
+      // Exchange the code for a token
       const tokenResponse = await fetch('https://api.login.yahoo.com/oauth2/get_token', {
         method: 'POST',
         headers: {
@@ -136,13 +117,13 @@ const server = https.createServer(serverOptions, async (req, res) => {
       res.end(`
         <html>
           <head>
-            <title>Authentication Successful</title>
+            <title>🏒 Authentication Successful - ICE Activated</title>
             <style>
               body {
                 font-family: Arial, sans-serif;
                 padding: 50px;
                 text-align: center;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                background: linear-gradient(135deg, #0891b2 0%, #06b6d4 100%);
                 color: white;
               }
               .container {
@@ -154,22 +135,29 @@ const server = https.createServer(serverOptions, async (req, res) => {
                 margin: 0 auto;
                 box-shadow: 0 10px 40px rgba(0,0,0,0.2);
               }
-              h1 { color: #4CAF50; }
+              h1 { color: #0891b2; }
               .emoji { font-size: 48px; margin: 20px 0; }
+              code {
+                background: #f5f5f5;
+                padding: 2px 6px;
+                border-radius: 3px;
+                color: #0891b2;
+              }
             </style>
           </head>
           <body>
             <div class="container">
-              <div class="emoji">✅</div>
-              <h1>Authentication Successful!</h1>
+              <div class="emoji">🏒✅❄️</div>
+              <h1>ICE Activated!</h1>
+              <p>Yahoo authentication successful. Intent Chirp Engine is ready to dominate.</p>
               <p>You can close this window and return to your terminal.</p>
-              <p>Your token has been saved and the MCP server is ready to use.</p>
               <hr>
               <p><strong>Next steps:</strong></p>
               <ol style="text-align: left; display: inline-block;">
-                <li>The server is already built</li>
+                <li>Server is built and ready</li>
                 <li>Test with: <code>npm start</code></li>
                 <li>Add to Claude Desktop config</li>
+                <li>Start getting chirped with winning insights</li>
               </ol>
             </div>
           </body>
@@ -179,9 +167,10 @@ const server = https.createServer(serverOptions, async (req, res) => {
       // Close server after success
       setTimeout(() => {
         server.close();
-        console.log('\n🏒 All set! Next steps:');
+        console.log('\n🏒 ICE is ready! Next steps:');
         console.log('   1. Test the server: npm start');
-        console.log('   2. Add to Claude Desktop config (see README.md)');
+        console.log('   2. Add to Claude Desktop config (see ACTIVATION_STEPS.md)');
+        console.log('   3. Start dominating your fantasy league with semantic chirps');
         process.exit(0);
       }, 1000);
     } catch (error) {

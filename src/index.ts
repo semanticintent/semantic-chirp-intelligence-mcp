@@ -49,6 +49,7 @@ import { IceAnalysis } from './analyses/IceAnalysis.js';
 import { GamesInHandAnalysis } from './analyses/GamesInHandAnalysis.js';
 import { StreamingAnalysis } from './analyses/StreamingAnalysis.js';
 import { LineupAnalysis } from './analyses/LineupAnalysis.js';
+import { WeekendStreamAnalysis } from './analyses/WeekendStreamAnalysis.js';
 
 // Experimental: Semantic Intent Parser
 import {
@@ -119,6 +120,7 @@ const gamesInHandAnalysis = new GamesInHandAnalysis(yahooClient, LEAGUE_ID, TEAM
 const streamingAnalysis = new StreamingAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const lineupAnalysis = new LineupAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const breakoutAnalysis = new BreakoutAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
+const weekendStreamAnalysis = new WeekendStreamAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 
 let cachedToken: YahooToken | null = null;
 
@@ -1288,6 +1290,57 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: SEMANTIC_BREAKOUT_ANALYSIS.name,
         description: `${SEMANTIC_BREAKOUT_ANALYSIS.description} - 🏒 Comprehensive breakout analysis with data-driven scoring (40% recent, 30% projections, 20% opportunity, 10% risk)`,
         inputSchema: getBreakoutAnalysisInputSchema()
+      },
+      {
+        name: "analyze_weekend_streams",
+        description: "🏒❄️ Weekend Stream Classifier - Distinguish desperation streams (bye-week fillers, <1 week value) from genuine opportunities (sustainable roles, >2 week upside). Uses binary decision tree and upside scoring (0-100). Chirp style: desperate_or_legit",
+        inputSchema: {
+          type: "object",
+          properties: {
+            date_range: {
+              type: "object",
+              properties: {
+                start: {
+                  type: "string",
+                  description: "Weekend start date (YYYY-MM-DD, e.g., '2025-10-11')"
+                },
+                end: {
+                  type: "string",
+                  description: "Weekend end date (YYYY-MM-DD, e.g., '2025-10-13')"
+                }
+              },
+              required: ["start", "end"],
+              description: "Weekend date range to analyze (typically Fri-Sun or Sat-Sun)"
+            },
+            position_filter: {
+              type: "array",
+              items: { type: "string" },
+              description: "Filter by positions: ['C', 'LW', 'RW', 'D', 'G']. Leave empty for all positions"
+            },
+            ownership_max: {
+              type: "number",
+              description: "Maximum ownership percentage (default 50). Players above this are excluded",
+              default: 50
+            },
+            team_needs: {
+              type: "array",
+              items: { type: "string" },
+              description: "Your roster needs: ['bye_fill', 'injury_cover', 'G_volume', 'C_depth']. Helps classification"
+            },
+            min_upside_score: {
+              type: "number",
+              description: "Minimum upside score (0-100) to include. Higher = more genuine opportunities",
+              default: 0
+            },
+            max_results: {
+              type: "number",
+              description: "Maximum results per classification (default 10)",
+              default: 10
+            },
+            ...baseChirpSchema
+          },
+          required: ["date_range"]
+        }
       }
     ],
   };
@@ -1634,6 +1687,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [{ type: "text", text: JSON.stringify({
               error: errorMessage,
               note: "Breakout analysis failed - this is a semantic intent-driven tool with comprehensive scoring"
+            }, null, 2) }],
+            isError: true
+          };
+        }
+      }
+
+      case "analyze_weekend_streams": {
+        try {
+          // Build semantic contract
+          const semanticContract: SemanticChirpContract = {
+            chirp_intensity: args?.chirp_intensity as any || 'ice_cold',
+            personality_mode: args?.personality_mode as any || 'analytical',
+            enable_chirp: args?.enable_chirp !== false,
+            semantic_intent: "user_requested",
+            tool_context: "weekend_stream_classification"
+          };
+
+          // Execute weekend stream analysis through template method
+          const result = await weekendStreamAnalysis.executeAnalysis(
+            {
+              date_range: args?.date_range as { start: string; end: string },
+              position_filter: args?.position_filter as string[] | undefined,
+              ownership_max: args?.ownership_max as number | undefined,
+              team_needs: args?.team_needs as string[] | undefined,
+              min_upside_score: args?.min_upside_score as number | undefined,
+              max_results: args?.max_results as number | undefined
+            },
+            semanticContract
+          );
+
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              error: errorMessage,
+              note: "Weekend stream analysis failed - binary classification for desperation vs genuine opportunities"
             }, null, 2) }],
             isError: true
           };

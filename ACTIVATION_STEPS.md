@@ -109,7 +109,7 @@ After restarting Claude Desktop, verify:
 
 **Check 1: Verify build is current**
 ```bash
-cd C:/workspace/dev-tools/yahoo-fantasy-mcp
+cd C:/workspace/dev-tools/semantic-chirp-intelligence-mcp
 npm run build
 ```
 
@@ -125,7 +125,7 @@ Should show: `case "analyze_breakout_players"`
 
 **Check 4: Manually test MCP server**
 ```bash
-cd C:/workspace/dev-tools/yahoo-fantasy-mcp
+cd C:/workspace/dev-tools/semantic-chirp-intelligence-mcp
 node build/index.js
 ```
 Server should start without errors
@@ -142,13 +142,13 @@ Verify in Claude Desktop config:
 **Check 2: OAuth token**
 ```bash
 # Check if token file exists
-ls -la C:/workspace/dev-tools/yahoo-fantasy-mcp/.yahoo-oauth.json
+ls -la C:/workspace/dev-tools/semantic-chirp-intelligence-mcp/.yahoo-oauth.json
 ```
 
 **Check 3: API access**
 Test basic API call:
 ```bash
-cd C:/workspace/dev-tools/yahoo-fantasy-mcp
+cd C:/workspace/dev-tools/semantic-chirp-intelligence-mcp
 node -e "require('dotenv').config(); console.log(process.env.YAHOO_CLIENT_ID)"
 ```
 

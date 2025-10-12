@@ -194,7 +194,7 @@ Since the tool is now integrated, you can test via Claude Desktop or MCP inspect
 
 ```bash
 # 1. Ensure server is running
-cd /c/workspace/dev-tools/yahoo-fantasy-mcp
+cd /c/workspace/dev-tools/semantic-chirp-intelligence-mcp
 npm run build
 npm start
 

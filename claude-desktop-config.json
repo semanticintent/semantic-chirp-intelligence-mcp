@@ -1,9 +1,9 @@
 {
   "mcpServers": {
-    "yahoo-fantasy-mcp": {
+    "semantic-chirp-intelligence-mcp": {
       "command": "node",
       "args": [
-        "C:/workspace/dev-tools/yahoo-fantasy-mcp/build/index.js"
+        "C:/workspace/dev-tools/semantic-chirp-intelligence-mcp/build/index.js"
       ],
       "env": {
         "LEAGUE_ID": "your_league_id_here",
