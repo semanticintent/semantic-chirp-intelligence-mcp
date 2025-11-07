@@ -224,25 +224,40 @@ async function getValidAccessToken(): Promise<string> {
 
 // Helper function to find current matchup by status
 function findCurrentMatchup(matchups: any): any {
+  console.error('[DEBUG] findCurrentMatchup called');
+
   if (!matchups || matchups.count === '0') {
+    console.error('[DEBUG] No matchups or count is 0');
     return null;
   }
 
   // Find matchup with status === "midevent" (current week)
   const matchupKeys = Object.keys(matchups).filter(key => key !== 'count');
+  console.error(`[DEBUG] Total matchup keys: ${matchupKeys.length}`, matchupKeys);
 
   const currentMatchup = matchupKeys.find(key => {
     const matchup = matchups[key]?.matchup?.[0] || matchups[key]?.matchup;
+    const week = matchup?.week;
+    const status = matchup?.status;
+    console.error(`[DEBUG] Checking key "${key}": week=${week}, status="${status}"`);
     return matchup?.status === 'midevent';
   });
 
+  console.error(`[DEBUG] Found currentMatchup key: "${currentMatchup}"`);
+
   // If found, return it; otherwise fallback to last matchup
   if (currentMatchup) {
-    return matchups[currentMatchup].matchup;
+    const result = matchups[currentMatchup].matchup;
+    console.error(`[DEBUG] Returning matchup for key "${currentMatchup}":`, {
+      week: result[0]?.week,
+      status: result[0]?.status
+    });
+    return result;
   }
 
   // Fallback: return the last matchup in the list
   const lastKey = matchupKeys[matchupKeys.length - 1];
+  console.error(`[DEBUG] FALLBACK - Using last key: "${lastKey}"`);
   return lastKey ? matchups[lastKey].matchup : null;
 }
 
@@ -375,18 +390,42 @@ async function getLeagueStandings() {
 
 // Tool: Get Current Matchup
 async function getCurrentMatchup() {
+  console.error('[DEBUG] getCurrentMatchup called');
   const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/matchups`);
 
+  console.error('[DEBUG] API response received');
   const matchups = data.fantasy_content.team[1].matchups;
+  console.error('[DEBUG] Matchups count:', matchups?.count);
+
+  // Debug: log first 3 matchup keys and their structure
+  if (matchups) {
+    const keys = Object.keys(matchups).filter(k => k !== 'count').slice(0, 3);
+    keys.forEach(key => {
+      const m = matchups[key];
+      console.error(`[DEBUG] matchups["${key}"] structure:`, JSON.stringify({
+        hasMatchup: !!m?.matchup,
+        isArray: Array.isArray(m?.matchup),
+        week: m?.matchup?.[0]?.week || m?.matchup?.week,
+        status: m?.matchup?.[0]?.status || m?.matchup?.status
+      }));
+    });
+  }
 
   const currentMatchup = findCurrentMatchup(matchups);
 
   if (!currentMatchup) {
+    console.error('[DEBUG] No current matchup found');
     return { message: "No current matchup (bye week or season not started)" };
   }
 
   const matchupData = currentMatchup[0];
   const teams = matchupData.teams;
+
+  console.error('[DEBUG] Final result:', {
+    week: matchupData.week,
+    status: matchupData.status,
+    opponent: teams['1'].team[0][2].name
+  });
 
   return {
     week: matchupData.week,
