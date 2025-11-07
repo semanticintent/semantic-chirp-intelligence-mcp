@@ -222,6 +222,30 @@ async function getValidAccessToken(): Promise<string> {
   return token.access_token;
 }
 
+// Helper function to find current matchup by status
+function findCurrentMatchup(matchups: any): any {
+  if (!matchups || matchups.count === '0') {
+    return null;
+  }
+
+  // Find matchup with status === "midevent" (current week)
+  const matchupKeys = Object.keys(matchups).filter(key => key !== 'count');
+
+  const currentMatchup = matchupKeys.find(key => {
+    const matchup = matchups[key]?.matchup?.[0] || matchups[key]?.matchup;
+    return matchup?.status === 'midevent';
+  });
+
+  // If found, return it; otherwise fallback to last matchup
+  if (currentMatchup) {
+    return matchups[currentMatchup].matchup;
+  }
+
+  // Fallback: return the last matchup in the list
+  const lastKey = matchupKeys[matchupKeys.length - 1];
+  return lastKey ? matchups[lastKey].matchup : null;
+}
+
 // Yahoo API helper function
 async function yahooApiRequest(endpoint: string, format: string = "json"): Promise<any> {
   const accessToken = await getValidAccessToken();
@@ -352,19 +376,21 @@ async function getLeagueStandings() {
 // Tool: Get Current Matchup
 async function getCurrentMatchup() {
   const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/matchups`);
-  
+
   const matchups = data.fantasy_content.team[1].matchups;
-  
-  if (!matchups || matchups.count === '0') {
+
+  const currentMatchup = findCurrentMatchup(matchups);
+
+  if (!currentMatchup) {
     return { message: "No current matchup (bye week or season not started)" };
   }
 
-  const currentMatchup = matchups['0'].matchup[0];
-  const teams = currentMatchup.teams;
-  
+  const matchupData = currentMatchup[0];
+  const teams = matchupData.teams;
+
   return {
-    week: currentMatchup.week,
-    status: currentMatchup.status,
+    week: matchupData.week,
+    status: matchupData.status,
     your_team: teams['0'].team[0][2].name,
     opponent: teams['1'].team[0][2].name,
   };
@@ -429,14 +455,15 @@ async function getPlayerStats(playerId: string) {
 // Tool: Get Weekly Stats
 async function getWeeklyStats() {
   const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/matchups`);
-  
+
   const matchups = data.fantasy_content.team[1].matchups;
-  
-  if (!matchups || matchups.count === '0') {
+
+  const currentMatchup = findCurrentMatchup(matchups);
+
+  if (!currentMatchup) {
     return { message: "No current matchup" };
   }
 
-    const currentMatchup = matchups['0'].matchup;
   const teams = currentMatchup[0].teams;
 
   // Extract games remaining data
@@ -472,23 +499,24 @@ async function getWeeklyStats() {
 // Tool: Compare Matchup
 async function compareMatchup() {
   const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/matchups`);
-  
+
   const matchups = data.fantasy_content.team[1].matchups;
-  
-  if (!matchups || matchups.count === '0') {
+
+  const currentMatchup = findCurrentMatchup(matchups);
+
+  if (!currentMatchup) {
     return { message: "No current matchup" };
   }
 
-  const currentMatchup = matchups['0'].matchup;
   const teams = currentMatchup[0].teams;
-  
+
   const yourStats = teams['0'].team[1]?.team_stats?.stats || [];
   const oppStats = teams['1'].team[1]?.team_stats?.stats || [];
-  
+
   const comparison = yourStats.map((stat: any, idx: number) => {
     const yourVal = parseFloat(stat.stat.value) || 0;
     const oppVal = parseFloat(oppStats[idx]?.stat?.value || 0) || 0;
-    
+
     return {
       category: stat.stat.display_name,
       stat_id: stat.stat.stat_id,
@@ -497,9 +525,9 @@ async function compareMatchup() {
       winning: yourVal > oppVal,
     };
   });
-  
+
   const categoriesWinning = comparison.filter((c: any) => c.winning).length;
-  
+
   return {
     week: currentMatchup[0].week,
     your_team: teams['0'].team[0][2].name,

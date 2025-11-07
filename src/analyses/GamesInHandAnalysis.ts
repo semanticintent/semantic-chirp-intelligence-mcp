@@ -79,8 +79,20 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
     // If teams is empty, try alternative structure (matchups array)
     if (teams.length === 0) {
       const matchups = matchup.fantasy_content?.team?.[1]?.matchups;
-      if (matchups && matchups['0'] && matchups['0'].matchup && matchups['0'].matchup['0']) {
-        teams = matchups['0'].matchup['0'].teams?.['0']?.team || [];
+      if (matchups && matchups.count !== '0') {
+        // Find the current matchup where status === "midevent"
+        const matchupKeys = Object.keys(matchups).filter(key => key !== 'count');
+
+        const currentMatchupKey = matchupKeys.find(key => {
+          const matchupData = matchups[key]?.matchup?.[0] || matchups[key]?.matchup;
+          return matchupData?.status === 'midevent';
+        });
+
+        // Use current matchup if found, otherwise fallback to last matchup
+        const selectedKey = currentMatchupKey || matchupKeys[matchupKeys.length - 1];
+        if (selectedKey && matchups[selectedKey]?.matchup?.[0]) {
+          teams = matchups[selectedKey].matchup[0].teams?.['0']?.team || [];
+        }
       }
     }
 
