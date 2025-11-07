@@ -250,12 +250,11 @@ function findCurrentMatchup(matchups: any): any {
   // If found, return it; otherwise fallback to last matchup
   if (currentMatchup) {
     const matchupData = matchups[currentMatchup].matchup;
-    const result = Array.isArray(matchupData) ? matchupData : [matchupData];
     console.error(`[DEBUG] Returning matchup for key "${currentMatchup}":`, {
-      week: result[0]?.week,
-      status: result[0]?.status
+      week: matchupData?.week,
+      status: matchupData?.status
     });
-    return result;
+    return matchupData;
   }
 
   // Fallback: return the last matchup in the list
@@ -263,8 +262,7 @@ function findCurrentMatchup(matchups: any): any {
   console.error(`[DEBUG] FALLBACK - Using last key: "${lastKey}"`);
   if (!lastKey) return null;
 
-  const matchupData = matchups[lastKey].matchup;
-  return Array.isArray(matchupData) ? matchupData : [matchupData];
+  return matchups[lastKey].matchup;
 }
 
 // Yahoo API helper function
@@ -424,20 +422,29 @@ async function getCurrentMatchup() {
     return { message: "No current matchup (bye week or season not started)" };
   }
 
+  // currentMatchup is the matchup object with structure:
+  // matchup = { "0": { teams: {...} }, week: "1", status: "postevent", ... }
   const matchupData = currentMatchup[0];
-  const teams = matchupData.teams;
+  const week = currentMatchup.week;
+  const status = currentMatchup.status;
+  const teams = matchupData?.teams;
+
+  if (!teams) {
+    console.error('[DEBUG] No teams found in matchup');
+    return { message: "No teams data in current matchup" };
+  }
 
   console.error('[DEBUG] Final result:', {
-    week: matchupData.week,
-    status: matchupData.status,
-    opponent: teams['1'].team[0][2].name
+    week,
+    status,
+    opponent: teams['1']?.team?.[0]?.[2]?.name
   });
 
   return {
-    week: matchupData.week,
-    status: matchupData.status,
-    your_team: teams['0'].team[0][2].name,
-    opponent: teams['1'].team[0][2].name,
+    week,
+    status,
+    your_team: teams['0']?.team?.[0]?.[2]?.name || 'Unknown',
+    opponent: teams['1']?.team?.[0]?.[2]?.name || 'Unknown',
   };
 }
 
