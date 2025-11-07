@@ -236,7 +236,9 @@ function findCurrentMatchup(matchups: any): any {
   console.error(`[DEBUG] Total matchup keys: ${matchupKeys.length}`, matchupKeys);
 
   const currentMatchup = matchupKeys.find(key => {
-    const matchup = matchups[key]?.matchup?.[0] || matchups[key]?.matchup;
+    const matchupData = matchups[key]?.matchup;
+    // Matchup can be either an object or an array
+    const matchup = Array.isArray(matchupData) ? matchupData[0] : matchupData;
     const week = matchup?.week;
     const status = matchup?.status;
     console.error(`[DEBUG] Checking key "${key}": week=${week}, status="${status}"`);
@@ -247,7 +249,8 @@ function findCurrentMatchup(matchups: any): any {
 
   // If found, return it; otherwise fallback to last matchup
   if (currentMatchup) {
-    const result = matchups[currentMatchup].matchup;
+    const matchupData = matchups[currentMatchup].matchup;
+    const result = Array.isArray(matchupData) ? matchupData : [matchupData];
     console.error(`[DEBUG] Returning matchup for key "${currentMatchup}":`, {
       week: result[0]?.week,
       status: result[0]?.status
@@ -258,7 +261,10 @@ function findCurrentMatchup(matchups: any): any {
   // Fallback: return the last matchup in the list
   const lastKey = matchupKeys[matchupKeys.length - 1];
   console.error(`[DEBUG] FALLBACK - Using last key: "${lastKey}"`);
-  return lastKey ? matchups[lastKey].matchup : null;
+  if (!lastKey) return null;
+
+  const matchupData = matchups[lastKey].matchup;
+  return Array.isArray(matchupData) ? matchupData : [matchupData];
 }
 
 // Yahoo API helper function
