@@ -516,25 +516,32 @@ async function getWeeklyStats() {
     return { message: "No current matchup" };
   }
 
-  const teams = currentMatchup[0].teams;
+  // currentMatchup structure: { "0": { teams: {...} }, week: 5, status: "midevent", ... }
+  const teams = currentMatchup["0"]?.teams;
+  const week = currentMatchup.week;
+  const status = currentMatchup.status;
+
+  if (!teams) {
+    return { message: "No teams data in current matchup" };
+  }
 
   // Extract games remaining data
-  const yourGames = teams['0'].team[1]?.team_remaining_games?.total;
-  const oppGames = teams['1'].team[1]?.team_remaining_games?.total;
+  const yourGames = teams['0']?.team?.[1]?.team_remaining_games?.total;
+  const oppGames = teams['1']?.team?.[1]?.team_remaining_games?.total;
 
   return {
-    week: currentMatchup[0].week,
-    status: currentMatchup[0].status,
+    week,
+    status,
     your_team: {
-      name: teams['0'].team[0][2].name,
-      stats: teams['0'].team[1]?.team_stats?.stats || [],
+      name: teams['0']?.team?.[0]?.[2]?.name || 'Unknown',
+      stats: teams['0']?.team?.[1]?.team_stats?.stats || [],
       games_remaining: yourGames?.remaining_games || 0,
       games_completed: yourGames?.completed_games || 0,
       live_games: yourGames?.live_games || 0,
     },
     opponent: {
-      name: teams['1'].team[0][2].name,
-      stats: teams['1'].team[1]?.team_stats?.stats || [],
+      name: teams['1']?.team?.[0]?.[2]?.name || 'Unknown',
+      stats: teams['1']?.team?.[1]?.team_stats?.stats || [],
       games_remaining: oppGames?.remaining_games || 0,
       games_completed: oppGames?.completed_games || 0,
       live_games: oppGames?.live_games || 0,
@@ -560,10 +567,16 @@ async function compareMatchup() {
     return { message: "No current matchup" };
   }
 
-  const teams = currentMatchup[0].teams;
+  // currentMatchup structure: { "0": { teams: {...} }, week: 5, status: "midevent", ... }
+  const teams = currentMatchup["0"]?.teams;
+  const week = currentMatchup.week;
 
-  const yourStats = teams['0'].team[1]?.team_stats?.stats || [];
-  const oppStats = teams['1'].team[1]?.team_stats?.stats || [];
+  if (!teams) {
+    return { message: "No teams data in current matchup" };
+  }
+
+  const yourStats = teams['0']?.team?.[1]?.team_stats?.stats || [];
+  const oppStats = teams['1']?.team?.[1]?.team_stats?.stats || [];
 
   const comparison = yourStats.map((stat: any, idx: number) => {
     const yourVal = parseFloat(stat.stat.value) || 0;
@@ -581,9 +594,9 @@ async function compareMatchup() {
   const categoriesWinning = comparison.filter((c: any) => c.winning).length;
 
   return {
-    week: currentMatchup[0].week,
-    your_team: teams['0'].team[0][2].name,
-    opponent: teams['1'].team[0][2].name,
+    week,
+    your_team: teams['0']?.team?.[0]?.[2]?.name || 'Unknown',
+    opponent: teams['1']?.team?.[0]?.[2]?.name || 'Unknown',
     categories_winning: categoriesWinning,
     categories_total: comparison.length,
     category_breakdown: comparison,

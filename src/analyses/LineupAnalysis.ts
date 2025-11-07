@@ -294,9 +294,10 @@ export class LineupAnalysis extends AnalysisTemplate {
    * Helper: Check if player has a game today
    */
   private hasGameToday(player: any, scoreboard: any): boolean {
-    // Simplified - in production would parse actual NHL schedule from scoreboard
-    // For now, assume 50% of players have games on any given day
-    return Math.random() > 0.5;
+    // TODO: Parse actual NHL schedule from scoreboard or Yahoo API
+    // For now, disable this check to avoid false positives
+    // The check requires parsing team schedules which isn't currently implemented
+    return false;
   }
 
   /**
