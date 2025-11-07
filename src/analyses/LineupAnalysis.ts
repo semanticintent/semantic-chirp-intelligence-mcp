@@ -69,9 +69,14 @@ export class LineupAnalysis extends AnalysisTemplate {
     const teamArray = roster.fantasy_content?.team?.[0] || [];
     const rosterData = roster.fantasy_content?.team?.[1]?.roster?.['0']?.players || {};
 
+    // Fetch today's NHL schedule once for all players
+    const todaySchedule = await this.fetchTodaySchedule();
+
     // Use object key iteration like IceAnalysis for consistent player parsing
     const playerKeys = Object.keys(rosterData).filter(key => key !== 'count');
-    const players: Player[] = playerKeys.map(key => {
+
+    // Parse player data first (synchronous)
+    const parsedPlayers = playerKeys.map(key => {
       // Yahoo API returns player data as nested arrays
       // player[0] is an array of objects, player[1] contains position info
       const player = rosterData[key].player?.[0] || rosterData[key];
@@ -105,10 +110,15 @@ export class LineupAnalysis extends AnalysisTemplate {
         position: position || 'Unknown',
         team: team || '',
         selected_position: Array.isArray(selectedPosition) ? selectedPosition : [selectedPosition],
-        status: status || '',
-        has_game_today: this.hasGameToday(player, scoreboard)
+        status: status || ''
       };
     });
+
+    // Add has_game_today flag using the schedule we fetched
+    const players: Player[] = parsedPlayers.map((player) => ({
+      ...player,
+      has_game_today: this.hasGameToday(player, todaySchedule)
+    }));
 
     // Extract team info using .find() pattern like IceAnalysis
     const team_key = Array.isArray(teamArray)
@@ -291,13 +301,40 @@ export class LineupAnalysis extends AnalysisTemplate {
   }
 
   /**
-   * Helper: Check if player has a game today
+   * Helper: Fetch today's NHL schedule from public API
+   * Returns array of games for efficient lookup
    */
-  private hasGameToday(player: any, scoreboard: any): boolean {
-    // TODO: Parse actual NHL schedule from scoreboard or Yahoo API
-    // For now, disable this check to avoid false positives
-    // The check requires parsing team schedules which isn't currently implemented
-    return false;
+  private async fetchTodaySchedule(): Promise<any[]> {
+    try {
+      // Get today's date in YYYY-MM-DD format
+      const today = new Date().toISOString().split('T')[0];
+
+      // Fetch today's NHL schedule from public NHL API
+      const response = await fetch(`https://api-web.nhle.com/v1/schedule/${today}`);
+      if (!response.ok) return [];
+
+      const schedule = await response.json();
+      return schedule.gameWeek?.[0]?.games || [];
+    } catch (error) {
+      console.error('[DEBUG] Error fetching NHL schedule:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Helper: Check if player has a game today
+   * Uses pre-fetched NHL schedule for efficiency
+   */
+  private hasGameToday(player: any, todayGames: any[]): boolean {
+    if (!player.team || !todayGames.length) return false;
+
+    const playerTeam = player.team.toUpperCase();
+
+    return todayGames.some((game: any) => {
+      const homeTeam = game.homeTeam?.abbrev?.toUpperCase();
+      const awayTeam = game.awayTeam?.abbrev?.toUpperCase();
+      return homeTeam === playerTeam || awayTeam === playerTeam;
+    });
   }
 
   /**
