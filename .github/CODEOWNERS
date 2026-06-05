@@ -1,0 +1,31 @@
+# Code Owners - Automatic PR Review Assignment
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global owner - reviews all changes by default
+* @semanticintent
+
+# Intelligence layer (analyses + template pattern)
+/src/analyses/ @semanticintent
+/src/template/ @semanticintent
+
+# Semantic config (tool metadata, personality, chirp styles)
+/src/config/ @semanticintent
+
+# Domain logic & types
+/src/domain/ @semanticintent
+
+# Yahoo API integration
+/src/services/ @semanticintent
+
+# Security-sensitive files
+/SECURITY.md @semanticintent
+/.github/workflows/ @semanticintent
+/.env.example @semanticintent
+
+# Documentation
+/docs/ @semanticintent
+/*.md @semanticintent
+
+# Testing infrastructure
+/vitest.config.ts @semanticintent
+**/*.test.ts @semanticintent

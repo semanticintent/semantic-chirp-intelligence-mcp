@@ -1,95 +1,156 @@
-# Yahoo Fantasy Hockey MCP Server
+# 🏒 Semantic CHIRP Intelligence MCP
 
-A Model Context Protocol (MCP) server that provides AI-powered management of your Yahoo Fantasy Hockey team through Claude Desktop.
+> **Fantasy hockey intelligence that chirps you into championships.**
+> A Model Context Protocol (MCP) server that turns your Yahoo Fantasy Hockey league into an AI advisor — not just a data pipe, but a **Semantic Intent** brain that reads the ice and tells you the cold truth.
 
-## Features
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
+![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-blue)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)
 
-✅ **OAuth 2.0 Authentication** - Secure token management with automatic refresh
-✅ **10 Fantasy Hockey Tools** - Complete read access to your league and roster
-✅ **Direct Yahoo API Integration** - Reliable HTTPS requests without buggy wrappers
-✅ **Smart Parsing** - Handles Yahoo's dynamic JSON structure robustly
-✅ **TypeScript** - Full type safety and modern ES modules
+---
+
+## What this is
+
+Most fantasy MCP servers stop at "fetch my roster." This one is a **semantic intelligence layer**: every tool carries intent metadata, analyses run through a shared template, and results come back with a *point of view* — schedule edges, streaming opportunities, and savage roster truths.
+
+It's built on the same **Semantic Intent** philosophy as its sibling project, the temporal-intelligence brain [`@semanticintent/semantic-wake-intelligence-mcp`](https://github.com/semanticintent/semantic-wake-intelligence-mcp) — here applied to the domain of fantasy hockey.
+
+### Highlights
+
+- ❄️ **ICE — the Intent Chirp Engine** — championship-level roster analysis with brutal honesty
+- 🗓️ **Schedule intelligence** — games-in-hand edges and streaming windows (NHL public API for real schedules)
+- 🌊 **Weekend stream classifier** — tells desperation pickups apart from genuine multi-week opportunities
+- 🏛️ **Semantic Anchoring Governance** — every tool declares its intent; a dashboard surfaces the health metrics
+- 🧩 **Template Pattern architecture** — analyses are composable, consistent, and testable
+- 🔒 **Read-only & local** — OAuth 2.0, minimum permissions, no third-party data egress
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  MCP Server (src/index.ts)  — stdio transport for Claude     │
+├─────────────────────────────────────────────────────────────┤
+│  Semantic config (src/config/)                               │
+│    • tool-metadata.ts   — intent, discovery tags, chirp style │
+│    • personality-modes.ts / chirp-styles.ts — the voice       │
+├─────────────────────────────────────────────────────────────┤
+│  Intelligence layer (src/analyses/ + src/template/)          │
+│    • AnalysisTemplate   — shared Template Pattern base         │
+│    • Ice / Streaming / GamesInHand / WeekendStream / Lineup   │
+├─────────────────────────────────────────────────────────────┤
+│  Services (src/services/)                                     │
+│    • ChirpIntelligence  — turns data into chirp               │
+│    • YahooApiClient     — all Yahoo Fantasy API access         │
+├─────────────────────────────────────────────────────────────┤
+│  Domain (src/domain/)   — types + governance                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+- **Semantic Anchoring Governance** — every tool registers intent metadata (intent category, hockey context, discovery tags, chirp potential). See [`SEMANTIC_ANCHORING_GOVERNANCE.md`](./SEMANTIC_ANCHORING_GOVERNANCE.md). The `governance_dashboard` tool reports live health.
+- **Template Pattern** — analyses extend `AnalysisTemplate`, so each one produces output the same disciplined way. Adding an analysis is adding one class.
+
+---
+
+## Available Tools
+
+### Core data tools (read-only Yahoo Fantasy)
+
+| Tool | Description |
+|------|-------------|
+| `get_team_roster` | Your current roster with players, positions, and status |
+| `get_league_standings` | League standings — all teams and their records |
+| `get_current_matchup` | Your current week's matchup and status |
+| `search_players` | Search free agents by position (C, LW, RW, D, G) |
+| `get_player_stats` | Detailed stats for a player by ID |
+| `get_weekly_stats` | Your week's stats vs. your opponent |
+| `compare_matchup` | Category-by-category breakdown of your matchup |
+| `optimize_lineup` | Lineup recommendations based on health and positions |
+| `get_trending_players` | Most-added / most-owned players — hot pickups |
+| `debug_api_call` | Inspect raw Yahoo API responses for troubleshooting |
+
+### CHIRP intelligence tools (Template Pattern + semantic analysis)
+
+| Tool | Description |
+|------|-------------|
+| `ice` | ❄️ **Intent Chirp Engine** — the flagship multi-mode advisor; ice-cold, championship-level analysis combining all insights |
+| `get_roster_transaction_recommendations` | 🏒 ICE roster optimization — savage, brutally honest lineup/transaction calls |
+| `get_streaming_recommendations` | Schedule- and trend-aware waiver/streaming picks (weekly / weekend / daily strategies) |
+| `get_games_in_hand` | Schedule-advantage analysis — remaining games, you vs. opponent |
+| `analyze_weekend_streams` | 🌊 Weekend stream classifier — desperation filler vs. genuine multi-week upside (0–100 upside score) |
+| `governance_dashboard` | 🏛️ Semantic Anchoring Governance health, analysis metrics, and violations |
+
+---
 
 ## Prerequisites
 
-- Node.js 18+
-- Yahoo Account with a Fantasy Hockey team
-- Claude Desktop application
+- **Node.js 20+**
+- A **Yahoo account** with a Fantasy Hockey team
+- An MCP client — e.g. **Claude Desktop**
 
 ## Setup
 
-### 1. Get Yahoo API Credentials
+### 1. Create a Yahoo app
 
-1. Go to https://developer.yahoo.com/apps/create/
-2. Create a new app with these settings:
-   - **Application Name**: `Yahoo Fantasy Hockey MCP` (or any name)
-   - **Description**: `MCP server for managing Yahoo Fantasy Hockey`
-   - **Homepage URL**: `https://localhost:3000`
-   - **Redirect URI**: `https://localhost:3000/callback`
-   - **OAuth Client Type**: `Confidential Client`
-   - **API Permissions**: Check `Fantasy Sports`
-3. Copy your **Client ID** and **Client Secret**
+Go to [developer.yahoo.com/apps/create](https://developer.yahoo.com/apps/create/) and create an app:
 
-### 2. Find Your League and Team IDs
+- **OAuth Client Type:** `Confidential Client`
+- **Redirect URI:** `https://localhost:3000/callback` *(must match exactly)*
+- **API Permissions:** `Fantasy Sports → Read`
 
-Visit your team page: `https://hockey.fantasysports.yahoo.com/hockey/{LEAGUE_ID}/{TEAM_ID}`
+Copy your **Client ID** and **Client Secret**.
 
-Example: `https://hockey.fantasysports.yahoo.com/hockey/51154/8`
-- League ID: `51154`
-- Team ID: `8`
+> 🔒 Treat the Client Secret like a password. Never commit it. If it ever leaks, **rotate it** by creating a new app and deleting the old one — see [SECURITY.md](./SECURITY.md).
 
-### 3. Install and Configure
+### 2. Find your league and team IDs
+
+From your team URL `https://hockey.fantasysports.yahoo.com/hockey/{LEAGUE_ID}/{TEAM_ID}` — the two numbers are your league and team IDs.
+
+### 3. Install & configure
 
 ```bash
-# Clone or download this repository
-cd yahoo-fantasy-mcp
-
-# Install dependencies
+git clone https://github.com/semanticintent/semantic-chirp-intelligence-mcp.git
+cd semantic-chirp-intelligence-mcp
 npm install
-
-# Create .env file from template
-cp .env.example .env
-
-# Edit .env with your credentials
-# YAHOO_CLIENT_ID=your_client_id
-# YAHOO_CLIENT_SECRET=your_client_secret
-# YAHOO_LEAGUE_ID=your_league_id
-# YAHOO_TEAM_ID=your_team_id
+cp .env.example .env   # then fill in your credentials
 ```
 
-### 4. Build the Server
+`.env`:
+```
+YAHOO_CLIENT_ID=your_client_id
+YAHOO_CLIENT_SECRET=your_client_secret
+YAHOO_LEAGUE_ID=your_league_id
+YAHOO_TEAM_ID=your_team_id
+```
+
+### 4. Build
 
 ```bash
 npm run build
 ```
 
-### 5. Authenticate with Yahoo
+### 5. Authenticate with Yahoo (one time)
 
 ```bash
 node authenticate.js
 ```
 
-1. A URL will appear in your terminal
-2. Open it in your browser
-3. Your browser will show a security warning (self-signed certificate) - this is normal
-4. Click **"Advanced"** → **"Proceed to localhost (unsafe)"** to continue
-5. Sign in to Yahoo and authorize the app
-6. You'll see "✅ Authentication Successful!" - the token is saved to `.yahoo-oauth.json`
+Open the printed URL, click through the self-signed-certificate warning (it's a local callback), sign in, and authorize. The token is saved to `.yahoo-oauth.json` (git-ignored). The server auto-refreshes it after that.
 
 ### 6. Add to Claude Desktop
 
-Edit your Claude Desktop config file:
-- **Mac**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
-Add the server configuration:
+Edit your Claude Desktop config:
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
-    "yahoo-fantasy-hockey": {
+    "semantic-chirp-intelligence-mcp": {
       "command": "node",
-      "args": ["C:/workspace/dev-tools/yahoo-fantasy-mcp/dist/index.js"],
+      "args": ["/absolute/path/to/semantic-chirp-intelligence-mcp/build/index.js"],
       "env": {
         "YAHOO_CLIENT_ID": "your_client_id",
         "YAHOO_CLIENT_SECRET": "your_client_secret",
@@ -102,166 +163,73 @@ Add the server configuration:
 }
 ```
 
-**Note**: Update the path to match your installation location. Use forward slashes `/` even on Windows.
+Use an **absolute path** to `build/index.js` (forward slashes, even on Windows). Restart Claude Desktop — the CHIRP tools will appear.
 
-### 7. Restart Claude Desktop
+---
 
-Restart Claude Desktop to load the MCP server. You should see the Yahoo Fantasy Hockey tools available.
+## Usage
 
-## Available Tools
+Once connected, just talk to Claude about your team:
 
-### Read-Only Tools
+- *"Run ICE on my roster — what should I actually do this week?"*
+- *"Where do I have a games-in-hand edge over my opponent?"*
+- *"Find me streaming goalies for the weekend — real value, not desperation pickups."*
+- *"Am I winning my matchup? Which categories am I losing?"*
+- *"Who are the hottest waiver adds in my league?"*
+- *"Show me the governance dashboard."*
 
-| Tool | Description |
-|------|-------------|
-| `get_team_roster` | View your current roster with all players, positions, and injury status |
-| `get_league_standings` | Get current league standings with wins, losses, and points |
-| `get_current_matchup` | See your current week's opponent and matchup status |
-| `search_players` | Search available free agents by position (C, LW, RW, D, G) |
-| `get_player_stats` | Get detailed statistics for any player by ID |
-| `get_weekly_stats` | View your team's current week statistics vs opponent |
-| `compare_matchup` | Category-by-category breakdown of your current matchup |
-| `optimize_lineup` | AI-powered recommendations for optimal lineup (injured players, healthy bench, etc.) |
-| `get_trending_players` | See most added or most owned players in your league |
-| `debug_api_call` | Inspect raw Yahoo API responses for troubleshooting |
-
-### Tool Examples
-
-**Get Your Roster:**
-```
-"Show me my current roster"
-```
-
-**Search Free Agents:**
-```
-"Search for available goalies"
-"Find top 10 available centers"
-```
-
-**Get Player Stats:**
-```
-"Get stats for player ID 6381"
-```
-
-**Weekly Matchup:**
-```
-"How am I doing in my current matchup?"
-"Show me category breakdown vs my opponent"
-```
-
-**Lineup Optimization:**
-```
-"Should I make any lineup changes?"
-"Are there any injured players in my active lineup?"
-```
-
-**Trending Players:**
-```
-"Who are the hottest waiver pickups?"
-"Show me most owned players"
-```
-
-## Usage Examples with Claude
-
-Once configured, you can have natural conversations with Claude about your fantasy team:
-
-- *"Check my roster and tell me if anyone is injured"*
-- *"Who are the top available centers I should consider?"*
-- *"Am I winning my matchup this week?"*
-- *"Should I start any of my bench players tonight?"*
-- *"Which categories am I winning and losing?"*
-- *"Show me trending goalies in my league"*
-
-## Troubleshooting
-
-### "No authentication token found"
-Run `node authenticate.js` to create a new token.
-
-### "Token expired" errors
-The server automatically refreshes tokens, but if issues persist, re-run `node authenticate.js`.
-
-### "not valid JSON" error in Claude Desktop
-Make sure you have `"DOTENV_CONFIG_QUIET": "true"` in your Claude Desktop config env vars.
-
-### Can't see the tools in Claude
-1. Check that the path in `claude_desktop_config.json` is correct
-2. Make sure you built the project (`npm run build`)
-3. Restart Claude Desktop completely
-4. Check Claude Desktop logs for errors
-
-### Self-signed certificate warnings
-This is normal for local development. The authenticate script generates a temporary SSL certificate for the OAuth callback. Click through the browser warning to proceed.
+---
 
 ## Development
 
 ```bash
-# Build TypeScript
-npm run build
-
-# Run in development (with rebuild on changes)
-npm run dev
-
-# Type check
-npx tsc --noEmit
+npm run build        # compile TypeScript -> build/
+npm run type-check   # tsc --noEmit
+npm test             # run the vitest suite once
+npm run test:watch   # watch mode
+npm run test:coverage
 ```
 
-## Project Structure
+### Project structure
 
 ```
-yahoo-fantasy-mcp/
+semantic-chirp-intelligence-mcp/
 ├── src/
-│   ├── index.ts          # Main MCP server implementation
-│   ├── types.ts          # TypeScript type definitions
-│   └── yahoo-fantasy.d.ts # Yahoo API type declarations
-├── authenticate.js        # OAuth helper script
-├── package.json
-├── tsconfig.json
-├── .env.example          # Environment template
-├── .gitignore
-└── README.md
+│   ├── index.ts            # MCP server (stdio) + tool registration
+│   ├── analyses/           # Template-Pattern analyses (Ice, Streaming, GamesInHand, WeekendStream, Lineup, Breakout)
+│   ├── template/           # AnalysisTemplate base
+│   ├── services/           # ChirpIntelligence, YahooApiClient
+│   ├── config/             # tool-metadata, personality-modes, chirp-styles
+│   ├── domain/             # types, governance
+│   └── experimental/       # semantic-intent parser experiments
+├── tests/                  # vitest tests
+├── authenticate.js         # one-time Yahoo OAuth helper
+├── docs/                   # documentation (architecture, setup, dev notes)
+└── .env.example
 ```
-
-## Token Management
-
-- Tokens are stored in `.yahoo-oauth.json` (git-ignored)
-- Access tokens expire after 1 hour
-- The server automatically refreshes tokens using the refresh token
-- Refresh tokens are long-lived but may require re-authentication periodically
-
-## Security Notes
-
-- Never commit `.env` or `.yahoo-oauth.json` to version control
-- The `.gitignore` file protects these files by default
-- Keep your Client Secret confidential
-- The server runs locally - no data is sent to third parties
-
-## API Rate Limits
-
-Yahoo Fantasy API has rate limits. The server includes:
-- Token caching to minimize auth requests
-- Efficient API calls with proper error handling
-- Debug logging to stderr (won't interfere with MCP protocol)
-
-## Contributing
-
-Contributions welcome! This server currently provides read-only access. Future enhancements could include:
-- Transaction tools (add/drop players, trades)
-- Lineup setting functionality
-- Multi-team/multi-league support
-- Caching layer for performance
-- More advanced analytics
-
-## License
-
-MIT
-
-## Acknowledgments
-
-Built with:
-- [Model Context Protocol SDK](https://github.com/anthropics/mcp) by Anthropic
-- [Yahoo Fantasy Sports API](https://developer.yahoo.com/fantasysports/)
-- TypeScript, Node.js
 
 ---
 
-**🏒 Happy fantasy hockey managing with AI assistance!**
+## Security
+
+- **Read-only** integration — requests the minimum Yahoo `Read` permission; never modifies your roster or transactions.
+- **Local-only** — runs over stdio; the only network calls are to Yahoo's API (and the NHL public schedule API).
+- **Secrets never committed** — `.env` and `.yahoo-oauth.json` are git-ignored. See [SECURITY.md](./SECURITY.md) for the full policy and how to rotate a leaked credential.
+
+## Contributing
+
+Contributions welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) and the [Code of Conduct](./CODE_OF_CONDUCT.md). New analyses should extend `AnalysisTemplate` and declare intent metadata in `tool-metadata.ts`.
+
+## License
+
+[MIT](./LICENSE) © semanticintent
+
+## Acknowledgments
+
+- [Model Context Protocol](https://modelcontextprotocol.io) by Anthropic
+- [Yahoo Fantasy Sports API](https://developer.yahoo.com/fantasysports/)
+- Sibling project: [`semantic-wake-intelligence-mcp`](https://github.com/semanticintent/semantic-wake-intelligence-mcp)
+
+---
+
+**🏒 Now go win your league. ICE doesn't lie.**

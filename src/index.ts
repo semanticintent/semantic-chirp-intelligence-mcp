@@ -1278,7 +1278,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             endpoint: {
               type: "string",
-              description: "API endpoint to call (e.g., '/team/nhl.l.51154.t.8/roster')",
+              description: "API endpoint to call (e.g., '/team/nhl.l.{LEAGUE_ID}.t.{TEAM_ID}/roster')",
             },
           },
           required: ["endpoint"],

@@ -1,0 +1,27 @@
+# Source & tests (ship compiled build/ only)
+src/
+tests/
+**/*.test.ts
+vitest.config.ts
+tsconfig.json
+coverage/
+
+# Dev tooling & CI
+.github/
+.vscode/
+.env*
+!.env.example
+claude-desktop-config.json
+
+# Dev / process docs (keep README and LICENSE)
+docs/
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+CHANGELOG.md
+SEMANTIC_ANCHORING_GOVERNANCE.md
+
+# Local artifacts
+.yahoo-oauth.json
+*.log
+.DS_Store
