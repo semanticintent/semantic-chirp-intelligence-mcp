@@ -3,10 +3,13 @@
 > **Fantasy hockey intelligence that chirps you into championships.**
 > A Model Context Protocol (MCP) server that turns your Yahoo Fantasy Hockey league into an AI advisor — not just a data pipe, but a **Semantic Intent** brain that reads the ice and tells you the cold truth.
 
+[![Docs](https://img.shields.io/badge/docs-chirp.semanticintent.dev-1f6feb)](https://chirp.semanticintent.dev)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
 ![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)
+
+📖 **Full documentation:** [chirp.semanticintent.dev](https://chirp.semanticintent.dev)
 
 ---
 
@@ -215,6 +218,18 @@ semantic-chirp-intelligence-mcp/
 - **Read-only** integration — requests the minimum Yahoo `Read` permission; never modifies your roster or transactions.
 - **Local-only** — runs over stdio; the only network calls are to Yahoo's API (and the NHL public schedule API).
 - **Secrets never committed** — `.env` and `.yahoo-oauth.json` are git-ignored. See [SECURITY.md](./SECURITY.md) for the full policy and how to rotate a leaked credential.
+
+## Part of Cormorant Foraging
+
+ChirpIQX is the **Sound** (communication) dimension of [Cormorant Foraging](https://cormorantforaging.dev) — a family of Semantic Intent intelligence systems, each mapping a different dimension:
+
+| System | Dimension | Domain |
+|--------|-----------|--------|
+| **ChirpIQX** *(this repo)* | Sound | Fantasy hockey intelligence |
+| **WakeIQX** | Time | [AI context temporal intelligence](https://github.com/semanticintent/semantic-wake-intelligence-mcp) |
+| **PerchIQX** | Space | Database schema intelligence |
+
+📖 Learn more at [chirp.semanticintent.dev](https://chirp.semanticintent.dev) · [cormorantforaging.dev](https://cormorantforaging.dev)
 
 ## Contributing
 
