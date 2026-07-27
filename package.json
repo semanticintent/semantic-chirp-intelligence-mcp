@@ -42,8 +42,13 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+<<<<<<< HEAD
     "@modelcontextprotocol/sdk": "^1.19.1",
     "dotenv": "^17.4.2",
+=======
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^17.2.3",
+>>>>>>> 55c5dfa (chore(deps): Bump @modelcontextprotocol/sdk from 1.19.1 to 1.29.0)
     "selfsigned": "^3.0.1",
     "xml2js": "^0.6.2"
   }
