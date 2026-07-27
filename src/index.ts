@@ -1151,6 +1151,197 @@ async function getTrendingPlayers(trendType: string = "add", count: number = 25)
   return { trend_type: trendType, players };
 }
 
+// Tool: Chirp Opponent
+async function chirpOpponent(chirpIntensity = 'savage', personalityMode = 'roast_master') {
+  const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/matchups`);
+  const matchups = data.fantasy_content.team[1].matchups;
+  const currentMatchup = findCurrentMatchup(matchups);
+
+  if (!currentMatchup) {
+    return { message: "No active matchup — nobody to chirp right now." };
+  }
+
+  const matchupData = currentMatchup["0"];
+  const teams = matchupData?.teams;
+  if (!teams) return { message: "Could not read matchup teams." };
+
+  const opponentTeamArray = teams['1']?.team?.[0];
+  const opponentTeamKey = opponentTeamArray?.find((item: any) => item.team_key)?.team_key;
+  const opponentName = opponentTeamArray?.find((item: any) => item.name)?.name || 'Unknown';
+
+  if (!opponentTeamKey) return { message: "Could not find opponent team key." };
+
+  const rosterData = await yahooApiRequest(`/team/${opponentTeamKey}/roster`);
+  const rawPlayers = rosterData.fantasy_content.team[1].roster["0"].players;
+  const playerKeys = Object.keys(rawPlayers).filter(k => k !== 'count');
+
+  const players = playerKeys.map(key => {
+    const pd = rawPlayers[key].player[0];
+    const posData = rawPlayers[key].player[1];
+    return {
+      name: pd.find((item: any) => item.name)?.name?.full || 'Unknown',
+      position: pd.find((item: any) => item.display_position)?.display_position || '?',
+      team: pd.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr || '?',
+      status: pd.find((item: any) => item.status)?.status || '',
+      selected_position: posData?.selected_position?.find((item: any) => item.position)?.position || 'BN',
+    };
+  });
+
+  const injured = players.filter(p => p.status && p.status !== '');
+  const onIR = players.filter(p => p.selected_position === 'IR');
+  const onBench = players.filter(p => p.selected_position === 'BN');
+  const injuredActive = injured.filter(p => p.selected_position !== 'IR' && p.selected_position !== 'BN');
+  const activeCount = players.length - onBench.length - onIR.length;
+
+  const style = CHIRP_STYLES[chirpIntensity as keyof typeof CHIRP_STYLES] || CHIRP_STYLES['savage'];
+  const personality = PERSONALITY_MODES[personalityMode as keyof typeof PERSONALITY_MODES] || PERSONALITY_MODES['roast_master'];
+
+  const chirpLines: string[] = [];
+  if (injured.length >= 3) {
+    chirpLines.push(`${opponentName} is running a hospital roster with ${injured.length} banged-up players. They should rename the team to "The Walking Wounded."`);
+  } else if (injured.length > 0) {
+    chirpLines.push(`${injured.length} of ${opponentName}'s key players are dinged up. Couldn't happen to a nicer team.`);
+  }
+  if (injuredActive.length > 0) {
+    chirpLines.push(`They've got ${injuredActive.length} injured player${injuredActive.length > 1 ? 's' : ''} still in active slots — not even using their IR correctly. Amateur hour.`);
+  }
+  if (onBench.length >= 5) {
+    chirpLines.push(`${onBench.length} players collecting dust on the bench. That's not a fantasy team, that's a waiting room.`);
+  }
+  if (chirpLines.length === 0) {
+    chirpLines.push(`${opponentName} looks healthy on paper — but paper doesn't win categories. Execution does. That's your edge.`);
+  }
+
+  const weaknesses = [
+    ...(injured.length >= 3 ? [`${injured.length} players injured`] : []),
+    ...(injuredActive.length > 0 ? [`${injuredActive.length} injured players in active slots`] : []),
+    ...(onBench.length >= 5 ? [`Heavy bench (${onBench.length} players)`] : []),
+  ];
+
+  return {
+    opponent: opponentName,
+    week: currentMatchup.week,
+    opponent_roster_summary: {
+      total_players: players.length,
+      active_players: activeCount,
+      bench_players: onBench.length,
+      ir_players: onIR.length,
+      injured_players: injured.length,
+      injured_active: injuredActive.length,
+    },
+    weaknesses: weaknesses.length > 0 ? weaknesses : ["No obvious weaknesses detected — they're running a clean roster."],
+    chirp: {
+      style: style.tone,
+      personality: personality.voice,
+      main_chirp: `${style.prefix} ${chirpLines.join(' ')} ${style.suffix}`,
+      ice_cold_truth: `❄️ Bottom line: know your enemy. ${opponentName} has gaps — your job is to exploit them.`,
+    },
+    opponent_roster: players,
+  };
+}
+
+// Tool: Analyze Trade
+async function analyzeTradeImpact(giving: string[], receiving: string[], chirpIntensity = 'standard') {
+  const statIdLabels: Record<string, string> = {
+    '1': 'G', '2': 'A', '3': '+/-', '4': 'PIM', '5': 'SOG',
+    '8': 'PPP', '31': 'W', '32': 'GAA', '33': 'SV%',
+  };
+  const categories = ['G', 'A', '+/-', 'PIM', 'SOG', 'PPP', 'W', 'GAA', 'SV%'];
+  const lowerIsBetter = new Set(['GAA']);
+
+  async function findPlayerStats(name: string) {
+    const searchData = await yahooApiRequest(
+      `/league/nhl.l.${LEAGUE_ID}/players;search=${encodeURIComponent(name)};count=1`
+    );
+    const playersData = searchData.fantasy_content.league[1].players;
+    const playerKeys = Object.keys(playersData).filter(k => k !== 'count');
+    if (playerKeys.length === 0) return { name, found: false, stats: {} as Record<string, number>, position: '', team: '' };
+
+    const pd = playersData[playerKeys[0]].player[0];
+    const playerId = pd.find((item: any) => item.player_id)?.player_id;
+    const foundName = pd.find((item: any) => item.name)?.name?.full || name;
+    const position = pd.find((item: any) => item.display_position)?.display_position || '?';
+    const team = pd.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr || '?';
+
+    if (!playerId) return { name, found: false, stats: {} as Record<string, number>, position, team };
+
+    const statsData = await yahooApiRequest(`/player/nhl.p.${playerId}/stats`);
+    const statsArray = statsData.fantasy_content.player[1]?.player_stats?.stats || [];
+
+    const stats: Record<string, number> = {};
+    statsArray.forEach((sw: any) => {
+      const stat = sw.stat;
+      if (stat && statIdLabels[stat.stat_id]) {
+        stats[statIdLabels[stat.stat_id]] = parseFloat(stat.value) || 0;
+      }
+    });
+
+    return { name: foundName, found: true, playerId, position, team, stats };
+  }
+
+  const [givingPlayers, receivingPlayers] = await Promise.all([
+    Promise.all(giving.map(name => findPlayerStats(name))),
+    Promise.all(receiving.map(name => findPlayerStats(name))),
+  ]);
+
+  function sumStats(players: any[]): Record<string, number> {
+    const totals: Record<string, number> = {};
+    players.filter(p => p.found).forEach(p => {
+      categories.forEach(cat => {
+        totals[cat] = (totals[cat] || 0) + (p.stats[cat] || 0);
+      });
+    });
+    return totals;
+  }
+
+  const givingStats = sumStats(givingPlayers);
+  const receivingStats = sumStats(receivingPlayers);
+
+  let receivingWins = 0;
+  let givingWins = 0;
+  const categoryBreakdown = categories
+    .filter(cat => (givingStats[cat] || 0) !== 0 || (receivingStats[cat] || 0) !== 0)
+    .map(cat => {
+      const gVal = givingStats[cat] || 0;
+      const rVal = receivingStats[cat] || 0;
+      const lowerBetter = lowerIsBetter.has(cat);
+      let winner: 'receiving' | 'giving' | 'push';
+      if (Math.abs(rVal - gVal) < 0.01) {
+        winner = 'push';
+      } else if (lowerBetter ? rVal < gVal : rVal > gVal) {
+        winner = 'receiving';
+        receivingWins++;
+      } else {
+        winner = 'giving';
+        givingWins++;
+      }
+      return { category: cat, giving: gVal, receiving: rVal, winner };
+    });
+
+  const verdict = receivingWins > givingWins ? 'ACCEPT' : receivingWins < givingWins ? 'DECLINE' : 'PUSH';
+  const style = CHIRP_STYLES[chirpIntensity as keyof typeof CHIRP_STYLES] || CHIRP_STYLES['standard'];
+
+  const chirpText = verdict === 'ACCEPT'
+    ? `${style.prefix} you're gaining ${receivingWins} categories vs ${givingWins}. That's not a trade — that's a heist. Pull the trigger. ${style.suffix}`
+    : verdict === 'DECLINE'
+    ? `${style.prefix} you'd be handing away ${givingWins} categories for only ${receivingWins} back. Your opponent is praying you say yes. Hard pass. ${style.suffix}`
+    : `${style.prefix} dead even at ${receivingWins} categories each. Unless this fixes a positional need, don't bother. ${style.suffix}`;
+
+  const iceColdTruth = verdict === 'ACCEPT'
+    ? '❄️ ICE Cold Truth: Smart managers see value before their opponent does. This is that moment.'
+    : verdict === 'DECLINE'
+    ? '🔥 Savage Reality: This trade has "I got played" written all over it. Close the chat.'
+    : '💡 Real Talk: Push trades only make sense when they fix a roster hole. Otherwise, pass.';
+
+  return {
+    trade: { giving, receiving },
+    players: { giving: givingPlayers, receiving: receivingPlayers },
+    category_breakdown: categoryBreakdown,
+    summary: { receiving_wins: receivingWins, giving_wins: givingWins, verdict },
+    chirp: { verdict_chirp: chirpText, ice_cold_truth: iceColdTruth },
+  };
+}
+
 
 
 // Initialize MCP Server
@@ -1434,7 +1625,38 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["date_range"]
         }
-      }
+      },
+      {
+        name: "chirp_opponent",
+        description: "Scout your current matchup opponent's roster and generate savage trash talk based on their weaknesses — injuries, IR mismanagement, bench-heavy lineups. Pure ChirpIQX energy.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            ...baseChirpSchema,
+          },
+        },
+      },
+      {
+        name: "analyze_trade",
+        description: "Evaluate a trade offer by comparing the net category impact of players you're giving vs receiving. Returns a category-by-category breakdown and an ACCEPT / DECLINE / PUSH verdict with chirp commentary.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            giving: {
+              type: "array",
+              items: { type: "string" },
+              description: "Player names you are giving away (e.g. [\"Nathan MacKinnon\", \"Mitch Marner\"])",
+            },
+            receiving: {
+              type: "array",
+              items: { type: "string" },
+              description: "Player names you are receiving (e.g. [\"Auston Matthews\"])",
+            },
+            ...baseChirpSchema,
+          },
+          required: ["giving", "receiving"],
+        },
+      },
     ],
   };
 });
@@ -1823,6 +2045,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             isError: true
           };
         }
+      }
+
+      case "chirp_opponent": {
+        const intensity = (args?.chirp_intensity as string) || 'savage';
+        const mode = (args?.personality_mode as string) || 'roast_master';
+        const result = await chirpOpponent(intensity, mode);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "analyze_trade": {
+        const giving = args?.giving as string[];
+        const receiving = args?.receiving as string[];
+        if (!giving || !receiving || giving.length === 0 || receiving.length === 0) {
+          throw new Error("Both 'giving' and 'receiving' arrays are required and must not be empty.");
+        }
+        const intensity = (args?.chirp_intensity as string) || 'standard';
+        const result = await analyzeTradeImpact(giving, receiving, intensity);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
 
       default:

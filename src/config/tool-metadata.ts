@@ -110,5 +110,19 @@ export const TOOL_METADATA: Record<string, any> = {
     intent_category: "market_intelligence",
     hockey_context: "waiver_trends",
     chirp_potential: "trend_opportunities"
+  },
+  chirp_opponent: {
+    chirp_style: "savage_trash_talk",
+    discovery_tags: ["opponent", "chirp", "trash_talk", "weaknesses", "rivalry"],
+    intent_category: "psychological_warfare",
+    hockey_context: "head_to_head_dominance",
+    chirp_potential: "opponent_destruction"
+  },
+  analyze_trade: {
+    chirp_style: "trade_verdict",
+    discovery_tags: ["trade", "analysis", "value", "categories", "decision"],
+    intent_category: "trade_intelligence",
+    hockey_context: "roster_maneuvering",
+    chirp_potential: "trade_reality"
   }
 };
