@@ -26,9 +26,12 @@
   ],
   "author": "semanticintent",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/semanticintent/semantic-chirp-intelligence-mcp.git"
+    "url": "git+https://github.com/semanticintent/semantic-chirp-intelligence-mcp.git"
   },
   "devDependencies": {
     "@types/node": "^24.7.0",
