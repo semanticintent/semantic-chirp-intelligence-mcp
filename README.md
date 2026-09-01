@@ -266,15 +266,29 @@ Including `/game/nhl`, which needs no user data. Yahoo issued a token with no
 Fantasy scope. The tell is `xoauth_yahoo_guid` missing from the token response —
 `authenticate.js` reports this immediately after the exchange.
 
-1. Confirm at [developer.yahoo.com/apps](https://developer.yahoo.com/apps/) that
-   **Fantasy Sports → Read** is actually *ticked* and the client type is
-   **Confidential Client**.
+1. Confirm at [developer.yahoo.com/apps](https://developer.yahoo.com/apps/) that the
+   app has a **Fantasy Sports** permission at all. Yahoo's permission list opens on
+   other APIs (TW Auction, Profiles), so it is easy to end up with an app named for
+   fantasy that carries an unrelated permission. Such an app rejects every `fspt-*`
+   scope with `invalid_scope`, and any token it mints 403s everywhere. If you have
+   several similarly named apps, check the **App ID** matches the credentials in
+   `.env`. Client type must be **Confidential Client**.
 2. If you already consented once under a misconfigured app, Yahoo reissues under
    the **existing grant** and ignores the new scope request — you get a new
    access token with the *same* refresh token, and the same 403. Revoke the app
    at [login.yahoo.com/account/connected-apps](https://login.yahoo.com/account/connected-apps),
    delete `.yahoo-oauth.json`, and authenticate again.
 3. A newly created or edited Yahoo app can take 15–60 minutes to propagate.
+
+**`invalid_scope` at the consent screen**
+Either the requested scope does not match the app's registered permission
+(`fspt-r` for Read, `fspt-w` for Read/Write), or — far more often — the app has no
+Fantasy Sports permission at all. See the 403 entry above.
+
+**Yahoo will not delete an app**
+A long-standing bug in Yahoo's developer console. Untick every API permission and
+save instead: a permission-less app mints tokens that can do nothing. Also revoke
+the grant at [connected-apps](https://login.yahoo.com/account/connected-apps).
 
 **`EADDRINUSE: address already in use :::3000`**
 A previous `authenticate.js` is still running. `lsof -ti:3000 | xargs kill`.

@@ -122,10 +122,21 @@ const server = https.createServer(serverOptions, async (req, res) => {
         if (error_description) console.error(`   description: ${error_description}`);
 
         if (String(error) === 'invalid_scope') {
-          console.error('\n   The scope requested does not match the app\'s registered permission.');
-          console.error(`   You asked for: ${process.env.YAHOO_OAUTH_SCOPE || 'fspt-r'}`);
-          console.error('   Use fspt-r for a Read app, fspt-w for a Read/Write app, and check');
-          console.error('   the permission actually saved at https://developer.yahoo.com/apps/');
+          console.error(`\n   You asked Yahoo for scope: ${process.env.YAHOO_OAUTH_SCOPE || 'fspt-r'}`);
+          console.error('');
+          console.error('   The most common cause is NOT a read/write mismatch — it is that the');
+          console.error('   app has no Fantasy Sports permission at all. Yahoo\'s permission list');
+          console.error('   opens on other APIs (TW Auction, Profiles), so it is easy to create an');
+          console.error('   app with the right name and the wrong permission. Such an app rejects');
+          console.error('   every fspt-* scope, and any token it does mint 403s on every Fantasy');
+          console.error('   endpoint — including /game/nhl, which needs no user data.');
+          console.error('');
+          console.error('   At https://developer.yahoo.com/apps/ open the app for THIS Client ID');
+          console.error('   and confirm, in API Permissions:');
+          console.error('     • "Fantasy Sports" is listed and ticked (not TW Auction, not Profiles)');
+          console.error('     • Read is enough; use fspt-w only if the app is registered Read/Write');
+          console.error('   If you have several apps with similar names, check the App ID matches');
+          console.error('   the one whose credentials are in .env.');
         }
         if (String(error) === 'access_denied') {
           console.error('\n   Consent was declined, or the app lacks the permission it asked for.');
