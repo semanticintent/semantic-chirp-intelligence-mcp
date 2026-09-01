@@ -134,6 +134,20 @@ const server = https.createServer(serverOptions, async (req, res) => {
       const token = await tokenResponse.json();
       console.log('📝 Token retrieved successfully');
 
+      // Report what the token actually carries. A token issued without the
+      // Fantasy scope is accepted here and then 403s on every Fantasy
+      // endpoint, so surface the tell now rather than three commands later.
+      console.log(`   fields returned: ${Object.keys(token).sort().join(', ')}`);
+      if (token.xoauth_yahoo_guid) {
+        console.log('   ✅ xoauth_yahoo_guid present — token is Fantasy-scoped');
+      } else {
+        console.log('   ⚠️  xoauth_yahoo_guid MISSING — Yahoo issued a token with no Fantasy scope.');
+        console.log('      Every Fantasy endpoint will return 403, including /game/nhl.');
+        console.log('      Confirm "Fantasy Sports" is actually TICKED (not just listed)');
+        console.log('      at https://developer.yahoo.com/apps/ for this Client ID.');
+        console.log('      A newly created or edited app can take 15-60 minutes to propagate.');
+      }
+
       // Save the token with timestamp
       const tokenWithTimestamp = {
         access_token: token.access_token,
