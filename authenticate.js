@@ -81,14 +81,24 @@ const server = https.createServer(serverOptions, async (req, res) => {
 
   if (parsedUrl.pathname === '/') {
     // Build Yahoo OAuth authorization URL
-    // Request the Fantasy Sports read scope explicitly.
+    // Request the Fantasy Sports scope explicitly.
     //
     // Yahoo will otherwise fall back to whatever the app happens to be
-    // configured with, and a token issued without fspt-r is accepted at the
-    // token endpoint but 403s on every Fantasy endpoint afterwards - including
-    // /game/nhl, which needs no user data at all. Asking for it by name makes
-    // a misconfigured app fail at consent, where the cause is visible.
-    const scope = 'fspt-r';
+    // configured with, and a token issued without a Fantasy scope is accepted
+    // at the token endpoint but 403s on every Fantasy endpoint afterwards -
+    // including /game/nhl, which needs no user data at all. Asking for it by
+    // name makes a misconfigured app fail at consent, where the cause is
+    // visible.
+    //
+    // fspt-r  = Fantasy Sports read
+    // fspt-w  = Fantasy Sports read/write
+    //
+    // This server only ever issues GET requests, so read is all it needs.
+    // Yahoo apps registered as Read-only are widely reported to mint tokens
+    // that 403 regardless, and switching the app to Read/Write is the known
+    // workaround — set YAHOO_OAUTH_SCOPE=fspt-w to match such an app.
+    const scope = process.env.YAHOO_OAUTH_SCOPE || 'fspt-r';
+    console.log(`🔑 Requesting OAuth scope: ${scope}`);
     const authUrl = `https://api.login.yahoo.com/oauth2/request_auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${scope}&language=en-us`;
 
     res.writeHead(302, { 'Location': authUrl });
