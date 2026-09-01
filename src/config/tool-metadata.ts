@@ -118,6 +118,32 @@ export const TOOL_METADATA: Record<string, any> = {
     hockey_context: "head_to_head_dominance",
     chirp_potential: "opponent_destruction"
   },
+  schedule_value: {
+    chirp_style: "strategic_advantage",
+    discovery_tags: ["draft", "schedule", "playoff_weeks", "games_per_week", "tiebreaker"],
+    intent_category: "draft_intelligence",
+    hockey_context: "schedule_warfare",
+    chirp_potential: "schedule_domination",
+    // 🆕 Template Pattern Metadata
+    uses_template_pattern: true,
+    analysis_class: "ScheduleValueAnalysis",
+    template_version: "1.0.0",
+    analysis_type: "schedule_advantage"
+  },
+  chirp_draft_pick: {
+    chirp_style: "ice_cold_truth",
+    discovery_tags: ["draft", "pick", "ADP", "value", "roster_build"],
+    intent_category: "draft_intelligence",
+    hockey_context: "draft_day_decisions",
+    chirp_potential: "draft_reality",
+    is_ice_engine: true,
+    tool_semantic_identity: "ICE - Intent Chirp Engine (Draft)",
+    // 🆕 Template Pattern Metadata
+    uses_template_pattern: true,
+    analysis_class: "DraftPickAnalysis",
+    template_version: "1.0.0",
+    analysis_type: "draft_pick"
+  },
   analyze_trade: {
     chirp_style: "trade_verdict",
     discovery_tags: ["trade", "analysis", "value", "categories", "decision"],

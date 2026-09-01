@@ -65,6 +65,8 @@ import {
 } from './experimental/semantic-breakout-tool.js';
 
 import { BreakoutAnalysis } from './analyses/BreakoutAnalysis.js';
+import { ScheduleValueAnalysis } from './analyses/ScheduleValueAnalysis.js';
+import { DraftPickAnalysis } from './analyses/DraftPickAnalysis.js';
 
 dotenv.config();
 
@@ -120,6 +122,8 @@ const gamesInHandAnalysis = new GamesInHandAnalysis(yahooClient, LEAGUE_ID, TEAM
 const streamingAnalysis = new StreamingAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const lineupAnalysis = new LineupAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const breakoutAnalysis = new BreakoutAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
+const scheduleValueAnalysis = new ScheduleValueAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
+const draftPickAnalysis = new DraftPickAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const weekendStreamAnalysis = new WeekendStreamAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 
 let cachedToken: YahooToken | null = null;
@@ -1657,6 +1661,68 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["giving", "receiving"],
         },
       },
+      {
+        name: "schedule_value",
+        description: "🗓️ Rate all 32 NHL clubs on what their schedule is worth to a fantasy roster — total games, four-game weeks, light weeks, back-to-backs, and games played during YOUR league's playoff weeks (read from your Yahoo league settings, not guessed). The draft tiebreaker when two players are close.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            teams: {
+              type: "array",
+              items: { type: "string" },
+              description: "Limit to specific clubs (NHL or Yahoo abbreviations, e.g. [\"TOR\", \"SJ\"]). Omit to rate all 32."
+            },
+            playoff_start_week: {
+              type: "number",
+              description: "Override the fantasy playoff start week. Defaults to playoff_start_week from your Yahoo league settings."
+            },
+            playoff_end_week: {
+              type: "number",
+              description: "Override the final fantasy week. Defaults to your league's end_week."
+            },
+            top_n: {
+              type: "number",
+              description: "How many clubs to highlight (default 8)",
+              default: 8
+            },
+            ...baseChirpSchema
+          }
+        }
+      },
+      {
+        name: "chirp_draft_pick",
+        description: "❄️ ICE at the draft table — with a pick on the clock, ranks who to take against YOUR draft: who is already gone, what your roster still needs, Yahoo's ADP (so 'value' means the market is wrong here), and each club's schedule during your league's playoff weeks. Pass already_drafted if Yahoo's draft results lag your live draft.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            pick_number: {
+              type: "number",
+              description: "The pick currently on the clock. Inferred from Yahoo draft results if omitted."
+            },
+            already_drafted: {
+              type: "array",
+              items: { type: "string" },
+              description: "Player names already off the board. Merged with Yahoo's draft results — use this when Yahoo's API lags a fast live draft."
+            },
+            roster_needs: {
+              type: "array",
+              items: { type: "string" },
+              description: "Positions you still need, e.g. [\"RW\", \"G\"]. Inferred from your roster if omitted."
+            },
+            max_results: {
+              type: "number",
+              description: "How many candidates to return (default 8)",
+              default: 8
+            },
+            pool_size: {
+              type: "number",
+              description: "How deep to pull the player pool (default 150, max 300)",
+              default: 150
+            },
+            ...baseChirpSchema
+          }
+        }
+      },
     ],
   };
 });
@@ -2063,6 +2129,71 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const intensity = (args?.chirp_intensity as string) || 'standard';
         const result = await analyzeTradeImpact(giving, receiving, intensity);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "schedule_value": {
+        try {
+          const semanticContract = {
+            chirp_intensity: (args?.chirp_intensity as any) || 'standard',
+            personality_mode: (args?.personality_mode as any) || 'analytical',
+            enable_chirp: args?.enable_chirp !== false,
+            semantic_intent: 'user_requested' as const
+          };
+
+          const result = await scheduleValueAnalysis.executeAnalysis(
+            {
+              teams: args?.teams as string[] | undefined,
+              playoff_start_week: args?.playoff_start_week as number | undefined,
+              playoff_end_week: args?.playoff_end_week as number | undefined,
+              top_n: args?.top_n as number | undefined
+            },
+            semanticContract
+          );
+
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              error: errorMessage,
+              note: "Schedule value analysis failed - rates NHL club schedules against your league's playoff weeks"
+            }, null, 2) }],
+            isError: true
+          };
+        }
+      }
+
+      case "chirp_draft_pick": {
+        try {
+          const semanticContract = {
+            chirp_intensity: (args?.chirp_intensity as any) || 'ice_cold',
+            personality_mode: (args?.personality_mode as any) || 'championship_coach',
+            enable_chirp: args?.enable_chirp !== false,
+            semantic_intent: 'user_requested' as const
+          };
+
+          const result = await draftPickAnalysis.executeAnalysis(
+            {
+              pick_number: args?.pick_number as number | undefined,
+              already_drafted: args?.already_drafted as string[] | undefined,
+              roster_needs: args?.roster_needs as string[] | undefined,
+              max_results: args?.max_results as number | undefined,
+              pool_size: args?.pool_size as number | undefined
+            },
+            semanticContract
+          );
+
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              error: errorMessage,
+              note: "Draft pick analysis failed - pass already_drafted explicitly if Yahoo draft results are unavailable"
+            }, null, 2) }],
+            isError: true
+          };
+        }
       }
 
       default:

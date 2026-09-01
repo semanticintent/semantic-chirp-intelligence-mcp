@@ -6,3 +6,4 @@ build/
 .yahoo-oauth.json
 coverage/
 .nhl-schedule-cache/
+.yahoo-verify/
