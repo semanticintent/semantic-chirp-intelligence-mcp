@@ -47,38 +47,44 @@ describe('IceAnalysis', () => {
   });
 
   describe('fetchData()', () => {
-    it('should fetch roster, games in hand, and streaming data in parallel', async () => {
-      const mockRosterData = {
-        fantasy_content: {
-          team: [
-            [{ team_key: teamId }, { name: 'Test Team' }],
-            { roster: { '0': { players: {} } } }
-          ]
-        }
-      };
-
-      mockApiClient.getTeamRoster.mockResolvedValue(mockRosterData);
-
-      // Access protected method through executeAnalysis or by casting
+    // v4: the roster comes from the paste-backed store and the schedule from the
+    // NHL public API. No platform account is involved, so no Yahoo call is made.
+    it('reads the roster from the store rather than a fantasy platform', async () => {
       const fetchDataMethod = (iceAnalysis as any).fetchData.bind(iceAnalysis);
       const result = await fetchDataMethod({ look_ahead_days: 7 });
 
-      expect(mockApiClient.getTeamRoster).toHaveBeenCalledWith(leagueId, teamId);
+      expect(mockApiClient.getTeamRoster).not.toHaveBeenCalled();
       expect(result).toHaveProperty('roster');
       expect(result).toHaveProperty('gamesInHand');
       expect(result).toHaveProperty('streaming');
       expect(result).toHaveProperty('lookAheadDays', 7);
     });
 
-    it('should default to 7 days look ahead if not specified', async () => {
-      mockApiClient.getTeamRoster.mockResolvedValue({
-        fantasy_content: { team: [[{}, {}], { roster: { '0': { players: {} } } }] }
-      });
-
+    it('defaults to a 7 day look-ahead', async () => {
       const fetchDataMethod = (iceAnalysis as any).fetchData.bind(iceAnalysis);
       const result = await fetchDataMethod({});
 
       expect(result.lookAheadDays).toBe(7);
+    });
+
+    it('reports no streaming targets, with the reason', async () => {
+      // Waiver targets need league-private ownership data. Saying so beats
+      // returning an empty list that reads as "nobody is worth adding".
+      const fetchDataMethod = (iceAnalysis as any).fetchData.bind(iceAnalysis);
+      const result = await fetchDataMethod({});
+
+      expect(result.streaming.streaming_targets).toEqual([]);
+      expect(result.streaming.unavailable_reason).toContain('league-private');
+    });
+  });
+
+  describe('prepareData() without a roster', () => {
+    it('explains that no roster was provided instead of returning an empty one', async () => {
+      const prepareDataMethod = (iceAnalysis as any).prepareData.bind(iceAnalysis);
+
+      // "You have no players" and "you have not told me your players" are
+      // different statements, and only one of them is true.
+      await expect(prepareDataMethod({ roster: null }, {})).rejects.toThrow(/set_roster/);
     });
   });
 
