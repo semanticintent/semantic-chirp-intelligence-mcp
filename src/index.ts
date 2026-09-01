@@ -13,19 +13,14 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 // Node.js
-import * as fs from "fs";
-import * as path from "path";
-import { fileURLToPath } from "url";
 import * as dotenv from "dotenv";
-import https from "https";
 import { parseString } from "xml2js";
 import { promisify } from "util";
 
 // Domain layer
 import type {
   ChirpParameters,
-  SemanticChirpContract,
-  YahooToken
+  SemanticChirpContract
 } from './domain/types.js';
 
 import {
@@ -77,9 +72,6 @@ const YAHOO_CLIENT_ID = process.env.YAHOO_CLIENT_ID!;
 const YAHOO_CLIENT_SECRET = process.env.YAHOO_CLIENT_SECRET!;
 const LEAGUE_ID = process.env.YAHOO_LEAGUE_ID!;
 const TEAM_ID = process.env.YAHOO_TEAM_ID!;
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const TOKEN_FILE = path.join(__dirname, "..", ".yahoo-oauth.json");
 
 const YAHOO_API_BASE = "https://fantasysports.yahooapis.com/fantasy/v2";
 
@@ -126,105 +118,6 @@ const scheduleValueAnalysis = new ScheduleValueAnalysis(yahooClient, LEAGUE_ID, 
 const draftPickAnalysis = new DraftPickAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const weekendStreamAnalysis = new WeekendStreamAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 
-let cachedToken: YahooToken | null = null;
-
-function loadToken(): YahooToken | null {
-  try {
-    console.error(`[DEBUG] Looking for token at: ${TOKEN_FILE}`);
-    if (fs.existsSync(TOKEN_FILE)) {
-      const tokenData = fs.readFileSync(TOKEN_FILE, "utf8");
-      const token = JSON.parse(tokenData) as YahooToken;
-      console.error(`[DEBUG] Token loaded successfully`);
-      cachedToken = token;
-      return token;
-    } else {
-      console.error(`[DEBUG] Token file not found`);
-    }
-  } catch (error) {
-    console.error("[ERROR] Error loading token:", error);
-  }
-  return null;
-}
-
-function saveToken(token: YahooToken) {
-  token.expires_at = Date.now() + (token.expires_in * 1000);
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify(token, null, 2));
-  cachedToken = token;
-  console.error("[DEBUG] Token saved successfully");
-}
-
-async function refreshAccessToken(): Promise<string> {
-  const token = cachedToken || loadToken();
-  
-  if (!token) {
-    throw new Error("No refresh token available. Please re-authenticate.");
-  }
-
-  console.error("[DEBUG] Refreshing access token...");
-
-  const tokenData = new URLSearchParams({
-    client_id: YAHOO_CLIENT_ID,
-    client_secret: YAHOO_CLIENT_SECRET,
-    redirect_uri: "oob",
-    refresh_token: token.refresh_token,
-    grant_type: "refresh_token",
-  });
-
-  const options = {
-    hostname: "api.login.yahoo.com",
-    port: 443,
-    path: "/oauth2/get_token",
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Content-Length": tokenData.toString().length,
-    },
-  };
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(options, (res) => {
-      let data = "";
-
-      res.on("data", (chunk) => {
-        data += chunk;
-      });
-
-      res.on("end", () => {
-        try {
-          const newToken = JSON.parse(data) as YahooToken;
-          saveToken(newToken);
-          console.error("[DEBUG] Token refreshed successfully");
-          resolve(newToken.access_token);
-        } catch (error) {
-          reject(new Error(`Failed to parse token response: ${error}`));
-        }
-      });
-    });
-
-    req.on("error", (error) => {
-      reject(error);
-    });
-
-    req.write(tokenData.toString());
-    req.end();
-  });
-}
-
-async function getValidAccessToken(): Promise<string> {
-  const token = cachedToken || loadToken();
-  
-  if (!token) {
-    throw new Error("No authentication token found! Run: node authenticate.js");
-  }
-
-  // Check if token is expired (with 5 minute buffer)
-  if (token.expires_at && token.expires_at < Date.now() + 300000) {
-    console.error("[DEBUG] Token expired or expiring soon, refreshing...");
-    return await refreshAccessToken();
-  }
-
-  return token.access_token;
-}
 
 // Helper function to find current matchup by status
 function findCurrentMatchup(matchups: any): any {
@@ -269,65 +162,18 @@ function findCurrentMatchup(matchups: any): any {
   return matchups[lastKey].matchup;
 }
 
-// Yahoo API helper function
+/**
+ * All Yahoo access goes through the YahooApiClient service.
+ *
+ * index.ts previously carried its own copy of the token lifecycle -
+ * loadToken / saveToken / refreshAccessToken / getValidAccessToken plus a
+ * duplicate request function - while the analysis classes used the service.
+ * Two independent refresh paths wrote the same .yahoo-oauth.json, so a
+ * refresh triggered by a tool handler could race one triggered by an
+ * analysis and clobber the newer token.
+ */
 async function yahooApiRequest(endpoint: string, format: string = "json"): Promise<any> {
-  const accessToken = await getValidAccessToken();
-  
-  const url = `${YAHOO_API_BASE}${endpoint}${endpoint.includes('?') ? '&' : '?'}format=${format}`;
-  
-  console.error(`[DEBUG] API Request: ${endpoint}`);
-
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(url);
-    
-    const options = {
-      hostname: urlObj.hostname,
-      port: 443,
-      path: urlObj.pathname + urlObj.search,
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/json",
-      },
-    };
-
-    const req = https.request(options, (res) => {
-      let data = "";
-
-      res.on("data", (chunk) => {
-        data += chunk;
-      });
-
-      res.on("end", () => {
-        if (res.statusCode === 401) {
-          // Token expired, try to refresh and retry
-          refreshAccessToken()
-            .then(() => yahooApiRequest(endpoint, format))
-            .then(resolve)
-            .catch(reject);
-          return;
-        }
-
-        if (res.statusCode !== 200) {
-          reject(new Error(`API returned status ${res.statusCode}: ${data}`));
-          return;
-        }
-
-        try {
-          const parsed = JSON.parse(data);
-          resolve(parsed);
-        } catch (error) {
-          reject(new Error(`Failed to parse API response: ${error}`));
-        }
-      });
-    });
-
-    req.on("error", (error) => {
-      reject(error);
-    });
-
-    req.end();
-  });
+  return yahooClient.request(endpoint, format);
 }
 
 // Tool: Get Team Roster

@@ -138,12 +138,25 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
     const best = analysisResults.teams[0];
     const worst = analysisResults.teams[analysisResults.teams.length - 1];
 
-    const chirp = best && worst
-      ? `${best.team} is the schedule you want (${best.playoff_games} games in your playoff window, ` +
+    const windowResolved = analysisResults.playoff_window?.resolved === true;
+
+    let chirp: string;
+    if (!best || !worst) {
+      chirp = 'Nothing to rate.';
+    } else if (windowResolved) {
+      chirp =
+        `${best.team} is the schedule you want (${best.playoff_games} games in your playoff window, ` +
         `${best.weeks_with_4_plus} four-game weeks). ${worst.team} is the one you draft around ` +
         `(${worst.playoff_games} playoff-window games, ${worst.weeks_with_2_or_fewer} weeks stuck on two or fewer). ` +
-        `Same player, different sweater, different season.`
-      : 'Nothing to rate.';
+        `Same player, different sweater, different season.`;
+    } else {
+      chirp =
+        `On regular season alone, ${best.team} gives you the most playable weeks ` +
+        `(${best.weeks_with_4_plus} four-game weeks) and ${worst.team} the fewest ` +
+        `(${worst.weeks_with_2_or_fewer} weeks stuck on two or fewer). ` +
+        `I could not read your playoff weeks, and that is the half that decides titles — ` +
+        `pass playoff_start_week and playoff_end_week and ask again.`;
+    }
 
     const enhanced = ChirpIntelligence.enhance(this.toolName, analysisResults, contract);
 
@@ -240,9 +253,11 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
    */
   private scoreTeam(profile: any, playoffGames: number, playoffWeekCount: number): number {
     // Playoff-window games per week, normalized against a 4-game week ceiling.
+    // With no resolved window this component is neutral, not zero — an
+    // unresolved window is missing information, not a bad schedule.
     const playoffRate = playoffWeekCount > 0
       ? Math.min(1, (playoffGames / playoffWeekCount) / 4)
-      : 0;
+      : 0.5;
 
     // Heavy weeks are streaming and stacking opportunities.
     const heavyWeekRate = Math.min(1, profile.weeks_with_4_plus / 12);
@@ -259,7 +274,18 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
   }
 
   private verdictFor(profile: any, playoffGames: number, playoffWeekCount: number): string {
-    const perWeek = playoffWeekCount > 0 ? playoffGames / playoffWeekCount : 0;
+    if (playoffWeekCount === 0) {
+      // No playoff window resolved - judge only what is actually known.
+      if (profile.weeks_with_4_plus >= 9) {
+        return 'Streaming-friendly regular season. Playoff window not resolved.';
+      }
+      if (profile.weeks_with_2_or_fewer >= 6) {
+        return 'Lots of light weeks. Playoff window not resolved.';
+      }
+      return 'Ordinary regular-season schedule. Playoff window not resolved.';
+    }
+
+    const perWeek = playoffGames / playoffWeekCount;
 
     if (perWeek >= 3.6 && profile.weeks_with_4_plus >= 8) {
       return 'Draft tiebreaker in your favour - heavy all year and heavy when it counts.';
@@ -292,7 +318,14 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
     const leagueMeta = settings?.fantasy_content?.league?.[0] ?? {};
     const leagueSettings = settings?.fantasy_content?.league?.[1]?.settings?.[0] ?? {};
 
-    const startDate: string | undefined = leagueMeta.start_date;
+    // Yahoo's league start_date is the ideal week-1 anchor. When it is
+    // unavailable, the NHL season's own first game is the correct fallback:
+    // fantasy week 1 begins with the season. Without one of the two, an
+    // explicit playoff_start_week would be an index into nothing.
+    const startDate: string | undefined =
+      leagueMeta.start_date ?? NHL_SCHEDULE.getSeasonStartDate() ?? undefined;
+    const anchorSource = leagueMeta.start_date ? 'Yahoo league start_date' : 'NHL season opener';
+
     const endWeek = Number(
       args.playoff_end_week ?? leagueMeta.end_week ?? leagueSettings.end_week ?? 0
     );
@@ -304,8 +337,10 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
       return {
         resolved: false,
         note:
-          'Could not read playoff_start_week from league settings. Pass playoff_start_week ' +
-          'explicitly to score your real playoff window.',
+          'No playoff window resolved. Yahoo league settings did not supply ' +
+          'playoff_start_week / end_week. Pass playoff_start_week and playoff_end_week ' +
+          'explicitly to score your real playoff window; clubs are rated on their ' +
+          'regular-season schedule only until then.',
         start: null,
         end: null,
         weeks: []
@@ -324,6 +359,7 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
     return {
       resolved: true,
       source: args.playoff_start_week ? 'explicit argument' : 'Yahoo league settings',
+      week_1_anchor: `${week1Monday} (${anchorSource})`,
       playoff_start_week: playoffStartWeek,
       end_week: endWeek,
       start,

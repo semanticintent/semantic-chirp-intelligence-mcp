@@ -26,6 +26,7 @@ function stubSchedule() {
   vi.spyOn(NHL_SCHEDULE, 'load').mockResolvedValue(undefined);
   vi.spyOn(NHL_SCHEDULE, 'isAvailable').mockReturnValue(true);
   vi.spyOn(NHL_SCHEDULE, 'getSeason').mockReturnValue('20262027');
+  vi.spyOn(NHL_SCHEDULE, 'getSeasonStartDate').mockReturnValue('2026-09-29');
   vi.spyOn(NHL_SCHEDULE, 'getTeamProfile').mockImplementation((abbr: string) => {
     const heavy = abbr === 'TOR';
     return {
@@ -92,6 +93,31 @@ describe('ScheduleValueAnalysis', () => {
 
     const teams = result.analysis_insights.all_teams.map((t: any) => t.team);
     expect(teams).toEqual(['TOR', 'SJS']); // unknown abbreviation dropped, not guessed
+  });
+
+  it('anchors week 1 to the NHL opener when Yahoo has no start_date', async () => {
+    // An explicit playoff_start_week is an index into nothing without an anchor,
+    // so the season's own first game stands in for the league start_date.
+    const client = makeClient({ fantasy_content: { league: [{ end_week: 24 }, {}] } });
+    const analysis = new ScheduleValueAnalysis(client, '12345', '1');
+    const result: any = await analysis.executeAnalysis({ playoff_start_week: 22 }, contract);
+
+    const window = result.analysis_insights.playoff_window;
+    expect(window.resolved).toBe(true);
+    expect(window.week_1_anchor).toContain('NHL season opener');
+    expect(window.start).toBe('2027-02-22');
+  });
+
+  it('treats an unresolved window as missing information, not a bad schedule', async () => {
+    const client = makeClient({ fantasy_content: { league: [{}, {}] } });
+    const analysis = new ScheduleValueAnalysis(client, '12345', '1');
+    const result: any = await analysis.executeAnalysis({ teams: ['TOR'] }, contract);
+
+    const team = result.analysis_insights.all_teams[0];
+    // Zero playoff games must not read as a verdict about the playoff window.
+    expect(team.playoff_games).toBe(0);
+    expect(team.verdict).toContain('Playoff window not resolved');
+    expect(result.chirp_intelligence.analysis_chirp).toContain('could not read your playoff weeks');
   });
 
   it('reports an unresolved window rather than inventing playoff weeks', async () => {

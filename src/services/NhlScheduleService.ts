@@ -283,6 +283,24 @@ export class NhlScheduleService {
     };
   }
 
+  /**
+   * Earliest regular-season game date across the league (YYYY-MM-DD).
+   *
+   * Used as the fantasy week-1 anchor when Yahoo's league `start_date` is
+   * unavailable — fantasy hockey week 1 begins with the NHL season.
+   */
+  public getSeasonStartDate(): string | null {
+    if (!this.isAvailable()) return null;
+
+    let earliest: string | null = null;
+    for (const games of this.schedules.values()) {
+      const first = games[0]?.date;
+      if (first && (earliest === null || first < earliest)) earliest = first;
+    }
+
+    return earliest;
+  }
+
   /** Season profiles for all 32 clubs. */
   public getAllProfiles(): TeamScheduleProfile[] {
     return NHL_TRICODES
