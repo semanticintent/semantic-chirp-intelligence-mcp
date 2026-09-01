@@ -97,9 +97,21 @@ const server = https.createServer(serverOptions, async (req, res) => {
     // Yahoo apps registered as Read-only are widely reported to mint tokens
     // that 403 regardless, and switching the app to Read/Write is the known
     // workaround — set YAHOO_OAUTH_SCOPE=fspt-w to match such an app.
-    const scope = process.env.YAHOO_OAUTH_SCOPE || 'fspt-r';
-    console.log(`🔑 Requesting OAuth scope: ${scope}`);
-    const authUrl = `https://api.login.yahoo.com/oauth2/request_auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${scope}&language=en-us`;
+    // Default to sending NO scope parameter, letting Yahoo apply whatever the
+    // app is registered for. That is how this flow worked for a year, and
+    // Yahoo rejects an explicit scope with `invalid_scope` whenever it does not
+    // exactly match the app's registration — including on apps that work fine
+    // without one. Set YAHOO_OAUTH_SCOPE to request a specific scope.
+    const scope = process.env.YAHOO_OAUTH_SCOPE || '';
+    console.log(scope
+      ? `🔑 Requesting OAuth scope: ${scope}`
+      : '🔑 Requesting no explicit scope (Yahoo applies the app\'s registered permissions)');
+    const authUrl =
+      `https://api.login.yahoo.com/oauth2/request_auth?client_id=${CLIENT_ID}` +
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&response_type=code` +
+      (scope ? `&scope=${encodeURIComponent(scope)}` : '') +
+      `&language=en-us`;
 
     res.writeHead(302, { 'Location': authUrl });
     res.end();
@@ -122,7 +134,11 @@ const server = https.createServer(serverOptions, async (req, res) => {
         if (error_description) console.error(`   description: ${error_description}`);
 
         if (String(error) === 'invalid_scope') {
-          console.error(`\n   You asked Yahoo for scope: ${process.env.YAHOO_OAUTH_SCOPE || 'fspt-r'}`);
+          console.error(`\n   You asked Yahoo for scope: ${process.env.YAHOO_OAUTH_SCOPE || '(none)'}`);
+          console.error('   If YAHOO_OAUTH_SCOPE is set in .env, try removing it entirely —');
+          console.error('   Yahoo rejects any explicit scope that does not exactly match the');
+          console.error('   app\'s registration, including on apps that authenticate fine');
+          console.error('   with no scope parameter at all.');
           console.error('');
           console.error('   The most common cause is NOT a read/write mismatch — it is that the');
           console.error('   app has no Fantasy Sports permission at all. Yahoo\'s permission list');
