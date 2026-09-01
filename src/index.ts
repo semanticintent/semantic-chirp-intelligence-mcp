@@ -65,6 +65,8 @@ import {
 import { BreakoutAnalysis } from './analyses/BreakoutAnalysis.js';
 import { ScheduleValueAnalysis } from './analyses/ScheduleValueAnalysis.js';
 import { DraftPickAnalysis } from './analyses/DraftPickAnalysis.js';
+import { NHL_STATS } from './services/NhlStatsService.js';
+import { ROSTER_STORE } from './services/RosterStore.js';
 
 /**
  * Load .env from the package directory, not the current working directory.
@@ -1541,6 +1543,61 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: "set_roster",
+        description: "📋 Paste your team's roster to teach CHIRP who you own. Works with text copied from any fantasy platform — Yahoo, ESPN, Sleeper, a spreadsheet, or just a list of names. Player names are resolved against live NHL rosters, so team and position fill themselves in. Anything that can't be resolved to exactly one player is reported back rather than guessed. No account or API key needed.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            roster_text: {
+              type: "string",
+              description: "The pasted roster. One player per line, in whatever shape you copied it — \"Auston Matthews\", \"MATTHEWS, Auston\", or a full row like \"C  Auston Matthews  TOR - C  Q\". BN and IR slots are preserved if present."
+            },
+            team_name: {
+              type: "string",
+              description: "What to call this team (default: \"My Team\")"
+            }
+          },
+          required: ["roster_text"]
+        }
+      },
+      {
+        name: "set_opponent_roster",
+        description: "📋 Paste your weekly opponent's roster, so head-to-head tools (games-in-hand, matchup comparison, opponent scouting) can work without a league account. Same forgiving format as set_roster.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            roster_text: { type: "string", description: "The pasted opponent roster, one player per line" },
+            team_name: { type: "string", description: "Opponent's team name (default: \"Opponent\")" }
+          },
+          required: ["roster_text"]
+        }
+      },
+      {
+        name: "set_standings",
+        description: "📊 Paste your league standings to give CHIRP league context. Extracts rank, team name, record and points from rows like \"1. TeamDestroyersz 8-2-1 142 pts\".",
+        inputSchema: {
+          type: "object",
+          properties: {
+            standings_text: { type: "string", description: "The pasted standings, one team per line" }
+          },
+          required: ["standings_text"]
+        }
+      },
+      {
+        name: "show_stored_data",
+        description: "🗂️ Show what CHIRP currently knows about your league — stored roster, opponent roster and standings, with when each was last updated. Use `clear` to forget one of them.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            clear: {
+              type: "string",
+              enum: ["roster", "opponent", "standings"],
+              description: "Optionally forget one stored item instead of showing everything"
+            }
+          }
+        }
+      },
+      {
         name: "schedule_value",
         description: "🗓️ Rate all 32 NHL clubs on what their schedule is worth to a fantasy roster — total games, four-game weeks, light weeks, back-to-backs, and games played during YOUR league's playoff weeks (read from your Yahoo league settings, not guessed). The draft tiebreaker when two players are close.",
         inputSchema: {
@@ -2008,6 +2065,99 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const intensity = (args?.chirp_intensity as string) || 'standard';
         const result = await analyzeTradeImpact(giving, receiving, intensity);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "set_roster":
+      case "set_opponent_roster": {
+        const key = name === "set_roster" ? "roster" as const : "opponent" as const;
+        const text = args?.roster_text as string;
+
+        if (!text || !text.trim()) {
+          throw new Error("roster_text is required — paste your roster, one player per line.");
+        }
+
+        await NHL_STATS.load();
+        if (!NHL_STATS.isAvailable()) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            error: "NHL player data unavailable",
+            reason: NHL_STATS.getUnavailableReason(),
+            note: "Names are resolved against live NHL rosters; retry shortly."
+          }, null, 2) }], isError: true };
+        }
+
+        const report = ROSTER_STORE.parseRoster(text);
+        const label = (args?.team_name as string) || (key === "roster" ? "My Team" : "Opponent");
+
+        if (report.resolved.length === 0) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            saved: false,
+            reason: "No player names could be resolved from that text.",
+            lines_read: report.lines_read,
+            unresolved: report.unresolved,
+            ambiguous: report.ambiguous
+          }, null, 2) }], isError: true };
+        }
+
+        const stored = ROSTER_STORE.saveRoster(key, report.resolved, label);
+
+        return { content: [{ type: "text", text: JSON.stringify({
+          saved: true,
+          team: label,
+          players_resolved: report.resolved.length,
+          lines_read: report.lines_read,
+          roster: stored.players,
+          // Surfaced, never silently dropped - the user decides what to do.
+          needs_attention: {
+            unresolved: report.unresolved,
+            ambiguous: report.ambiguous
+          },
+          note: report.unresolved.length || report.ambiguous.length
+            ? "Some lines could not be matched to exactly one NHL player. Re-run set_roster with corrected names to include them."
+            : "All lines resolved.",
+          data_source: `NHL public API (rosters ${NHL_STATS.getSeasons().roster}, stats ${NHL_STATS.getSeasons().stats})`
+        }, null, 2) }] };
+      }
+
+      case "set_standings": {
+        const text = args?.standings_text as string;
+        if (!text || !text.trim()) {
+          throw new Error("standings_text is required — paste your league standings, one team per line.");
+        }
+
+        const rows = ROSTER_STORE.parseStandings(text);
+        if (rows.length === 0) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            saved: false,
+            reason: "No standings rows could be read from that text."
+          }, null, 2) }], isError: true };
+        }
+
+        ROSTER_STORE.saveStandings(rows);
+        return { content: [{ type: "text", text: JSON.stringify({
+          saved: true, teams: rows.length, standings: rows
+        }, null, 2) }] };
+      }
+
+      case "show_stored_data": {
+        const clearKey = args?.clear as 'roster' | 'opponent' | 'standings' | undefined;
+
+        if (clearKey) {
+          const removed = ROSTER_STORE.clear(clearKey);
+          return { content: [{ type: "text", text: JSON.stringify({
+            cleared: clearKey, existed: removed
+          }, null, 2) }] };
+        }
+
+        const roster = ROSTER_STORE.getRoster('roster');
+        const opponent = ROSTER_STORE.getRoster('opponent');
+        const standings = ROSTER_STORE.getStandings();
+
+        return { content: [{ type: "text", text: JSON.stringify({
+          roster: roster ?? "not set — paste yours with set_roster",
+          opponent: opponent ?? "not set — paste one with set_opponent_roster",
+          standings: standings ?? "not set — paste them with set_standings",
+          storage: ROSTER_STORE.getDataDir()
+        }, null, 2) }] };
       }
 
       case "schedule_value": {

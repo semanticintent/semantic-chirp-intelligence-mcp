@@ -118,6 +118,34 @@ export const TOOL_METADATA: Record<string, any> = {
     hockey_context: "head_to_head_dominance",
     chirp_potential: "opponent_destruction"
   },
+  set_roster: {
+    chirp_style: "analytical_assessment",
+    discovery_tags: ["roster", "paste", "setup", "players", "import"],
+    intent_category: "league_state_capture",
+    hockey_context: "roster_definition",
+    chirp_potential: "roster_reality"
+  },
+  set_opponent_roster: {
+    chirp_style: "matchup_assessment",
+    discovery_tags: ["opponent", "paste", "matchup", "scouting", "import"],
+    intent_category: "league_state_capture",
+    hockey_context: "head_to_head_battle",
+    chirp_potential: "opponent_weaknesses"
+  },
+  set_standings: {
+    chirp_style: "competitive_reality",
+    discovery_tags: ["standings", "paste", "league", "rankings", "import"],
+    intent_category: "league_state_capture",
+    hockey_context: "competitive_landscape",
+    chirp_potential: "standings_truth"
+  },
+  show_stored_data: {
+    chirp_style: "analytical_assessment",
+    discovery_tags: ["state", "stored", "roster", "debug", "inspect"],
+    intent_category: "league_state_capture",
+    hockey_context: "roster_analysis",
+    chirp_potential: "state_visibility"
+  },
   schedule_value: {
     chirp_style: "strategic_advantage",
     discovery_tags: ["draft", "schedule", "playoff_weeks", "games_per_week", "tiebreaker"],
