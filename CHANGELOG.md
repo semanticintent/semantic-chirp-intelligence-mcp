@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.4]
+
+### Fixed
+- **`chirp_draft_pick` silently ignored picks pasted from a draft board.** Entries
+  in `already_drafted` were matched by stripping the string to alphanumerics, so a
+  row copied out of a draft room — `1. (1) Connor McDavid EDM - C` — normalized to
+  `11connormcdavidedmc` and never matched `connormcdavid`. Nothing was removed,
+  yet `players_off_board` counted every line, so the tool reported success while
+  continuing to recommend players who were already gone. On draft day that is the
+  worst possible failure: confidently wrong, under a clock.
+
+  `already_drafted` now runs through the same forgiving parser `set_roster` uses,
+  resolving each line to an NHL player id. Pick numbers, clubs, positions and
+  bracketed text around a name are all handled.
+
+- **Lines that cannot be matched are now reported**, under `drafted_not_matched`,
+  rather than counted as removed. An unmatched pick means a drafted player is
+  still on your board, which is exactly what must not be hidden.
+
+---
+
 ## [4.0.3]
 
 ### Changed
