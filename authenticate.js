@@ -111,8 +111,43 @@ const server = https.createServer(serverOptions, async (req, res) => {
     const authCode = parsedUrl.query.code;
 
     if (!authCode) {
+      // Yahoo redirects back with error / error_description when it refuses.
+      // Reporting only "no authorization code" discards the one thing that
+      // says why — invalid_scope, access_denied, invalid_client and so on.
+      const { error, error_description } = parsedUrl.query;
+
+      console.error('\n❌ Yahoo did not return an authorization code.');
+      if (error) {
+        console.error(`   error:       ${error}`);
+        if (error_description) console.error(`   description: ${error_description}`);
+
+        if (String(error) === 'invalid_scope') {
+          console.error('\n   The scope requested does not match the app\'s registered permission.');
+          console.error(`   You asked for: ${process.env.YAHOO_OAUTH_SCOPE || 'fspt-r'}`);
+          console.error('   Use fspt-r for a Read app, fspt-w for a Read/Write app, and check');
+          console.error('   the permission actually saved at https://developer.yahoo.com/apps/');
+        }
+        if (String(error) === 'access_denied') {
+          console.error('\n   Consent was declined, or the app lacks the permission it asked for.');
+        }
+      } else {
+        console.error('   Yahoo returned no error parameter either.');
+        console.error(`   Full callback query: ${JSON.stringify(parsedUrl.query)}`);
+      }
+      console.error('');
+
       res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end('<h1>❌ Error: No authorization code received</h1>');
+      res.end(`
+        <html><head><meta charset="utf-8"><title>Authentication failed</title></head>
+        <body style="font-family: system-ui, sans-serif; padding: 40px; max-width: 640px; margin: 0 auto;">
+          <h1>❌ Authentication failed</h1>
+          <p>Yahoo did not return an authorization code.</p>
+          ${error ? `<p><strong>error:</strong> <code>${error}</code></p>` : ''}
+          ${error_description ? `<p><strong>description:</strong> ${error_description}</p>` : ''}
+          <p>See your terminal for what to change.</p>
+        </body></html>
+      `);
+
       setTimeout(() => {
         server.close();
         process.exit(1);
