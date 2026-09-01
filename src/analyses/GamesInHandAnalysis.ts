@@ -7,9 +7,10 @@
  */
 
 import { AnalysisTemplate } from '../template/AnalysisTemplate.js';
-import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
 import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
+import { LEAGUE_DATA, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE } from '../services/LeagueDataService.js';
+import { NHL_STATS } from '../services/NhlStatsService.js';
 import {
   FantasyData,
   AnalysisResponse,
@@ -40,11 +41,7 @@ export interface GamesInHandData {
 }
 
 export class GamesInHandAnalysis extends AnalysisTemplate {
-  constructor(
-    private readonly apiClient: YahooApiClient,
-    private readonly leagueId: string,
-    private readonly teamId: string
-  ) {
+  constructor() {
     super("get_games_in_hand", "schedule_advantage");
   }
 
@@ -52,140 +49,30 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
    * Hook 1: Fetch raw data from Yahoo API
    */
   protected async fetchData(args: GamesInHandArgs): Promise<any> {
-    try {
-      // Fetch current matchup data
-      const matchupData = await this.apiClient.getTeamMatchup(this.leagueId, this.teamId);
+    await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
 
-      // Fetch league scoreboard for schedule data
-      const scoreboardData = await this.apiClient.getLeagueScoreboard(this.leagueId);
+    const roster = LEAGUE_DATA.getRoster();
+    if (!roster) throw new Error(NO_ROSTER_MESSAGE);
 
-      // Real NHL schedule - the games-in-hand number is meaningless without it
-      await NHL_SCHEDULE.load();
+    const opponent = LEAGUE_DATA.getOpponentRoster();
+    if (!opponent) throw new Error(NO_OPPONENT_MESSAGE);
 
-      return {
-        matchup: matchupData,
-        scoreboard: scoreboardData
-      };
-    } catch (error) {
-      throw new Error(`Failed to fetch games in hand data: ${error}`);
-    }
+    return { roster, opponent };
+
   }
 
   /**
    * Hook 2: Prepare data into FantasyData structure
    */
   protected async prepareData(rawData: any, args: GamesInHandArgs): Promise<FantasyData> {
-    const { matchup, scoreboard } = rawData;
-
-    // Parse matchup to find opponent - try multiple potential structures
-    let teams = matchup.fantasy_content?.team?.[1]?.matchup?.['0']?.teams?.['0']?.team || [];
-
-    // If teams is empty, try alternative structure (matchups array)
-    if (teams.length === 0) {
-      const matchups = matchup.fantasy_content?.team?.[1]?.matchups;
-      if (matchups && matchups.count !== '0') {
-        // Find the current matchup where status === "midevent"
-        const matchupKeys = Object.keys(matchups).filter(key => key !== 'count');
-
-        const currentMatchupKey = matchupKeys.find(key => {
-          const matchupData = matchups[key]?.matchup?.[0] || matchups[key]?.matchup;
-          return matchupData?.status === 'midevent';
-        });
-
-        // Use current matchup if found, otherwise fallback to last matchup
-        const selectedKey = currentMatchupKey || matchupKeys[matchupKeys.length - 1];
-        if (selectedKey && matchups[selectedKey]?.matchup?.[0]) {
-          teams = matchups[selectedKey].matchup[0].teams?.['0']?.team || [];
-        }
-      }
-    }
-
-    // Handle both full team IDs (nhl.l.123.t.1) and partial (just the number)
-    const cleanLeagueId = this.leagueId.replace(/^nhl\.l\./, '');
-    const cleanTeamId = this.teamId.replace(/^.*\.t\./, '');
-    const fullTeamKey = `nhl.l.${cleanLeagueId}.t.${cleanTeamId}`;
-
-    const yourTeam = teams.find((t: any) => {
-      // Team data can be nested as an array or direct object
-      const teamData = Array.isArray(t) ? t[0] : t;
-      const teamKey = teamData?.team_key;
-      return teamKey === fullTeamKey || teamKey === this.teamId || teamKey?.endsWith(`.t.${cleanTeamId}`);
-    });
-
-    const opponentTeam = teams.find((t: any) => {
-      const teamData = Array.isArray(t) ? t[0] : t;
-      const teamKey = teamData?.team_key;
-      return teamKey && teamKey !== fullTeamKey && !teamKey?.endsWith(`.t.${cleanTeamId}`);
-    });
-
-    if (!yourTeam || !opponentTeam) {
-      throw new Error(`Could not find matchup data. Teams found: ${teams.length}, Structure: ${JSON.stringify(matchup.fantasy_content?.team?.[1], null, 2).substring(0, 500)}`);
-    }
-
-    // Extract team data (handle both array and object structures)
-    const yourTeamData = Array.isArray(yourTeam) ? yourTeam[0] : yourTeam;
-    const opponentTeamData = Array.isArray(opponentTeam) ? opponentTeam[0] : opponentTeam;
-
-    // Extract team rosters
-    const yourRoster = yourTeamData.roster?.players || [];
-    const opponentRoster = opponentTeamData.roster?.players || [];
-
-    // Parse player data using .find() pattern like IceAnalysis and LineupAnalysis
-    const parsePlayer = (playerData: any): Player => {
-      const player = playerData.player?.[0] || playerData;
-
-      // Use .find() pattern since player is an array of property objects
-      const player_id = Array.isArray(player)
-        ? player.find((item: any) => item.player_id)?.player_id
-        : player.player_id;
-      const name = Array.isArray(player)
-        ? player.find((item: any) => item.name)?.name?.full
-        : player.name?.full;
-      const position = Array.isArray(player)
-        ? player.find((item: any) => item.display_position)?.display_position ||
-          player.find((item: any) => item.primary_positions)?.primary_positions?.[0]
-        : player.display_position || player.primary_positions?.[0];
-      const team = Array.isArray(player)
-        ? player.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr
-        : player.editorial_team_abbr;
-      const status = Array.isArray(player)
-        ? player.find((item: any) => item.status)?.status
-        : player.status;
-      const selected_position = Array.isArray(player)
-        ? player.find((item: any) => item.selected_position)?.selected_position
-        : player.selected_position;
-
-      return {
-        player_id: player_id || '',
-        name: name || 'Unknown',
-        position: position || 'Unknown',
-        team: team || '',
-        selected_position: selected_position || [],
-        status: status || ''
-      };
-    };
-
-    const yourPlayers = yourRoster.map(parsePlayer);
-    const opponentPlayers = opponentRoster.map(parsePlayer);
-
     return {
-      roster: {
-        team_key: yourTeamData.team_key || '',
-        team_name: yourTeamData.name || 'Your Team',
-        players: yourPlayers
-      },
+      roster: rawData.roster,
       opponent: {
-        team_key: opponentTeamData.team_key || '',
-        team_name: opponentTeamData.name || 'Opponent',
-        players: opponentPlayers
-      } as OpponentData,
-      matchup: {
-        week: matchup.fantasy_content?.team?.[0]?.matchups?.['0']?.matchup?.week || 'current',
-        your_team_key: yourTeamData.team_key || '',
-        opponent_team_key: opponentTeamData.team_key || ''
-      },
-      scoreboard: scoreboard
-    };
+        team_name: rawData.opponent.team_name,
+        players: rawData.opponent.players
+      }
+    } as any;
+
   }
 
   /**

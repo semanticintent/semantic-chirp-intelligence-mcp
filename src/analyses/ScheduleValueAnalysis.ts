@@ -24,7 +24,6 @@ import type {
   Recommendation,
   AnalysisMetadata
 } from '../domain/types.js';
-import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
 import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
 import { NHL_TRICODES, toNhlTricode, type NhlTricode } from '../domain/nhl-teams.js';
@@ -54,11 +53,7 @@ export interface TeamScheduleValue {
 const DAYS_PER_WEEK = 7;
 
 export class ScheduleValueAnalysis extends AnalysisTemplate {
-  constructor(
-    private readonly yahooClient: YahooApiClient,
-    private readonly leagueId: string,
-    private readonly teamId: string
-  ) {
+  constructor() {
     super('schedule_value', 'schedule_advantage');
   }
 
@@ -67,12 +62,9 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
    * league's playoffs actually are.
    */
   protected async fetchData(args: ScheduleValueArgs): Promise<any> {
-    const [, settings] = await Promise.all([
-      NHL_SCHEDULE.load(),
-      this.yahooClient.getLeagueSettings(this.leagueId).catch(() => null)
-    ]);
+    await NHL_SCHEDULE.load();
+    return { settings: null };
 
-    return { settings };
   }
 
   protected async prepareData(rawData: any, args: ScheduleValueArgs): Promise<FantasyData> {

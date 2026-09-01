@@ -72,6 +72,54 @@ export class LeagueDataService {
     return ROSTER_STORE.getStandings();
   }
 
+  /**
+   * Every NHL player not on the stored roster, as an analysis-shaped pool.
+   *
+   * This replaces the Yahoo free-agent list. It cannot know who is *available*
+   * in a given league — ownership is league-private — so it deliberately
+   * describes itself as "not on your roster" rather than "available". Callers
+   * must not present these as confirmed waiver adds.
+   */
+  public getPlayerPool(options: { position?: string; limit?: number } = {}): LeaguePlayer[] {
+    const owned = new Set((ROSTER_STORE.getRoster('roster')?.players ?? []).map(p => p.player_id));
+    const opponentOwned = new Set((ROSTER_STORE.getRoster('opponent')?.players ?? []).map(p => p.player_id));
+
+    // Fantasy platforms say LW/RW; the NHL says L/R.
+    const wanted = String(options.position ?? '').toUpperCase()
+      .replace(/^LW$/, 'L')
+      .replace(/^RW$/, 'R');
+
+    const pool = NHL_STATS.getAll()
+      .filter(p => !owned.has(p.player_id) && !opponentOwned.has(p.player_id))
+      .filter(p => !wanted || p.position === wanted)
+      .map(p => ({
+        player_id: p.player_id,
+        name: p.name,
+        position: this.eligiblePositions(p.position),
+        team: p.team,
+        selected_position: '',
+        status: '',
+        stats: p.stats,
+        // Kept for analyses written against Yahoo's ownership figure. There is
+        // no public equivalent, so it is explicitly null rather than a guess.
+        percent_owned: null
+      })) as any[];
+
+    pool.sort((a, b) => {
+      const av = a.position === 'G' ? (a.stats?.wins ?? 0) : (a.stats?.points ?? 0);
+      const bv = b.position === 'G' ? (b.stats?.wins ?? 0) : (b.stats?.points ?? 0);
+      return bv - av;
+    });
+
+    return options.limit ? pool.slice(0, options.limit) : pool;
+  }
+
+  /** Why a pool is not a waiver wire, in words a tool can print. */
+  public static readonly POOL_CAVEAT =
+    'These are NHL players not on the rosters you have provided, ranked by last ' +
+    'season production. Whether any of them is actually available in your league ' +
+    'is league-private and cannot be determined from public data — check before adding.';
+
   private toLeagueRoster(stored: StoredRoster | null, keyPrefix: string): LeagueRoster | null {
     if (!stored || stored.players.length === 0) return null;
 

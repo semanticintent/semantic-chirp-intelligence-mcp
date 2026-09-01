@@ -7,9 +7,10 @@
  */
 
 import { AnalysisTemplate } from '../template/AnalysisTemplate.js';
-import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
 import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
+import { LEAGUE_DATA, NO_ROSTER_MESSAGE } from '../services/LeagueDataService.js';
+import { NHL_STATS } from '../services/NhlStatsService.js';
 import {
   FantasyData,
   AnalysisResponse,
@@ -33,11 +34,7 @@ export interface LineupIssue {
 }
 
 export class LineupAnalysis extends AnalysisTemplate {
-  constructor(
-    private readonly apiClient: YahooApiClient,
-    private readonly leagueId: string,
-    private readonly teamId: string
-  ) {
+  constructor() {
     super("optimize_lineup", "lineup_optimization");
   }
 
@@ -45,20 +42,14 @@ export class LineupAnalysis extends AnalysisTemplate {
    * Hook 1: Fetch raw data from Yahoo API
    */
   protected async fetchData(args: LineupArgs): Promise<any> {
-    try {
-      // Fetch current roster with positions
-      const rosterData = await this.apiClient.getTeamRoster(this.leagueId, this.teamId);
+    // v4: roster from the paste-backed store, schedule from the NHL public API.
+    await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
 
-      // Fetch today's scoreboard to see who's playing
-      const scoreboardData = await this.apiClient.getLeagueScoreboard(this.leagueId);
+    const roster = LEAGUE_DATA.getRoster();
+    if (!roster) throw new Error(NO_ROSTER_MESSAGE);
 
-      return {
-        roster: rosterData,
-        scoreboard: scoreboardData
-      };
-    } catch (error) {
-      throw new Error(`Failed to fetch lineup data: ${error}`);
-    }
+    return { roster };
+
   }
 
   /**

@@ -23,9 +23,11 @@ import type {
   StreamingTarget,
   ChirpResponse
 } from '../domain/types.js';
-import { YahooApiClient } from '../services/YahooApiClient.js';
 import { parseStatArray } from '../domain/yahoo-stats.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
+import { LEAGUE_DATA, LeagueDataService, NO_ROSTER_MESSAGE } from '../services/LeagueDataService.js';
+import { NHL_STATS } from '../services/NhlStatsService.js';
+import { NHL_SCHEDULE } from '../services/NhlScheduleService.js';
 
 interface BreakoutAnalysisArgs {
   readonly position_filter?: string[];
@@ -56,11 +58,7 @@ export class BreakoutAnalysis extends AnalysisTemplate {
   /** Season stat lines keyed by Yahoo player id, loaded in fetchData. */
   private seasonStats: Record<string, any[]> = {};
 
-  constructor(
-    private readonly yahooClient: YahooApiClient,
-    private readonly leagueId: string,
-    private readonly teamId: string
-  ) {
+  constructor() {
     super('get_breakout_analysis', 'streaming_recommendations');
   }
 
@@ -68,50 +66,17 @@ export class BreakoutAnalysis extends AnalysisTemplate {
    * Fetch raw data: free agents, trending players, roster
    */
   protected async fetchData(args: BreakoutAnalysisArgs): Promise<any> {
-    const ownershipThreshold = args.ownership_threshold || 50;
+    await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
 
-    // Fetch free agents across all positions
-    const positions = args.position_filter || ['C', 'LW', 'RW', 'D', 'G'];
-    const freeAgentPromises = positions.map(pos =>
-      this.yahooClient.searchPlayers(pos, 50, this.leagueId)
-    );
-
-    const [
-      freeAgentResults,
-      trendingAdds,
-      roster
-    ] = await Promise.all([
-      Promise.all(freeAgentPromises),
-      this.yahooClient.getTrendingPlayers('add', 25, this.leagueId),
-      this.yahooClient.getTeamRoster(this.leagueId, this.teamId)
-    ]);
-
-    // Combine and deduplicate free agents
-    const allFreeAgents: Player[] = [];
-    for (const result of freeAgentResults) {
-      if (result.players) {
-        allFreeAgents.push(...result.players);
-      }
-    }
-
-    // Remove duplicates and filter by ownership
-    const uniqueFreeAgents = Array.from(
-      new Map(allFreeAgents.map(p => [p.player_id, p])).values()
-    ).filter(p => (p.percent_owned || 0) < ownershipThreshold);
-
-    // Real season stats for every candidate. The breakout score advertises
-    // "40% recent, 30% projections, 20% opportunity, 10% risk" - none of which
-    // means anything while the underlying stat line is generated.
-    const seasonStats = await this.yahooClient.getPlayersStats(
-      uniqueFreeAgents.map(p => p.player_id), 'season', this.leagueId
-    );
-
+    // Breakout candidates are drawn from every NHL player not already on a
+    // roster you provided, scored on their real season line.
     return {
-      freeAgents: uniqueFreeAgents,
-      trendingAdds: trendingAdds.players || [],
-      roster,
-      seasonStats
+      freeAgents: LEAGUE_DATA.getPlayerPool({ limit: 200 }),
+      trendingAdds: [],
+      roster: LEAGUE_DATA.getRoster(),
+      pool_caveat: LeagueDataService.POOL_CAVEAT
     };
+
   }
 
   /**

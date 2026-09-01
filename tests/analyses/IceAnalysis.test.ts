@@ -39,10 +39,12 @@ describe('IceAnalysis', () => {
       // Tool name and type are protected, but we can verify behavior
     });
 
-    it('should store API client and identifiers', () => {
-      expect(iceAnalysis).toHaveProperty('apiClient');
-      expect(iceAnalysis).toHaveProperty('leagueId');
-      expect(iceAnalysis).toHaveProperty('teamId');
+    it('needs no client or league identifiers', () => {
+      // v4 has no platform account: the roster comes from the paste-backed
+      // store and everything else from the NHL public API.
+      expect(iceAnalysis).not.toHaveProperty('apiClient');
+      expect(iceAnalysis).not.toHaveProperty('leagueId');
+      expect(iceAnalysis).not.toHaveProperty('teamId');
     });
   });
 

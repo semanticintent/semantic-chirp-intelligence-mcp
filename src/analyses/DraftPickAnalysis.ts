@@ -26,10 +26,11 @@ import type {
   Recommendation,
   AnalysisMetadata
 } from '../domain/types.js';
-import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
 import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
 import { toNhlTricode } from '../domain/nhl-teams.js';
+import { LEAGUE_DATA, LeagueDataService } from '../services/LeagueDataService.js';
+import { NHL_STATS } from '../services/NhlStatsService.js';
 
 export interface DraftPickArgs {
   readonly pick_number?: number;
@@ -63,11 +64,7 @@ export interface DraftCandidate {
 const TRACKED_POSITIONS = ['C', 'LW', 'RW', 'D', 'G'];
 
 export class DraftPickAnalysis extends AnalysisTemplate {
-  constructor(
-    private readonly yahooClient: YahooApiClient,
-    private readonly leagueId: string,
-    private readonly teamId: string
-  ) {
+  constructor() {
     super('chirp_draft_pick', 'draft_pick');
   }
 
@@ -76,26 +73,17 @@ export class DraftPickAnalysis extends AnalysisTemplate {
   // ==========================================
 
   protected async fetchData(args: DraftPickArgs): Promise<any> {
-    const poolSize = Math.min(args.pool_size ?? 150, 300);
+    await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load(), NHL_SCHEDULE.loadStandings()]);
 
-    // Yahoo caps players per page, so the pool is paged in 50s.
-    const pages = Math.ceil(poolSize / 50);
-    const poolPromises = Array.from({ length: pages }, (_, i) =>
-      this.yahooClient
-        .getPlayersWithDraftAnalysis(50, i * 50, 'ALL', this.leagueId)
-        .catch(() => null)
-    );
+    // v4: the board is every NHL player, ranked on last season's production.
+    // Yahoo's ADP is gone, so "value" is measured against production rank
+    // rather than against where a market drafts a player.
+    return {
+      pool: LEAGUE_DATA.getPlayerPool({ limit: Math.min(args.pool_size ?? 250, 400) }),
+      roster: LEAGUE_DATA.getRoster(),
+      pool_caveat: LeagueDataService.POOL_CAVEAT
+    };
 
-    const [draftResults, settings, roster, ...poolPages] = await Promise.all([
-      this.yahooClient.getDraftResults(this.leagueId).catch(() => null),
-      this.yahooClient.getLeagueSettings(this.leagueId).catch(() => null),
-      this.yahooClient.getTeamRoster(this.leagueId, this.teamId).catch(() => null),
-      ...poolPromises
-    ]);
-
-    await Promise.all([NHL_SCHEDULE.load(), NHL_SCHEDULE.loadStandings()]);
-
-    return { draftResults, settings, roster, poolPages };
   }
 
   // ==========================================
@@ -103,30 +91,50 @@ export class DraftPickAnalysis extends AnalysisTemplate {
   // ==========================================
 
   protected async prepareData(rawData: any, args: DraftPickArgs): Promise<FantasyData> {
-    const pool = this.parsePlayerPool(rawData.poolPages);
-    const draftedFromApi = this.parseDraftResults(rawData.draftResults);
-
-    // Merge Yahoo's picks with anything the user told us directly. Yahoo's REST
-    // draft results can lag a fast live draft, so the manual list is not a
-    // fallback — it is a first-class source that overrides nothing and adds
-    // everything.
+    // Board state comes entirely from what the user tells us — there is no
+    // platform to ask. `already_drafted` is therefore the source, not a
+    // fallback, and the pick number follows from it unless stated.
     const draftedNames = new Set<string>(
       (args.already_drafted ?? []).map(n => this.normalizeName(n))
     );
 
-    const rosterPositions = this.parseRosterPositions(rawData.roster);
-    const playoffWindow = this.resolvePlayoffWindow(rawData.settings);
+    const rosterPositions: Record<string, number> = {};
+    for (const p of rawData.roster?.players ?? []) {
+      for (const pos of String(p.position ?? '').split(',')) {
+        const clean = pos.trim().toUpperCase();
+        if (TRACKED_POSITIONS.includes(clean)) {
+          rosterPositions[clean] = (rosterPositions[clean] ?? 0) + 1;
+        }
+      }
+    }
+
+    // Rank the pool by production; that rank stands in for a draft board.
+    const pool = (rawData.pool ?? []).map((p: any, index: number) => ({
+      player_id: p.player_id,
+      name: p.name,
+      position: p.position,
+      positions: String(p.position ?? '').split(',').map((x: string) => x.trim().toUpperCase()).filter(Boolean),
+      team: p.team,
+      // Production rank is the board position: the Nth best producer is,
+      // absent a market, the Nth pick worth making.
+      average_pick: index + 1,
+      average_round: null,
+      percent_drafted: null,
+      stats: p.stats ?? null
+    }));
 
     return {
       draftPool: pool,
-      draftedIds: draftedFromApi.ids,
+      draftedIds: new Set<string>(),
       draftedNames,
-      draftedCount: draftedFromApi.count,
-      draftResultsAvailable: draftedFromApi.available,
+      draftedCount: draftedNames.size,
+      draftResultsAvailable: false,
       manualDraftedCount: draftedNames.size,
       rosterPositions,
-      playoffWindow
+      playoffWindow: this.resolvePlayoffWindow(null),
+      poolCaveat: rawData.pool_caveat
     } as any;
+
   }
 
   // ==========================================
@@ -169,6 +177,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       draft_results_available: d.draftResultsAvailable,
       manual_drafted_count: d.manualDraftedCount,
       playoff_window: d.playoffWindow,
+      pool_caveat: d.poolCaveat,
       schedule_available: NHL_SCHEDULE.isAvailable(),
       candidates
     };
@@ -207,10 +216,10 @@ export class DraftPickAnalysis extends AnalysisTemplate {
         `combination left at ${analysisResults.pick_number}.`;
     }
 
-    if (!analysisResults.draft_results_available) {
+    if (analysisResults.players_off_board === 0) {
       chirp +=
-        ' ⚠️ Yahoo returned no draft results, so this assumes nobody is off the board except ' +
-        'the names you passed in `already_drafted`.';
+        ' ⚠️ Nobody is marked as drafted yet — pass `already_drafted` as picks go by ' +
+        'and this board stays accurate.';
     }
 
     return {
@@ -240,9 +249,11 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       pick_number_source: chirpEnhanced.pick_number_source,
       roster_needs: chirpEnhanced.roster_needs,
       players_off_board: chirpEnhanced.players_off_board,
-      board_state: chirpEnhanced.draft_results_available
-        ? `Yahoo draft results returned ${chirpEnhanced.players_off_board} players off the board`
-        : 'Yahoo returned no draft results - board state is only what you passed in already_drafted',
+      board_state:
+        `${chirpEnhanced.players_off_board} player(s) marked as already drafted. ` +
+        'Board state comes from `already_drafted` — there is no platform to read it from, ' +
+        'so tell me who has gone and the board updates.',
+      board_note: chirpEnhanced.pool_caveat,
       schedule_source: chirpEnhanced.schedule_available
         ? `NHL public API (season ${NHL_SCHEDULE.getSeason()})`
         : `UNAVAILABLE - ${NHL_SCHEDULE.getUnavailableReason()}; schedule value excluded from scoring`,

@@ -18,7 +18,6 @@ import type {
   Recommendation,
   AnalysisInsights
 } from '../domain/types.js';
-import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
 import { LEAGUE_DATA, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
@@ -54,19 +53,8 @@ interface RosterAnalysis {
  * ICE Analysis - The ultimate roster optimization engine
  */
 export class IceAnalysis extends AnalysisTemplate {
-  private apiClient: YahooApiClient;
-  private leagueId: string;
-  private teamId: string;
-
-  constructor(
-    apiClient: YahooApiClient,
-    leagueId: string,
-    teamId: string
-  ) {
+  constructor() {
     super("get_roster_transaction_recommendations", "ice_roster");
-    this.apiClient = apiClient;
-    this.leagueId = leagueId;
-    this.teamId = teamId;
   }
 
   /**
