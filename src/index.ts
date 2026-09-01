@@ -1387,8 +1387,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             pool_size: {
               type: "number",
-              description: "How deep to pull the player pool (default 150, max 300)",
-              default: 150
+              description: "How deep to pull the player pool (default 250, max 400)",
+              default: 250
+            },
+            playoff_start_week: {
+              type: "number",
+              description: "First week of your fantasy playoffs. Supply this with playoff_end_week and each club's playoff-window schedule becomes a tiebreaker between similar players."
+            },
+            playoff_end_week: {
+              type: "number",
+              description: "Final week of your fantasy playoffs (commonly your league's last week)."
             },
             ...baseChirpSchema
           }
@@ -1891,7 +1899,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               already_drafted: args?.already_drafted as string[] | undefined,
               roster_needs: args?.roster_needs as string[] | undefined,
               max_results: args?.max_results as number | undefined,
-              pool_size: args?.pool_size as number | undefined
+              pool_size: args?.pool_size as number | undefined,
+              playoff_start_week: args?.playoff_start_week as number | undefined,
+              playoff_end_week: args?.playoff_end_week as number | undefined
             },
             semanticContract
           );

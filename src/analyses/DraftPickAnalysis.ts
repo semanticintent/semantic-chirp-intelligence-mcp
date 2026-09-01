@@ -40,6 +40,9 @@ export interface DraftPickArgs {
   readonly roster_needs?: string[];
   readonly max_results?: number;
   readonly pool_size?: number;
+  /** Fantasy playoff weeks, so schedule can act as a tiebreaker. */
+  readonly playoff_start_week?: number;
+  readonly playoff_end_week?: number;
   readonly chirp_intensity?: string;
   readonly personality_mode?: string;
 }
@@ -131,7 +134,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       draftResultsAvailable: false,
       manualDraftedCount: draftedNames.size,
       rosterPositions,
-      playoffWindow: this.resolvePlayoffWindow(null),
+      playoffWindow: this.resolvePlayoffWindow(args),
       poolCaveat: rawData.pool_caveat
     } as any;
 
@@ -197,23 +200,37 @@ export class DraftPickAnalysis extends AnalysisTemplate {
 
     const top: DraftCandidate | undefined = analysisResults.candidates[0];
 
+    // The playoff clause is only truthful when a window was actually resolved.
+    const windowResolved = analysisResults.playoff_window?.resolved === true;
+    const scheduleClause = top && windowResolved && top.playoff_games !== null
+      ? `, and ${top.team} plays ${top.playoff_games} games in your playoff window`
+      : '';
+
     let chirp: string;
     if (!top) {
       chirp = 'Nobody left worth chirping about. Either the pool is empty or everyone is drafted.';
     } else if (top.adp_delta !== null && top.adp_delta >= 12) {
+      // v4 has no market ADP. average_pick is this player's rank by production,
+      // so the claim is "better player than this slot", not "the room drafts
+      // him earlier" — nothing here knows what a room does.
       chirp =
-        `${top.name} is still sitting there at ${analysisResults.pick_number} and the room ` +
-        `usually takes him at ${top.average_pick}. That is ${Math.round(top.adp_delta)} picks of ` +
-        `free value. Take him before someone wakes up.`;
+        `${top.name} is the ${this.ordinal(top.average_pick ?? 0)} best producer left and you are ` +
+        `picking at ${analysisResults.pick_number}. That is ${Math.round(top.adp_delta)} slots of ` +
+        `talent above where you are sitting${scheduleClause}.`;
     } else if (top.fills_need) {
       chirp =
-        `${top.name} fills the hole you actually have (${top.position}), and ` +
-        `${top.team} plays ${top.playoff_games ?? '?'} games in your playoff window. ` +
+        `${top.name} fills the hole you actually have (${top.position})${scheduleClause}. ` +
         `Best available is a luxury; a full lineup is not.`;
     } else {
       chirp =
-        `${top.name} is the pick. No bargain, no drama — just the best board-and-schedule ` +
-        `combination left at ${analysisResults.pick_number}.`;
+        `${top.name} is the pick. No bargain, no drama — just the best producer left ` +
+        `at ${analysisResults.pick_number}${scheduleClause}.`;
+    }
+
+    if (!windowResolved) {
+      chirp +=
+        ' I have not scored your playoff weeks — pass playoff_start_week and ' +
+        'playoff_end_week and the schedule becomes a tiebreaker.';
     }
 
     if (analysisResults.players_off_board === 0) {
@@ -342,6 +359,18 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       verdict: this.verdictFor(adpDelta),
       reasoning: this.reasoningFor(player, adpDelta, playoffGames, weekCount, fillsNeed)
     };
+  }
+
+  /** 1 -> "1st", 2 -> "2nd", 23 -> "23rd". */
+  private ordinal(n: number): string {
+    const rem100 = n % 100;
+    if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+    switch (n % 10) {
+      case 1: return `${n}st`;
+      case 2: return `${n}nd`;
+      case 3: return `${n}rd`;
+      default: return `${n}th`;
+    }
   }
 
   private verdictFor(adpDelta: number | null): DraftCandidate['verdict'] {
@@ -518,33 +547,40 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     return counts;
   }
 
-  private resolvePlayoffWindow(settings: any): any {
-    const leagueMeta = settings?.fantasy_content?.league?.[0] ?? {};
-    const leagueSettings = settings?.fantasy_content?.league?.[1]?.settings?.[0] ?? {};
+  /**
+   * Resolve the fantasy playoff weeks to calendar dates.
+   *
+   * v4 has no league settings to read, so the weeks come from the caller and
+   * week 1 is anchored to the NHL season's own opening night. Without stated
+   * weeks the window is unresolved, and the schedule component stays neutral
+   * rather than silently scoring the wrong three weeks.
+   */
+  private resolvePlayoffWindow(args: DraftPickArgs): any {
+    const startWeek = Number(args?.playoff_start_week ?? 0);
+    const endWeek = Number(args?.playoff_end_week ?? 0);
+    const seasonStart = NHL_SCHEDULE.getSeasonStartDate();
 
-    const startDate: string | undefined = leagueMeta.start_date;
-    const endWeek = Number(leagueMeta.end_week ?? leagueSettings.end_week ?? 0);
-    const playoffStartWeek = Number(leagueSettings.playoff_start_week ?? 0);
-
-    if (!startDate || !playoffStartWeek || !endWeek || playoffStartWeek > endWeek) {
+    if (!startWeek || !endWeek || startWeek > endWeek || !seasonStart) {
       return { resolved: false, start: null, end: null, weeks: [] };
     }
 
-    const week1Monday = NhlScheduleService.weekStart(startDate);
+    const week1Monday = NhlScheduleService.weekStart(seasonStart);
     const weeks: string[] = [];
-    for (let week = playoffStartWeek; week <= endWeek; week++) {
+    for (let week = startWeek; week <= endWeek; week++) {
       weeks.push(NhlScheduleService.addDays(week1Monday, (week - 1) * 7));
     }
 
     return {
       resolved: true,
-      playoff_start_week: playoffStartWeek,
+      week_1_anchor: `${week1Monday} (NHL season opener)`,
+      playoff_start_week: startWeek,
       end_week: endWeek,
-      start: NhlScheduleService.addDays(week1Monday, (playoffStartWeek - 1) * 7),
+      start: NhlScheduleService.addDays(week1Monday, (startWeek - 1) * 7),
       end: NhlScheduleService.addDays(week1Monday, endWeek * 7 - 1),
       weeks
     };
   }
+
 
   private toNumberOrNull(value: any): number | null {
     if (value === undefined || value === null || value === '' || value === '-') return null;
