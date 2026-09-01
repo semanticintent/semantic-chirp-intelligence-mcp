@@ -262,9 +262,11 @@ The callback server started without a certificate. Fixed in 3.2.0 — `selfsigne
 error gives no "Advanced → Proceed" option, unlike a normal self-signed warning.
 
 **`403 This application is not authorized to perform this action` on every endpoint**
-Including `/game/nhl`, which needs no user data. Yahoo issued a token with no
-Fantasy scope. The tell is `xoauth_yahoo_guid` missing from the token response —
-`authenticate.js` reports this immediately after the exchange.
+Including `/game/nhl`, which needs no user data. Yahoo issued a token that
+carries no working Fantasy authorization. (Note: a missing `xoauth_yahoo_guid`
+in the token response is *not* a reliable tell — Yahoo only returns that field
+when the `openid` scope is requested. Verify with `npm run preflight`, which
+makes a real API call.)
 
 1. Confirm at [developer.yahoo.com/apps](https://developer.yahoo.com/apps/) that the
    app has a **Fantasy Sports** permission at all. Yahoo's permission list opens on
