@@ -9,6 +9,7 @@
 import { AnalysisTemplate } from '../template/AnalysisTemplate.js';
 import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
+import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
 import {
   FantasyData,
   AnalysisResponse,
@@ -301,40 +302,29 @@ export class LineupAnalysis extends AnalysisTemplate {
   }
 
   /**
-   * Helper: Fetch today's NHL schedule from public API
-   * Returns array of games for efficient lookup
+   * Helper: Ensure the season schedule is loaded.
+   *
+   * Replaces a per-call fetch of a single day with the shared season schedule,
+   * which is cached to disk and reused by every other analysis.
    */
   private async fetchTodaySchedule(): Promise<any[]> {
-    try {
-      // Get today's date in YYYY-MM-DD format
-      const today = new Date().toISOString().split('T')[0];
-
-      // Fetch today's NHL schedule from public NHL API
-      const response = await fetch(`https://api-web.nhle.com/v1/schedule/${today}`);
-      if (!response.ok) return [];
-
-      const schedule = await response.json();
-      return schedule.gameWeek?.[0]?.games || [];
-    } catch (error) {
-      console.error('[DEBUG] Error fetching NHL schedule:', error);
-      return [];
-    }
+    await NHL_SCHEDULE.load();
+    return [];
   }
 
   /**
-   * Helper: Check if player has a game today
-   * Uses pre-fetched NHL schedule for efficiency
+   * Helper: Check if a player's club plays today.
+   *
+   * Yahoo and the NHL spell five clubs differently (`LA`/`LAK`, `NJ`/`NJD`,
+   * `SJ`/`SJS`, `TB`/`TBL`, `StL`/`STL`). The previous implementation compared
+   * Yahoo's abbreviation to the NHL tricode directly, so those five clubs
+   * always reported "no game today" — silently, and only for them.
+   * `toNhlTricode` inside the schedule service resolves both spellings.
    */
-  private hasGameToday(player: any, todayGames: any[]): boolean {
-    if (!player.team || !todayGames.length) return false;
+  private hasGameToday(player: any, _todayGames: any[]): boolean {
+    if (!player.team || !NHL_SCHEDULE.isAvailable()) return false;
 
-    const playerTeam = player.team.toUpperCase();
-
-    return todayGames.some((game: any) => {
-      const homeTeam = game.homeTeam?.abbrev?.toUpperCase();
-      const awayTeam = game.awayTeam?.abbrev?.toUpperCase();
-      return homeTeam === playerTeam || awayTeam === playerTeam;
-    });
+    return NHL_SCHEDULE.hasGameOn(player.team, NhlScheduleService.today());
   }
 
   /**

@@ -363,4 +363,109 @@ export class YahooApiClient {
 
     return { players, trend_type: trendType };
   }
+
+  // ==========================================
+  // 📊 Stats
+  // ==========================================
+
+  /**
+   * Yahoo's authoritative stat_id -> display_name catalogue for NHL.
+   * Game-level resource, so it needs no league context.
+   */
+  public async getStatCategories(): Promise<any> {
+    return this.request('/game/nhl/stat_categories');
+  }
+
+  /**
+   * Stats for many players in one call.
+   *
+   * @param playerIds bare Yahoo player ids (not full `nhl.p.x` keys)
+   * @param statType  'season' | 'lastweek' | 'lastmonth'
+   *
+   * Yahoo caps `player_keys` per request, so callers are chunked at 25.
+   */
+  public async getPlayersStats(
+    playerIds: string[],
+    statType: 'season' | 'lastweek' | 'lastmonth' = 'season',
+    leagueId?: string
+  ): Promise<Record<string, any[]>> {
+    if (playerIds.length === 0) return {};
+
+    const league = leagueId || process.env.YAHOO_LEAGUE_ID!;
+    const cleanLeagueId = this.stripLeaguePrefix(league);
+
+    const chunks: string[][] = [];
+    for (let i = 0; i < playerIds.length; i += 25) {
+      chunks.push(playerIds.slice(i, i + 25));
+    }
+
+    const statsById: Record<string, any[]> = {};
+
+    for (const chunk of chunks) {
+      const keys = chunk.map(id => `nhl.p.${id}`).join(',');
+
+      try {
+        const data = await this.request(
+          `/league/nhl.l.${cleanLeagueId}/players;player_keys=${keys}/stats;type=${statType}`
+        );
+
+        const playersData = data?.fantasy_content?.league?.[1]?.players ?? {};
+
+        for (const key of Object.keys(playersData).filter(k => k !== 'count')) {
+          const player = playersData[key]?.player;
+          if (!player) continue;
+
+          const identity: any[] = player[0] ?? [];
+          const playerId = identity.find?.((item: any) => item?.player_id)?.player_id;
+          const stats = player[1]?.player_stats?.stats ?? [];
+
+          if (playerId) statsById[String(playerId)] = stats;
+        }
+      } catch (error) {
+        // One bad chunk should not sink the whole analysis; the caller sees
+        // the missing ids and can degrade that player rather than the run.
+        console.error(`[DEBUG] Stats chunk failed (${chunk.length} players):`, error);
+      }
+    }
+
+    return statsById;
+  }
+
+  // ==========================================
+  // 🎯 Draft
+  // ==========================================
+
+  /**
+   * Completed draft picks for the league.
+   * Populated during and after the draft; empty before it starts.
+   */
+  public async getDraftResults(leagueId?: string): Promise<any> {
+    const league = leagueId || process.env.YAHOO_LEAGUE_ID!;
+    const cleanLeagueId = this.stripLeaguePrefix(league);
+    return this.request(`/league/nhl.l.${cleanLeagueId}/draftresults`);
+  }
+
+  /**
+   * Players with Yahoo's draft analysis attached — average pick, average
+   * round, average cost and percent drafted. This is the league-game-wide ADP
+   * that `chirp_draft_pick` values picks against.
+   *
+   * @param status 'A' available only, or 'ALL' for the full pool (pre-draft
+   *               every player is available, so 'ALL' is the pre-draft default)
+   */
+  public async getPlayersWithDraftAnalysis(
+    count: number = 50,
+    start: number = 0,
+    status: string = 'ALL',
+    leagueId?: string
+  ): Promise<any> {
+    const league = leagueId || process.env.YAHOO_LEAGUE_ID!;
+    const cleanLeagueId = this.stripLeaguePrefix(league);
+
+    const statusParam = status === 'ALL' ? '' : `;status=${status}`;
+
+    return this.request(
+      `/league/nhl.l.${cleanLeagueId}/players;sort=AR${statusParam};start=${start};count=${count}/draft_analysis`
+    );
+  }
 }

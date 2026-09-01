@@ -33,6 +33,8 @@ import type {
 } from '../domain/types.js';
 import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
+import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
+import { parseStatArray } from '../domain/yahoo-stats.js';
 
 interface WeekendStreamArgs {
   readonly date_range: {
@@ -58,7 +60,7 @@ interface StreamCandidate extends Player {
   readonly projected_fpg: number;
   readonly opportunity_toi: number;
   readonly risk_percentage: number;
-  readonly matchup_quality: 'elite' | 'favorable' | 'average' | 'difficult';
+  readonly matchup_quality: 'elite' | 'favorable' | 'average' | 'difficult' | 'unknown';
   readonly back_to_back: boolean;
   readonly drop_suggestion?: string;
   readonly fit_reason: string;
@@ -167,11 +169,26 @@ CHIRP STYLE: desperate_or_legit
       new Map(allFreeAgents.map(p => [p.player_id, p])).values()
     ).filter(p => (p.percent_owned || 0) <= ownershipMax);
 
+    // Real inputs for the upside score: the NHL schedule and Yahoo's own stats.
+    // Both halves of the formula used to be Math.random().
+    const [, , seasonStats, recentStats] = await Promise.all([
+      NHL_SCHEDULE.load(),
+      NHL_SCHEDULE.loadStandings(),
+      this.yahooClient.getPlayersStats(
+        uniqueFreeAgents.map(p => p.player_id), 'season', this.leagueId
+      ),
+      this.yahooClient.getPlayersStats(
+        uniqueFreeAgents.map(p => p.player_id), 'lastmonth', this.leagueId
+      )
+    ]);
+
     return {
       freeAgents: uniqueFreeAgents,
       roster,
       trendingAdds: trendingAdds.players || [],
-      dateRange: args.date_range
+      dateRange: args.date_range,
+      seasonStats,
+      recentStats
     };
   }
 
@@ -185,9 +202,8 @@ CHIRP STYLE: desperate_or_legit
     // Identify roster gaps
     const rosterGaps = this.identifyRosterGaps(rawData.roster, args);
 
-    // Get weekend schedules for each free agent
-    // (In real implementation, would fetch NHL schedule API)
-    const weekendSchedules = this.mockWeekendSchedules(
+    // Real weekend schedules from the NHL public API
+    const weekendSchedules = this.buildWeekendSchedules(
       rawData.freeAgents,
       rawData.dateRange
     );
@@ -198,7 +214,9 @@ CHIRP STYLE: desperate_or_legit
       roster: rawData.roster,
       trendingPlayers: rawData.trendingAdds,
       rosterGaps: rosterGaps,
-      weekendSchedules: weekendSchedules
+      weekendSchedules: weekendSchedules,
+      seasonStats: rawData.seasonStats ?? {},
+      recentStats: rawData.recentStats ?? {}
     };
 
     return result;
@@ -248,30 +266,29 @@ CHIRP STYLE: desperate_or_legit
   }
 
   /**
-   * Layer 3: Mock weekend schedules
-   * (In production, integrate with NHL Schedule API)
+   * Layer 3: Real weekend schedules from the NHL public API.
+   *
+   * Each candidate gets the games their actual club actually plays in the
+   * requested window — including whether those games are back-to-back, which
+   * is a real signal for goalies rather than a coin flip.
    */
-  private mockWeekendSchedules(players: Player[], dateRange: any): Map<string, WeekendSchedule> {
+  private buildWeekendSchedules(players: Player[], dateRange: any): Map<string, WeekendSchedule> {
     const schedules = new Map<string, WeekendSchedule>();
 
-    for (const player of players) {
-      // Mock 1-3 weekend games
-      const gameCount = Math.floor(Math.random() * 3) + 1;
-      const games = [];
+    const start = dateRange?.start ?? NhlScheduleService.today();
+    const end = dateRange?.end ?? NhlScheduleService.addDays(start, 2);
 
-      for (let i = 0; i < gameCount; i++) {
-        games.push({
-          date: dateRange.start,
-          opponent: this.getRandomOpponent(player.team),
-          home: Math.random() > 0.5
-        });
-      }
+    for (const player of players) {
+      const games = NHL_SCHEDULE.isAvailable()
+        ? NHL_SCHEDULE.getGamesInRange(player.team, start, end)
+        : [];
 
       schedules.set(player.player_id, {
         player_id: player.player_id,
-        games,
-        game_count: gameCount,
-        has_back_to_back: gameCount >= 2 && Math.random() > 0.7
+        games: games.map(g => ({ date: g.date, opponent: g.opponent, home: g.home })),
+        game_count: games.length,
+        has_back_to_back:
+          NHL_SCHEDULE.isAvailable() && NHL_SCHEDULE.countBackToBacks(player.team, start, end) > 0
       });
     }
 
@@ -450,27 +467,100 @@ CHIRP STYLE: desperate_or_legit
   }
 
   /**
-   * Layer 3: Evaluate player metrics
+   * Layer 3: Evaluate player metrics from Yahoo's real stats.
+   *
+   * Season stats give the baseline, last-month stats give the current form,
+   * and the projection weights recent form 60/40 over the season line. Where a
+   * player has no stats at all (a true unknown), `has_stats` is false and the
+   * caller can see the score rests on schedule and role signals only —
+   * previously this method returned `Math.random()` and nothing said so.
    */
   private async evaluateMetrics(player: Player, data: FantasyData): Promise<any> {
-    // Mock metrics - in production, fetch real stats
+    const dataAny = data as any;
     const isTrending = data.trendingPlayers?.some((t: any) => t.player_id === player.player_id);
 
-    const basePerformance = Math.random() * 0.8 + 0.2; // 0.2 - 1.0 PPG
-    const recent_ppg = basePerformance;
-    const projected_fpg = isTrending ? basePerformance * 1.15 : basePerformance;
+    const season = parseStatArray(dataAny.seasonStats?.[player.player_id] ?? []);
+    const recent = parseStatArray(dataAny.recentStats?.[player.player_id] ?? []);
 
-    // TOI estimate (higher for better players)
-    const ownership = player.percent_owned || 0;
-    const opportunity_toi = 10 + (ownership / 100) * 10 + Math.random() * 5; // 10-25 min
+    const seasonPoints = this.pointsFrom(season);
+    const recentPoints = this.pointsFrom(recent);
+    const seasonGames = season['GP'] ?? 0;
+    const recentGames = recent['GP'] ?? 0;
+
+    const hasStats = seasonGames > 0 || recentGames > 0;
+
+    const seasonPpg = seasonGames > 0 ? seasonPoints / seasonGames : 0;
+    const recentPpg = recentGames > 0 ? recentPoints / recentGames : seasonPpg;
+
+    // Weight current form over the season baseline, but only when there is
+    // enough recent sample to mean anything.
+    const formWeight = recentGames >= 3 ? 0.6 : 0;
+    const projectedBase = (formWeight * recentPpg) + ((1 - formWeight) * seasonPpg);
+    const projected_fpg = isTrending ? projectedBase * 1.15 : projectedBase;
 
     return {
-      recent_ppg,
-      projected_fpg,
-      opportunity_toi,
-      pp_role: opportunity_toi > 18 ? 'PP1' : opportunity_toi > 15 ? 'PP2' : 'None',
-      line_position: opportunity_toi > 16 ? 'Top-6' : 'Bottom-6'
+      has_stats: hasStats,
+      recent_ppg: Number(recentPpg.toFixed(3)),
+      season_ppg: Number(seasonPpg.toFixed(3)),
+      games_sampled: { season: seasonGames, recent: recentGames },
+      projected_fpg: Number(projected_fpg.toFixed(3)),
+      opportunity_toi: this.estimateOpportunity(player, season, recent),
+      pp_role: this.derivePowerPlayRole(season, recent, seasonGames, recentGames),
+      line_position: projectedBase >= 0.5 ? 'Top-6' : 'Bottom-6'
     };
+  }
+
+  /**
+   * Fantasy points proxy from a labelled stat line.
+   * Uses Yahoo's own points category when the league reports it, otherwise
+   * reconstructs it from goals and assists.
+   */
+  private pointsFrom(stats: Record<string, number>): number {
+    if (stats['P'] !== undefined) return stats['P'];
+    return (stats['G'] ?? 0) + (stats['A'] ?? 0);
+  }
+
+  /**
+   * Opportunity signal on the 0-25 scale the upside formula expects.
+   *
+   * Yahoo does not expose time on ice in standard league stat lines, so this
+   * derives opportunity from observable production volume (shots per game) and
+   * power-play involvement rather than inventing a minutes figure.
+   */
+  private estimateOpportunity(
+    player: Player,
+    season: Record<string, number>,
+    recent: Record<string, number>
+  ): number {
+    const games = season['GP'] ?? 0;
+    if (games === 0) return 0;
+
+    const shotsPerGame = (season['SOG'] ?? 0) / games;
+    const ppPointsPerGame = (season['PPP'] ?? 0) / games;
+
+    // Shot volume scaled to ~0-15, power-play involvement worth up to ~10.
+    const shotComponent = Math.min(15, shotsPerGame * 5);
+    const ppComponent = Math.min(10, ppPointsPerGame * 40);
+
+    return Number((shotComponent + ppComponent).toFixed(1));
+  }
+
+  /** Power-play role inferred from actual power-play production. */
+  private derivePowerPlayRole(
+    season: Record<string, number>,
+    recent: Record<string, number>,
+    seasonGames: number,
+    recentGames: number
+  ): string {
+    const games = seasonGames || recentGames;
+    if (games === 0) return 'Unknown';
+
+    const ppp = (season['PPP'] ?? recent['PPP'] ?? 0);
+    const perGame = ppp / games;
+
+    if (perGame >= 0.35) return 'PP1';
+    if (perGame >= 0.12) return 'PP2';
+    return 'None';
   }
 
   /**
@@ -478,7 +568,7 @@ CHIRP STYLE: desperate_or_legit
    */
   private analyzeScheduleEase(schedule: WeekendSchedule, player: Player): any {
     if (schedule.game_count === 0) {
-      return { ease_score: 0, matchup_quality: 'average' as const };
+      return { ease_score: 0, matchup_quality: 'unknown' as const };
     }
 
     // Base score on game count
@@ -490,8 +580,18 @@ CHIRP STYLE: desperate_or_legit
     // Penalty for back-to-back
     if (schedule.has_back_to_back) easeScore -= 10;
 
-    // Opponent strength (mock - in production use team rankings)
-    const opponentStrength = Math.random() * 100;
+    // Opponent strength from real NHL standings (goals allowed per game, ranked).
+    // 0 = softest defence to face, 100 = stingiest.
+    const opponentStrength = this.averageOpponentDifficulty(schedule);
+
+    if (opponentStrength === null) {
+      // No standings data - rate on schedule volume alone rather than guessing.
+      return {
+        ease_score: Math.max(0, Math.min(100, easeScore)),
+        matchup_quality: 'unknown' as const
+      };
+    }
+
     if (opponentStrength < 30) {
       easeScore += 20; // Weak opponent
     } else if (opponentStrength > 70) {
@@ -650,12 +750,20 @@ CHIRP STYLE: desperate_or_legit
   }
 
   /**
-   * Generate random opponent (mock)
+   * Mean defensive difficulty of the opponents on this weekend slate.
+   * Returns null when standings are unavailable, so the caller can decline to
+   * rate the matchup rather than invent a rating.
    */
-  private getRandomOpponent(excludeTeam: string): string {
-    const teams = ['BOS', 'CAR', 'COL', 'DAL', 'EDM', 'FLA', 'NYR', 'TOR', 'VGK', 'WPG'];
-    const filtered = teams.filter(t => t !== excludeTeam);
-    return filtered[Math.floor(Math.random() * filtered.length)];
+  private averageOpponentDifficulty(schedule: WeekendSchedule): number | null {
+    if (!NHL_SCHEDULE.hasStandings() || schedule.games.length === 0) return null;
+
+    const ratings = schedule.games
+      .map(game => NHL_SCHEDULE.getTeamStrength(game.opponent)?.difficulty)
+      .filter((d): d is number => typeof d === 'number');
+
+    if (ratings.length === 0) return null;
+
+    return ratings.reduce((sum, d) => sum + d, 0) / ratings.length;
   }
 
   /**

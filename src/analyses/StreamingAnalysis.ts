@@ -8,6 +8,7 @@
 import { AnalysisTemplate } from '../template/AnalysisTemplate.js';
 import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
+import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
 import {
   FantasyData,
   AnalysisResponse,
@@ -58,6 +59,9 @@ export class StreamingAnalysis extends AnalysisTemplate {
 
       // Fetch league scoreboard for schedule data
       const scoreboardData = await this.apiClient.getLeagueScoreboard(this.leagueId);
+
+      // Real NHL schedule - streaming is a volume play, so the game count is the analysis
+      await NHL_SCHEDULE.load();
 
       return {
         trending: trendingData,
@@ -140,8 +144,8 @@ export class StreamingAnalysis extends AnalysisTemplate {
 
     // Analyze each available player
     for (const player of data.availablePlayers || []) {
-      // Calculate games this week (simplified - would use actual schedule in production)
-      const gamesThisWeek = this.estimateGamesThisWeek(player, lookAheadDays);
+      // Real games in the look-ahead window for this player's actual club
+      const gamesThisWeek = this.countGamesThisWeek(player, lookAheadDays);
 
       // Determine pickup priority based on games and ownership
       let pickupPriority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
@@ -214,6 +218,9 @@ export class StreamingAnalysis extends AnalysisTemplate {
     }));
 
     const analysisInsights: AnalysisInsights = {
+      schedule_source: this.scheduleAvailable()
+        ? `NHL public API (season ${NHL_SCHEDULE.getSeason()})`
+        : `UNAVAILABLE - ${NHL_SCHEDULE.getUnavailableReason()}; game counts shown as 0`,
       streaming_summary: {
         total_recommendations: streamingData.length,
         high_priority_count: streamingData.filter(s => s.pickup_priority === 'HIGH' || s.pickup_priority === 'CRITICAL').length,
@@ -281,13 +288,25 @@ export class StreamingAnalysis extends AnalysisTemplate {
   }
 
   /**
-   * Helper: Estimate games this week for a player
+   * Helper: Count this player's real club games in the look-ahead window.
+   *
+   * Every player used to return the same number here, which made the
+   * "4 games this week, low ownership" branch unreachable in practice.
+   * Returns 0 when the schedule is unavailable so no player is promoted on
+   * imaginary volume; `scheduleAvailable()` reports why.
    */
-  private estimateGamesThisWeek(player: Player, lookAheadDays: number): number {
-    // Simplified calculation - in production would use actual NHL schedule
-    // Average NHL team plays 3-4 games per week
-    const gamesPerWeek = 3.5;
-    return Math.round((lookAheadDays / 7) * gamesPerWeek);
+  private countGamesThisWeek(player: Player, lookAheadDays: number): number {
+    if (!NHL_SCHEDULE.isAvailable()) return 0;
+
+    const start = NhlScheduleService.today();
+    const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
+
+    return NHL_SCHEDULE.countGamesInRange(player.team, start, end);
+  }
+
+  /** Whether recommendations in this run were backed by the real schedule. */
+  private scheduleAvailable(): boolean {
+    return NHL_SCHEDULE.isAvailable();
   }
 
   /**
