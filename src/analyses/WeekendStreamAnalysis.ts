@@ -33,7 +33,6 @@ import type {
 } from '../domain/types.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
 import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
-import { parseStatArray } from '../domain/yahoo-stats.js';
 import { LEAGUE_DATA, LeagueDataService, NO_ROSTER_MESSAGE } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
 
@@ -186,8 +185,7 @@ CHIRP STYLE: desperate_or_legit
       trendingPlayers: rawData.trendingAdds,
       rosterGaps: rosterGaps,
       weekendSchedules: weekendSchedules,
-      seasonStats: rawData.seasonStats ?? {},
-      recentStats: rawData.recentStats ?? {}
+      poolCaveat: rawData.pool_caveat
     };
 
     return result;
@@ -450,13 +448,15 @@ CHIRP STYLE: desperate_or_legit
     const dataAny = data as any;
     const isTrending = data.trendingPlayers?.some((t: any) => t.player_id === player.player_id);
 
-    const season = parseStatArray(dataAny.seasonStats?.[player.player_id] ?? []);
-    const recent = parseStatArray(dataAny.recentStats?.[player.player_id] ?? []);
+    // v4: NHL season statistics ride on the player. There is no public source
+    // of recent-form splits, so form weighting is not applied — the season
+    // line is the projection basis, and `games_sampled` says so.
+    const season = (player as any).stats ?? null;
 
-    const seasonPoints = this.pointsFrom(season);
-    const recentPoints = this.pointsFrom(recent);
-    const seasonGames = season['GP'] ?? 0;
-    const recentGames = recent['GP'] ?? 0;
+    const seasonPoints = (season?.goals ?? 0) + (season?.assists ?? 0);
+    const recentPoints = seasonPoints;
+    const seasonGames = season?.games_played ?? 0;
+    const recentGames = 0;
 
     const hasStats = seasonGames > 0 || recentGames > 0;
 
@@ -475,8 +475,8 @@ CHIRP STYLE: desperate_or_legit
       season_ppg: Number(seasonPpg.toFixed(3)),
       games_sampled: { season: seasonGames, recent: recentGames },
       projected_fpg: Number(projected_fpg.toFixed(3)),
-      opportunity_toi: this.estimateOpportunity(player, season, recent),
-      pp_role: this.derivePowerPlayRole(season, recent, seasonGames, recentGames),
+      opportunity_toi: this.estimateOpportunity(player, season, null),
+      pp_role: this.derivePowerPlayRole(season, null, seasonGames, recentGames),
       line_position: projectedBase >= 0.5 ? 'Top-6' : 'Bottom-6'
     };
   }
@@ -486,10 +486,7 @@ CHIRP STYLE: desperate_or_legit
    * Uses Yahoo's own points category when the league reports it, otherwise
    * reconstructs it from goals and assists.
    */
-  private pointsFrom(stats: Record<string, number>): number {
-    if (stats['P'] !== undefined) return stats['P'];
-    return (stats['G'] ?? 0) + (stats['A'] ?? 0);
-  }
+
 
   /**
    * Opportunity signal on the 0-25 scale the upside formula expects.
@@ -498,16 +495,12 @@ CHIRP STYLE: desperate_or_legit
    * derives opportunity from observable production volume (shots per game) and
    * power-play involvement rather than inventing a minutes figure.
    */
-  private estimateOpportunity(
-    player: Player,
-    season: Record<string, number>,
-    recent: Record<string, number>
-  ): number {
-    const games = season['GP'] ?? 0;
+  private estimateOpportunity(player: Player, season: any, _recent: any): number {
+    const games = season?.games_played ?? 0;
     if (games === 0) return 0;
 
-    const shotsPerGame = (season['SOG'] ?? 0) / games;
-    const ppPointsPerGame = (season['PPP'] ?? 0) / games;
+    const shotsPerGame = (season?.shots ?? 0) / games;
+    const ppPointsPerGame = (season?.power_play_goals ?? 0) / games;
 
     // Shot volume scaled to ~0-15, power-play involvement worth up to ~10.
     const shotComponent = Math.min(15, shotsPerGame * 5);
@@ -517,16 +510,11 @@ CHIRP STYLE: desperate_or_legit
   }
 
   /** Power-play role inferred from actual power-play production. */
-  private derivePowerPlayRole(
-    season: Record<string, number>,
-    recent: Record<string, number>,
-    seasonGames: number,
-    recentGames: number
-  ): string {
+  private derivePowerPlayRole(season: any, _recent: any, seasonGames: number, recentGames: number): string {
     const games = seasonGames || recentGames;
     if (games === 0) return 'Unknown';
 
-    const ppp = (season['PPP'] ?? recent['PPP'] ?? 0);
+    const ppp = season?.power_play_goals ?? 0;
     const perGame = ppp / games;
 
     if (perGame >= 0.35) return 'PP1';

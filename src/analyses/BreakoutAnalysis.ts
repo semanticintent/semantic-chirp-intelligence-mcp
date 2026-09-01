@@ -23,7 +23,6 @@ import type {
   StreamingTarget,
   ChirpResponse
 } from '../domain/types.js';
-import { parseStatArray } from '../domain/yahoo-stats.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
 import { LEAGUE_DATA, LeagueDataService, NO_ROSTER_MESSAGE } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
@@ -55,8 +54,6 @@ interface PickupCandidate extends StreamingTarget {
 }
 
 export class BreakoutAnalysis extends AnalysisTemplate {
-  /** Season stat lines keyed by Yahoo player id, loaded in fetchData. */
-  private seasonStats: Record<string, any[]> = {};
 
   constructor() {
     super('get_breakout_analysis', 'streaming_recommendations');
@@ -83,8 +80,6 @@ export class BreakoutAnalysis extends AnalysisTemplate {
    * Prepare data for analysis
    */
   protected async prepareData(rawData: any, args: BreakoutAnalysisArgs): Promise<FantasyData> {
-    this.seasonStats = rawData.seasonStats ?? {};
-
     return {
       availablePlayers: rawData.freeAgents,
       trendingPlayers: rawData.trendingAdds,
@@ -294,15 +289,17 @@ export class BreakoutAnalysis extends AnalysisTemplate {
    * player Yahoo returned nothing for.
    */
   private async getPlayerMetrics(player: Player): Promise<any> {
-    const stats = parseStatArray(this.seasonStats[player.player_id] ?? []);
+    // v4: the pool carries NHL season statistics on each player already.
+    const stats = (player as any).stats ?? null;
 
     return {
-      G: stats['G'] ?? 0,
-      A: stats['A'] ?? 0,
-      GP: stats['GP'] ?? 0,
-      PPP: stats['PPP'] ?? 0,
-      SOG: stats['SOG'] ?? 0,
-      has_stats: Object.keys(stats).length > 0
+      G: stats?.goals ?? 0,
+      A: stats?.assists ?? 0,
+      GP: stats?.games_played ?? 0,
+      // The NHL feed publishes power-play goals, not power-play points.
+      PPP: stats?.power_play_goals ?? 0,
+      SOG: stats?.shots ?? 0,
+      has_stats: Boolean(stats)
     };
   }
 
