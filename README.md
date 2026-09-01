@@ -149,8 +149,12 @@ component from its scoring — it does not substitute an estimate for a fact.
 > correspondence." Personal or single-league use is an accepted category; say
 > so explicitly.
 >
-> Apps created before this gate was introduced continue to work, which is why
-> older setups and tutorials do not mention it.
+> **This applies to existing apps too.** Tested on one account in September 2026:
+> three apps — including one created in 2025 that worked throughout the previous
+> season — all returned the same 403. Yahoo appears to have swept legacy access
+> rather than only gating newly created apps. An app that worked last season is
+> not evidence that it still will. Older setups and tutorials predate the gate,
+> which is why none of them mention it.
 >
 > Note also that the API is **read-only** ("The Yahoo Fantasy Sports API
 > currently provides read access only"), so `fspt-r` is the correct scope and
