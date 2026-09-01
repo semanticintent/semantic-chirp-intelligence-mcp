@@ -6,10 +6,6 @@
         "/absolute/path/to/semantic-chirp-intelligence-mcp/build/index.js"
       ],
       "env": {
-        "YAHOO_CLIENT_ID": "your_client_id_here",
-        "YAHOO_CLIENT_SECRET": "your_client_secret_here",
-        "YAHOO_LEAGUE_ID": "your_league_id_here",
-        "YAHOO_TEAM_ID": "your_team_id_here",
         "DOTENV_CONFIG_QUIET": "true"
       }
     }

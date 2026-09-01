@@ -26,6 +26,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Tools report their data source in their output. When the NHL schedule or Yahoo stats are unreachable, the affected component is dropped from scoring and the response says so — no estimate is substituted for a fact.
 - README no longer claims "NHL public API for real schedules" as a blanket feature; there is now a "Where the numbers come from" table naming the source of every figure.
 
+- **Credentials now live in one place.** `dotenv.config()` resolved `.env` against the current working directory, and MCP clients launch the server with an arbitrary cwd (Claude Desktop uses `/`), so the project's `.env` was never found — which is why setup previously required copying all four Yahoo secrets into the client config as well. The server now resolves `.env` from its own install directory. A client `env` block still overrides the file.
+
 ### Known gaps
 - The stat-id map inherited by `analyze_trade` (`1=G, 2=A, 3=+/-, 4=PIM, 5=SOG, 8=PPP, 31=W, 32=GAA, 33=SV%`) has **not** been verified against a live league. If any id is wrong, that tool's category verdicts are wrong. `npm run verify:yahoo` reports the mismatches; at runtime Yahoo's own catalogue overrides the map once loaded.
 - `GamesInHandAnalysis`, `LineupAnalysis` and `StreamingAnalysis` still carry `// @ts-nocheck`, so TypeScript does not check them.

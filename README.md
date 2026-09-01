@@ -189,10 +189,6 @@ Edit your Claude Desktop config:
       "command": "node",
       "args": ["/absolute/path/to/semantic-chirp-intelligence-mcp/build/index.js"],
       "env": {
-        "YAHOO_CLIENT_ID": "your_client_id",
-        "YAHOO_CLIENT_SECRET": "your_client_secret",
-        "YAHOO_LEAGUE_ID": "your_league_id",
-        "YAHOO_TEAM_ID": "your_team_id",
         "DOTENV_CONFIG_QUIET": "true"
       }
     }
@@ -201,6 +197,12 @@ Edit your Claude Desktop config:
 ```
 
 Use an **absolute path** to `build/index.js` (forward slashes, even on Windows). Restart Claude Desktop — the CHIRP tools will appear.
+
+Your credentials stay in the project's git-ignored `.env`; the server resolves
+it from its own install directory, so it is found regardless of the working
+directory the client launches it with. You do **not** need to copy secrets into
+the client config. If you prefer to set them there anyway, a client `env` block
+still overrides the file.
 
 ---
 

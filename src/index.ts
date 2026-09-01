@@ -14,6 +14,8 @@ import {
 
 // Node.js
 import * as dotenv from "dotenv";
+import * as path from "path";
+import { fileURLToPath } from "url";
 import { parseString } from "xml2js";
 import { promisify } from "util";
 
@@ -63,7 +65,20 @@ import { BreakoutAnalysis } from './analyses/BreakoutAnalysis.js';
 import { ScheduleValueAnalysis } from './analyses/ScheduleValueAnalysis.js';
 import { DraftPickAnalysis } from './analyses/DraftPickAnalysis.js';
 
-dotenv.config();
+/**
+ * Load .env from the package directory, not the current working directory.
+ *
+ * MCP clients launch this server with an arbitrary cwd (Claude Desktop uses
+ * `/`), so a bare dotenv.config() never finds the project's .env — which is
+ * why the setup docs previously required copying all four Yahoo secrets into
+ * the client config as well. Resolving against the module's own location means
+ * the git-ignored .env is the single place credentials live.
+ *
+ * Real environment variables still win: dotenv does not overwrite anything
+ * already set, so a client `env` block continues to override the file.
+ */
+const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+dotenv.config({ path: path.join(PACKAGE_ROOT, ".env") });
 
 const parseXML = promisify(parseString);
 
