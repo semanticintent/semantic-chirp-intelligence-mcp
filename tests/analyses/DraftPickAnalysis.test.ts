@@ -26,6 +26,22 @@ function stubServices(pool = POOL, roster: any = null) {
   vi.spyOn(NHL_SCHEDULE, 'isAvailable').mockReturnValue(false);
   vi.spyOn(NHL_SCHEDULE, 'getUnavailableReason').mockReturnValue('stubbed off in tests');
   vi.spyOn(LEAGUE_DATA, 'getPlayerPool').mockReturnValue(pool as any);
+  // already_drafted resolves through NHL_STATS, so back it with the same pool.
+  const key = (x: string) => String(x).normalize('NFD').replace(/\p{Diacritic}/gu, '')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');
+  vi.spyOn(NHL_STATS, 'resolve').mockImplementation((input: string) => {
+    const raw = String(input ?? '').trim();
+    if (!raw) return { input: raw, player: null, reason: 'empty' } as any;
+    const normalized = raw.includes(',')
+      ? raw.split(',').map(v => v.trim()).reverse().join(' ')
+      : raw;
+    const exact = pool.filter((p: any) => key(p.name) === key(normalized));
+    if (exact.length === 1) return { input: raw, player: exact[0] } as any;
+    const surname = pool.filter((p: any) => key(p.name.split(/\s+/).slice(-1)[0]) === key(normalized));
+    if (surname.length === 1) return { input: raw, player: surname[0] } as any;
+    if (surname.length > 1) return { input: raw, player: null, ambiguous: surname, reason: 'surname' } as any;
+    return { input: raw, player: null, reason: 'no NHL player found with that name' } as any;
+  });
   vi.spyOn(LEAGUE_DATA, 'getRoster').mockReturnValue(roster);
 }
 
@@ -95,6 +111,60 @@ describe('draft board', () => {
   it('carries the caveat that availability is league-private', async () => {
     const result: any = await analysis().executeAnalysis({ pick_number: 1 }, contract);
     expect(String(result.analysis_insights.board_note ?? '')).toContain('league-private');
+  });
+});
+
+describe('already_drafted parsing', () => {
+  it('removes players pasted straight from a draft board', async () => {
+    // The natural draft-day action is to copy rows out of the draft room.
+    // Matching those raw against a player name never succeeds, so the board
+    // silently kept recommending players who were already gone.
+    const result: any = await analysis().executeAnalysis(
+      {
+        pick_number: 3,
+        already_drafted: [
+          '1. (1) Faller Guy TOR - RW',
+          '2. (2) On Time BOS - C'
+        ]
+      },
+      contract
+    );
+
+    const names = result.analysis_insights.top_candidates.map((c: any) => c.name);
+    expect(names).not.toContain('Faller Guy');
+    expect(names).not.toContain('On Time');
+    expect(result.analysis_insights.players_off_board).toBe(2);
+  });
+
+  it('still accepts bare names', async () => {
+    const result: any = await analysis().executeAnalysis(
+      { pick_number: 2, already_drafted: ['Faller Guy'] },
+      contract
+    );
+
+    expect(result.analysis_insights.top_candidates.map((c: any) => c.name))
+      .not.toContain('Faller Guy');
+  });
+
+  it('reports lines it could not match instead of counting them as removed', async () => {
+    // An unmatched pick means a drafted player is still being recommended.
+    // Counting it as removed would hide exactly that.
+    const result: any = await analysis().executeAnalysis(
+      { pick_number: 2, already_drafted: ['12. (12) Somebody Invented XXX - C'] },
+      contract
+    );
+
+    expect(result.analysis_insights.players_off_board).toBe(0);
+    expect(result.analysis_insights.drafted_not_matched?.length).toBeGreaterThan(0);
+  });
+
+  it('infers the pick from how many actually resolved', async () => {
+    const result: any = await analysis().executeAnalysis(
+      { already_drafted: ['1. (1) Faller Guy TOR - RW', '2. (2) On Time BOS - C'] },
+      contract
+    );
+
+    expect(result.analysis_insights.pick_number).toBe(3);
   });
 });
 

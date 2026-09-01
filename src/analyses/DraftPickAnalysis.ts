@@ -31,6 +31,7 @@ import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService
 import { toNhlTricode } from '../domain/nhl-teams.js';
 import { LEAGUE_DATA, LeagueDataService } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
+import { ROSTER_STORE } from '../services/RosterStore.js';
 
 export interface DraftPickArgs {
   readonly pick_number?: number;
@@ -97,8 +98,24 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     // Board state comes entirely from what the user tells us — there is no
     // platform to ask. `already_drafted` is therefore the source, not a
     // fallback, and the pick number follows from it unless stated.
+    // `already_drafted` is pasted from a draft board, so each entry may carry a
+    // pick number, club and position around the name — "1. (1) Connor McDavid
+    // EDM - C". Matching those raw against a player name never succeeds, so
+    // they run through the same forgiving parser set_roster uses, which
+    // resolves each line to an actual NHL player id.
+    const draftedText = (args.already_drafted ?? []).join('\n');
+    const draftedReport = draftedText.trim()
+      ? ROSTER_STORE.parseRoster(draftedText)
+      : { resolved: [], unresolved: [], ambiguous: [], lines_read: 0 };
+
+    const draftedIds = new Set<string>(draftedReport.resolved.map(p => p.player_id));
+
+    // Anything the parser could not pin to one player is still excluded by name,
+    // so a near-miss removes the right player more often than not — and the
+    // unmatched lines are reported rather than silently dropped.
     const draftedNames = new Set<string>(
-      (args.already_drafted ?? []).map(n => this.normalizeName(n))
+      [...draftedReport.unresolved, ...draftedReport.ambiguous]
+        .map((entry: any) => this.normalizeName(entry.line))
     );
 
     const rosterPositions: Record<string, number> = {};
@@ -128,11 +145,12 @@ export class DraftPickAnalysis extends AnalysisTemplate {
 
     return {
       draftPool: pool,
-      draftedIds: new Set<string>(),
+      draftedIds,
       draftedNames,
-      draftedCount: draftedNames.size,
-      draftResultsAvailable: false,
-      manualDraftedCount: draftedNames.size,
+      draftedCount: draftedIds.size,
+      draftResultsAvailable: draftedIds.size > 0,
+      manualDraftedCount: draftedIds.size,
+      draftedUnmatched: [...draftedReport.unresolved, ...draftedReport.ambiguous],
       rosterPositions,
       playoffWindow: this.resolvePlayoffWindow(args),
       poolCaveat: rawData.pool_caveat
@@ -149,8 +167,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     const maxResults = args.max_results ?? 8;
 
     // Pick on the clock: explicit, else inferred from picks already made.
-    const pickNumber =
-      args.pick_number ?? (Math.max(d.draftedCount, d.draftedNames.size) + 1);
+    const pickNumber = args.pick_number ?? (d.draftedCount + 1);
 
     const needs = args.roster_needs?.length
       ? args.roster_needs.map(p => p.toUpperCase())
@@ -176,7 +193,8 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       roster_needs: needs,
       pool_size: d.draftPool.length,
       available_count: available.length,
-      players_off_board: d.draftedIds.size + d.draftedNames.size,
+      players_off_board: d.draftedIds.size,
+      drafted_unmatched: d.draftedUnmatched ?? [],
       draft_results_available: d.draftResultsAvailable,
       manual_drafted_count: d.manualDraftedCount,
       playoff_window: d.playoffWindow,
@@ -267,9 +285,14 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       roster_needs: chirpEnhanced.roster_needs,
       players_off_board: chirpEnhanced.players_off_board,
       board_state:
-        `${chirpEnhanced.players_off_board} player(s) marked as already drafted. ` +
-        'Board state comes from `already_drafted` — there is no platform to read it from, ' +
-        'so tell me who has gone and the board updates.',
+        `${chirpEnhanced.players_off_board} player(s) removed from the board. ` +
+        'Paste picks into `already_drafted` in whatever shape your draft room shows ' +
+        'them — pick numbers, clubs and positions around the name are fine.',
+      // Never silently swallow a line that did not resolve; on draft day an
+      // unmatched pick means a drafted player is still being recommended.
+      drafted_not_matched: chirpEnhanced.drafted_unmatched?.length
+        ? chirpEnhanced.drafted_unmatched
+        : undefined,
       board_note: chirpEnhanced.pool_caveat,
       schedule_source: chirpEnhanced.schedule_available
         ? `NHL public API (season ${NHL_SCHEDULE.getSeason()})`
