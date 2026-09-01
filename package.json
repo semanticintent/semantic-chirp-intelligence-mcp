@@ -15,7 +15,8 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "verify:yahoo": "npm run build && node scripts/verify-yahoo.mjs",
-    "preflight": "npm run build && node scripts/preflight.mjs"
+    "preflight": "npm run build && node scripts/preflight.mjs",
+    "smoke": "npm run build && node scripts/smoke.mjs"
   },
   "keywords": [
     "mcp",
