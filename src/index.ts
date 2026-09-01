@@ -15,6 +15,7 @@ import {
 // Node.js
 import * as dotenv from "dotenv";
 import * as path from "path";
+import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { parseString } from "xml2js";
 import { promisify } from "util";
@@ -1209,11 +1210,28 @@ async function analyzeTradeImpact(giving: string[], receiving: string[], chirpIn
 
 
 
+/**
+ * Version reported in the MCP handshake.
+ *
+ * Read from package.json rather than hardcoded — this string had drifted to
+ * 3.0.0 while the package was on 3.2.0, so clients were told the wrong version.
+ */
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")
+    );
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
 // Initialize MCP Server
 const server = new Server(
   {
     name: "semantic-chirp-intelligence-mcp",
-    version: "3.0.0",
+    version: readPackageVersion(),
   },
   {
     capabilities: {
@@ -2072,7 +2090,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("🏒❄️ Semantic Chirp Intelligence MCP v3.2 - ICE is ON! (Real schedule, real stats)");
+  console.error(`🏒❄️ Semantic Chirp Intelligence MCP v${readPackageVersion()} - ICE is ON! (Real schedule, real stats)`);
 }
 
 main().catch(console.error);
