@@ -7,6 +7,7 @@ import * as dotenv from 'dotenv';
 import * as https from 'https';
 import * as url from 'url';
 import selfsigned from 'selfsigned';
+import { isPlaceholder } from './scripts/placeholders.mjs';
 
 dotenv.config();
 
@@ -23,10 +24,10 @@ if (!CLIENT_ID || !CLIENT_SECRET) {
 }
 
 // A .env copied from the template but never filled in fails much later, at
-// Yahoo, with an opaque error. Catch it here instead.
-const PLACEHOLDERS = ['paste_here', 'your_client_id', 'your_client_secret', 'your_client_id_here', 'your_client_secret_here'];
+// Yahoo, with an opaque error. Catch it here instead, using the same list
+// preflight uses so the two cannot disagree.
 const unfilled = Object.entries({ YAHOO_CLIENT_ID: CLIENT_ID, YAHOO_CLIENT_SECRET: CLIENT_SECRET })
-  .filter(([, value]) => PLACEHOLDERS.includes(String(value).trim()));
+  .filter(([, value]) => isPlaceholder(value));
 
 if (unfilled.length > 0) {
   console.error(`❌ Still a placeholder in .env: ${unfilled.map(([key]) => key).join(', ')}`);

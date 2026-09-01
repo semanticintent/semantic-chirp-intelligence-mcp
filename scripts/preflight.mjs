@@ -9,6 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
+import { isPlaceholder } from './placeholders.mjs';
 
 dotenv.config();
 
@@ -36,8 +37,8 @@ if (!fs.existsSync('.env')) {
 const required = ['YAHOO_CLIENT_ID', 'YAHOO_CLIENT_SECRET', 'YAHOO_LEAGUE_ID', 'YAHOO_TEAM_ID'];
 for (const key of required) {
   const value = process.env[key];
-  if (!value || value.includes('your_')) {
-    bad(`${key} not set`);
+  if (isPlaceholder(value)) {
+    bad(`${key} is missing or still a template placeholder`);
     continue;
   }
   // Length only — never the value.
