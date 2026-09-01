@@ -37,7 +37,7 @@ occasional chirp.
 - 🗓️ **Schedule intelligence** — every game count comes from the NHL's public club-schedule API, per club, per week
 - 🏛️ **Semantic Anchoring Governance** — every tool declares its intent; a dashboard surfaces the health metrics
 - 🧩 **Template Pattern architecture** — analyses are composable, consistent, and testable
-- 🔒 **Read-only & local** — OAuth 2.0, minimum permissions, no third-party data egress
+- 🔒 **Read-only & local** — no credentials of any kind, no third-party data egress; your roster never leaves your machine
 
 ---
 
@@ -53,7 +53,8 @@ occasional chirp.
 ├─────────────────────────────────────────────────────────────┤
 │  Intelligence layer (src/analyses/ + src/template/)          │
 │    • AnalysisTemplate   — shared Template Pattern base         │
-│    • Ice / Streaming / GamesInHand / WeekendStream / Lineup   │
+│    • Ice / Lineup / GamesInHand / Streaming / WeekendStream    │
+│    • Breakout / ScheduleValue / DraftPick                     │
 ├─────────────────────────────────────────────────────────────┤
 │  Services (src/services/)                                     │
 │    • ChirpIntelligence  — turns data into chirp               │
@@ -174,10 +175,7 @@ Edit your Claude Desktop config:
   "mcpServers": {
     "semantic-chirp-intelligence-mcp": {
       "command": "node",
-      "args": ["/absolute/path/to/semantic-chirp-intelligence-mcp/build/index.js"],
-      "env": {
-        "DOTENV_CONFIG_QUIET": "true"
-      }
+      "args": ["/absolute/path/to/semantic-chirp-intelligence-mcp/build/index.js"]
     }
   }
 }
@@ -185,11 +183,9 @@ Edit your Claude Desktop config:
 
 Use an **absolute path** to `build/index.js` (forward slashes, even on Windows). Restart Claude Desktop — the CHIRP tools will appear.
 
-Your credentials stay in the project's git-ignored `.env`; the server resolves
-it from its own install directory, so it is found regardless of the working
-directory the client launches it with. You do **not** need to copy secrets into
-the client config. If you prefer to set them there anyway, a client `env` block
-still overrides the file.
+There is no `env` block, because there is nothing to configure. Your pasted
+roster is stored in the project's git-ignored `.chirp-data/` and never leaves
+your machine.
 
 ---
 
@@ -203,7 +199,7 @@ Once connected, just talk to Claude about your team:
 - *"Where do I have a games-in-hand edge over my opponent?"*
 - *"Find me streaming goalies for the weekend — real value, not desperation pickups."*
 - *"Am I winning my matchup? Which categories am I losing?"*
-- *"Who are the hottest waiver adds in my league?"*
+- *"Who are the best players not on my roster right now?"*
 - *"Show me the governance dashboard."*
 
 ---
@@ -232,7 +228,7 @@ semantic-chirp-intelligence-mcp/
 │   ├── services/           # NhlScheduleService, NhlStatsService, RosterStore,
 │   │                       #   LeagueDataService, ChirpIntelligence
 │   ├── config/             # tool-metadata, personality-modes, chirp-styles
-│   ├── domain/             # types, governance, nhl-teams, yahoo-stats
+│   ├── domain/             # types, governance, nhl-teams
 ├── tests/                  # vitest tests
 ├── scripts/preflight.mjs   # build + NHL API check
 ├── scripts/smoke.mjs       # calls every tool, flags crash-like responses

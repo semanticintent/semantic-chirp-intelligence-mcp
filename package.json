@@ -1,7 +1,7 @@
 {
   "name": "@semanticintent/semantic-chirp-intelligence-mcp",
-  "version": "4.0.0",
-  "description": "Universal fantasy hockey intelligence \u2014 a Model Context Protocol server that reads NHL schedule and player data and analyses any roster you paste. No account, no API key, no platform lock-in.",
+  "version": "4.0.1",
+  "description": "Universal fantasy hockey intelligence — a Model Context Protocol server that reads NHL schedule and player data and analyses any roster you paste. No account, no API key, no platform lock-in.",
   "type": "module",
   "main": "build/index.js",
   "scripts": {
@@ -43,7 +43,6 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.19.1",
-    "dotenv": "^17.4.2"
+    "@modelcontextprotocol/sdk": "^1.19.1"
   }
 }
