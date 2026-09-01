@@ -142,6 +142,47 @@ describe('roster needs', () => {
   });
 });
 
+describe('playoff window', () => {
+  it('scores the weeks you name, anchored to the NHL opener', async () => {
+    vi.spyOn(NHL_SCHEDULE, 'isAvailable').mockReturnValue(true);
+    vi.spyOn(NHL_SCHEDULE, 'getSeasonStartDate').mockReturnValue('2026-09-29');
+    vi.spyOn(NHL_SCHEDULE, 'getTeamProfile').mockReturnValue({ team: 'TOR', weeks_with_4_plus: 8 } as any);
+    vi.spyOn(NHL_SCHEDULE, 'countGamesInRange').mockReturnValue(11);
+
+    const result: any = await analysis().executeAnalysis(
+      { pick_number: 1, playoff_start_week: 22, playoff_end_week: 24 },
+      contract
+    );
+
+    const window = result.analysis_insights.playoff_window;
+    expect(window.resolved).toBe(true);
+    expect(window.start).toBe('2027-02-22');
+    expect(window.weeks).toHaveLength(3);
+    expect(result.analysis_insights.top_candidates[0].playoff_games).toBe(11);
+  });
+
+  it('mentions the playoff schedule in the chirp only once resolved', async () => {
+    vi.spyOn(NHL_SCHEDULE, 'isAvailable').mockReturnValue(true);
+    vi.spyOn(NHL_SCHEDULE, 'getSeasonStartDate').mockReturnValue('2026-09-29');
+    vi.spyOn(NHL_SCHEDULE, 'getTeamProfile').mockReturnValue({ team: 'TOR', weeks_with_4_plus: 8 } as any);
+    vi.spyOn(NHL_SCHEDULE, 'countGamesInRange').mockReturnValue(11);
+
+    const withWindow: any = await analysis().executeAnalysis(
+      { pick_number: 1, playoff_start_week: 22, playoff_end_week: 24 }, contract
+    );
+    expect(withWindow.chirp_intelligence.analysis_chirp).toContain('11 games in your playoff window');
+  });
+
+  it('does not claim a playoff figure it never computed', async () => {
+    // This previously rendered "plays ? games in your playoff window".
+    const result: any = await analysis().executeAnalysis({ pick_number: 1 }, contract);
+
+    expect(result.chirp_intelligence.analysis_chirp).not.toContain('?');
+    expect(result.chirp_intelligence.analysis_chirp).toContain('not scored your playoff weeks');
+    expect(result.analysis_insights.playoff_window.resolved).toBe(false);
+  });
+});
+
 describe('resilience', () => {
   it('returns no candidates rather than failing on an empty pool', async () => {
     stubServices([]);

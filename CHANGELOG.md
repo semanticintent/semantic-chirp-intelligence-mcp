@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.2]
+
+### Fixed
+- **`chirp_draft_pick` could never score a playoff window.** Its resolver still
+  read Yahoo league settings, which v4 removed, and the tool exposed no way to
+  supply the weeks — so the playoff-schedule component the tool advertises was
+  permanently inert. It now accepts `playoff_start_week` and `playoff_end_week`
+  and anchors week 1 to the NHL season opener, matching `schedule_value`.
+- **The draft chirp claimed figures it had not computed**, rendering
+  "plays **?** games in your playoff window". The schedule clause now appears
+  only when a window was actually resolved; otherwise the tool says it has not
+  scored your playoff weeks and names the parameters that would let it.
+- **The draft chirp described a market that does not exist.** It read "the room
+  usually takes him at 10" — but v4 has no ADP, and `average_pick` is the
+  player's rank by production. It now says "the Nth best producer left", which
+  is what the number means.
+
+### Changed
+- Default draft pool 150 → 250 players.
+
+---
+
 ## [4.0.1]
 
 ### Fixed
