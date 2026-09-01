@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.1]
+
+### Fixed
+- **`dotenv` was still declared as a runtime dependency** while the README stated
+  the package holds no credentials. It was unused after the v4 rewrite. The only
+  runtime dependency is now `@modelcontextprotocol/sdk`.
+- **README claims left over from v3**, all visible on the published npm page:
+  the Security section still cited "OAuth 2.0"; the Claude Desktop config still
+  carried a `DOTENV_CONFIG_QUIET` env block and a paragraph about credentials
+  living in `.env`; the project tree listed the deleted `yahoo-stats` module; a
+  usage example referenced waiver-add data v4 cannot obtain; and the architecture
+  diagram omitted the Breakout, ScheduleValue and DraftPick analyses.
+
+---
+
 ## [4.0.0] — "Universal"
 
 CHIRP is no longer a Yahoo tool. It is a players-and-teams intelligence layer that
