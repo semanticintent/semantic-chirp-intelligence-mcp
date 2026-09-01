@@ -30,6 +30,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`authenticate.js` now rejects an unfilled `.env`.** A `.env` copied from the template but never edited previously failed much later, at Yahoo, with an opaque error.
 - **Credentials now live in one place.** `dotenv.config()` resolved `.env` against the current working directory, and MCP clients launch the server with an arbitrary cwd (Claude Desktop uses `/`), so the project's `.env` was never found — which is why setup previously required copying all four Yahoo secrets into the client config as well. The server now resolves `.env` from its own install directory. A client `env` block still overrides the file.
 
+### Documented
+- **Yahoo now gates the Fantasy Sports API behind manual approval.** Creating an app and ticking "Fantasy Sports" is no longer sufficient — Yahoo reviews every access request at [sports.yahoo.com/developer/access](https://sports.yahoo.com/developer/access/). Until approved, OAuth completes normally and every API call returns `403 This application is not authorized to perform this action`, including `/game/nhl`. Apps created before the gate keep working, which is why existing setups and tutorials do not mention it. Documented in the prerequisites, the troubleshooting section and `npm run preflight`, along with Yahoo's attribution requirement.
+
 ### Known gaps
 - The stat-id map inherited by `analyze_trade` (`1=G, 2=A, 3=+/-, 4=PIM, 5=SOG, 8=PPP, 31=W, 32=GAA, 33=SV%`) has **not** been verified against a live league. If any id is wrong, that tool's category verdicts are wrong. `npm run verify:yahoo` reports the mismatches; at runtime Yahoo's own catalogue overrides the map once loaded.
 - `GamesInHandAnalysis`, `LineupAnalysis` and `StreamingAnalysis` still carry `// @ts-nocheck`, so TypeScript does not check them.

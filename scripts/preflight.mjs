@@ -121,14 +121,21 @@ if (failures > 0) {
 
     if (message.includes('403') || message.includes('not authorized')) {
       console.log('');
-      console.log('     A 403 here means Yahoo issued a token that carries no Fantasy scope.');
-      console.log('     The token is fine; the app it was issued for is not authorized.');
-      console.log('     Check https://developer.yahoo.com/apps/ for THIS Client ID:');
-      console.log('       • API Permissions must include "Fantasy Sports" with Read ticked');
-      console.log('       • OAuth Client Type must be "Confidential Client"');
-      console.log('       • Redirect URI must be exactly https://localhost:3000/callback');
-      console.log('     If you just created or edited the app, Yahoo can take 15-60 minutes');
-      console.log('     to propagate the permission. Re-run `node authenticate.js` after.');
+      console.log('     Your token is valid — Yahoo returns 401 for a bad token, not 403.');
+      console.log('     Yahoo is refusing the APPLICATION, not you and not the token.');
+      console.log('');
+      console.log('     Most likely: your app has not been approved for Fantasy Sports API');
+      console.log('     access. Since 2025 Yahoo reviews every request; ticking the Fantasy');
+      console.log('     Sports box when creating the app is no longer enough. An unapproved');
+      console.log('     app authenticates normally and then 403s on every endpoint.');
+      console.log('');
+      console.log('       → Apply at https://sports.yahoo.com/developer/access/');
+      console.log('         Describe the product, the data needed and the user base.');
+      console.log('         Personal / single-league use is an accepted category — say so.');
+      console.log('');
+      console.log('     Also worth confirming at https://developer.yahoo.com/apps/ that');
+      console.log('     the app for THIS Client ID has Fantasy Sports permission, is a');
+      console.log('     Confidential Client, and uses https://localhost:3000/callback.');
     }
   }
 }

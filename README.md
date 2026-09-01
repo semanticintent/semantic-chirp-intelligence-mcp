@@ -125,7 +125,43 @@ component from its scoring — it does not substitute an estimate for a fact.
 
 - **Node.js 20+**
 - A **Yahoo account** with a Fantasy Hockey team
+- **Approved access to the Yahoo Fantasy Sports API** — see below
 - An MCP client — e.g. **Claude Desktop**
+
+> ### ⚠️ Yahoo now gates the Fantasy Sports API behind manual approval
+>
+> Creating a Yahoo app and ticking "Fantasy Sports" is **no longer sufficient**.
+> Yahoo reviews every request for API access:
+>
+> > "Each application is reviewed by the Yahoo Fantasy Sports team."
+> > — [sports.yahoo.com/developer/access](https://sports.yahoo.com/developer/access/)
+>
+> Until your application is approved, OAuth completes normally — you get a
+> consent screen, a valid token, and a success page — but **every API call
+> returns 403 `This application is not authorized to perform this action`**,
+> including `/game/nhl`, which needs no user data at all. The token is fine;
+> the application has not been granted access.
+>
+> **Apply at [sports.yahoo.com/developer/access](https://sports.yahoo.com/developer/access/)**
+> before setting this up. Describe the product, the data you need, and your
+> user base — Yahoo states that "incomplete or insufficiently detailed
+> submissions cannot be evaluated and will be closed without further
+> correspondence." Personal or single-league use is an accepted category; say
+> so explicitly.
+>
+> Apps created before this gate was introduced continue to work, which is why
+> older setups and tutorials do not mention it.
+>
+> Note also that the API is **read-only** ("The Yahoo Fantasy Sports API
+> currently provides read access only"), so `fspt-r` is the correct scope and
+> read/write options in the old console are vestigial.
+
+### Attribution requirement
+
+Yahoo requires that products using this data display **"Fantasy data provided
+by Yahoo Fantasy"** along with the official Yahoo Fantasy logo, linking back to
+Yahoo Fantasy. If you build a user-facing product on this server, you must
+carry that attribution.
 
 ## Setup
 
@@ -262,11 +298,19 @@ The callback server started without a certificate. Fixed in 3.2.0 — `selfsigne
 error gives no "Advanced → Proceed" option, unlike a normal self-signed warning.
 
 **`403 This application is not authorized to perform this action` on every endpoint**
-Including `/game/nhl`, which needs no user data. Yahoo issued a token that
-carries no working Fantasy authorization. (Note: a missing `xoauth_yahoo_guid`
-in the token response is *not* a reliable tell — Yahoo only returns that field
-when the `openid` scope is requested. Verify with `npm run preflight`, which
-makes a real API call.)
+Including `/game/nhl`, which needs no user data.
+
+**The usual cause is that your app has not been approved for Fantasy Sports API
+access** — see the prerequisites above. Yahoo gates the API behind a manual
+review, and an unapproved app authenticates perfectly and then 403s on
+everything. A quick way to confirm the token itself is healthy: send a
+deliberately corrupted token to the same endpoint. A bad token returns **401**
+`token_rejected`; if yours returns **403** instead, Yahoo is accepting your
+token and refusing your *application*.
+
+(Note: a missing `xoauth_yahoo_guid` in the token response is *not* a reliable
+tell — Yahoo only returns that field when the `openid` scope is requested.
+Verify with `npm run preflight`, which makes a real API call.)
 
 1. Confirm at [developer.yahoo.com/apps](https://developer.yahoo.com/apps/) that the
    app has a **Fantasy Sports** permission at all. Yahoo's permission list opens on
