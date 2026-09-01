@@ -31,10 +31,11 @@ import type {
   StreamingTarget,
   ChirpResponse
 } from '../domain/types.js';
-import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
 import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
 import { parseStatArray } from '../domain/yahoo-stats.js';
+import { LEAGUE_DATA, LeagueDataService, NO_ROSTER_MESSAGE } from '../services/LeagueDataService.js';
+import { NHL_STATS } from '../services/NhlStatsService.js';
 
 interface WeekendStreamArgs {
   readonly date_range: {
@@ -85,11 +86,7 @@ interface WeekendSchedule {
 }
 
 export class WeekendStreamAnalysis extends AnalysisTemplate {
-  constructor(
-    private readonly yahooClient: YahooApiClient,
-    private readonly leagueId: string,
-    private readonly teamId: string
-  ) {
+  constructor() {
     super('analyze_weekend_streams', 'streaming_recommendations');
   }
 
@@ -139,57 +136,31 @@ CHIRP STYLE: desperate_or_legit
    * - Trending players
    */
   protected async fetchData(args: WeekendStreamArgs): Promise<any> {
-    const ownershipMax = args.ownership_max || 50;
     const positions = args.position_filter || ['C', 'LW', 'RW', 'D', 'G'];
 
-    // Fetch free agents across requested positions
-    const freeAgentPromises = positions.map(pos =>
-      this.yahooClient.searchPlayers(pos, 50, this.leagueId)
-    );
+    await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load(), NHL_SCHEDULE.loadStandings()]);
 
-    const [
-      freeAgentResults,
-      roster,
-      trendingAdds
-    ] = await Promise.all([
-      Promise.all(freeAgentPromises),
-      this.yahooClient.getTeamRoster(this.leagueId, this.teamId),
-      this.yahooClient.getTrendingPlayers('add', 25, this.leagueId)
-    ]);
-
-    // Combine and deduplicate free agents
-    const allFreeAgents: Player[] = [];
-    for (const result of freeAgentResults) {
-      if (result.players) {
-        allFreeAgents.push(...result.players);
+    // One pool per requested position, deduplicated — replaces the Yahoo
+    // free-agent search. Ownership is league-private, so these are candidates
+    // to check rather than confirmed adds.
+    const seen = new Set<string>();
+    const freeAgents: any[] = [];
+    for (const pos of positions) {
+      for (const p of LEAGUE_DATA.getPlayerPool({ position: pos, limit: 40 })) {
+        if (seen.has(p.player_id)) continue;
+        seen.add(p.player_id);
+        freeAgents.push(p);
       }
     }
 
-    const uniqueFreeAgents = Array.from(
-      new Map(allFreeAgents.map(p => [p.player_id, p])).values()
-    ).filter(p => (p.percent_owned || 0) <= ownershipMax);
-
-    // Real inputs for the upside score: the NHL schedule and Yahoo's own stats.
-    // Both halves of the formula used to be Math.random().
-    const [, , seasonStats, recentStats] = await Promise.all([
-      NHL_SCHEDULE.load(),
-      NHL_SCHEDULE.loadStandings(),
-      this.yahooClient.getPlayersStats(
-        uniqueFreeAgents.map(p => p.player_id), 'season', this.leagueId
-      ),
-      this.yahooClient.getPlayersStats(
-        uniqueFreeAgents.map(p => p.player_id), 'lastmonth', this.leagueId
-      )
-    ]);
-
     return {
-      freeAgents: uniqueFreeAgents,
-      roster,
-      trendingAdds: trendingAdds.players || [],
+      freeAgents,
+      roster: LEAGUE_DATA.getRoster(),
+      trendingAdds: [],
       dateRange: args.date_range,
-      seasonStats,
-      recentStats
+      pool_caveat: LeagueDataService.POOL_CAVEAT
     };
+
   }
 
   /**

@@ -1,148 +1,67 @@
 #!/usr/bin/env node
 /**
- * 🚦 Preflight — is this server ready to talk to Yahoo?
+ * 🚦 Preflight — is this server ready to run?
  *
- * Checks configuration and connectivity without making any change.
- * Never prints secret values, only whether they are present and well-formed.
+ * v4 needs no credentials, no OAuth and no platform account, so this checks
+ * only what actually matters: the build, the NHL public API, and whether a
+ * roster has been provided yet.
  */
 
 import fs from 'fs';
 import path from 'path';
-import dotenv from 'dotenv';
-import { isPlaceholder } from './placeholders.mjs';
-
-dotenv.config();
 
 let failures = 0;
-const ok   = (m) => console.log(`  ✅ ${m}`);
-const bad  = (m) => { failures++; console.log(`  ❌ ${m}`); };
-const warn = (m) => console.log(`  ⚠️  ${m}`);
+const ok = (m) => console.log(`  ✅ ${m}`);
+const bad = (m) => { failures++; console.log(`  ❌ ${m}`); };
+const info = (m) => console.log(`  ℹ️  ${m}`);
 
 console.log('\n🚦 CHIRP preflight\n');
 
-// ── 1. Build ────────────────────────────────────────────────────────────────
 console.log('Build');
 fs.existsSync('build/index.js')
   ? ok('build/index.js present')
   : bad('build/index.js missing — run `npm run build`');
 
-// ── 2. Environment ──────────────────────────────────────────────────────────
-console.log('\nEnvironment');
-if (!fs.existsSync('.env')) {
-  bad('.env missing — copy .env.example and fill it in');
-} else {
-  ok('.env present');
-}
-
-const required = ['YAHOO_CLIENT_ID', 'YAHOO_CLIENT_SECRET', 'YAHOO_LEAGUE_ID', 'YAHOO_TEAM_ID'];
-for (const key of required) {
-  const value = process.env[key];
-  if (isPlaceholder(value)) {
-    bad(`${key} is missing or still a template placeholder`);
-    continue;
-  }
-  // Length only — never the value.
-  ok(`${key} set (${value.length} chars)`);
-}
-
-const leagueId = process.env.YAHOO_LEAGUE_ID ?? '';
-const teamId = process.env.YAHOO_TEAM_ID ?? '';
-if (leagueId && !/^\d+$/.test(leagueId.replace(/^nhl\.l\./, ''))) {
-  warn(`YAHOO_LEAGUE_ID "${leagueId}" is not numeric — expected the number from your team URL`);
-}
-if (teamId && !/^\d+$/.test(teamId)) {
-  warn(`YAHOO_TEAM_ID "${teamId}" is not numeric — expected the number from your team URL`);
-}
-
-// ── 3. OAuth token ──────────────────────────────────────────────────────────
-console.log('\nYahoo OAuth token');
-const tokenPath = '.yahoo-oauth.json';
-if (!fs.existsSync(tokenPath)) {
-  bad(`${tokenPath} missing — run \`node authenticate.js\``);
-} else {
+console.log('\nNHL public API (no key required)');
+for (const [label, url, check] of [
+  ['schedule', 'https://api-web.nhle.com/v1/club-schedule-season/TOR/20262027',
+    d => `${(d.games ?? []).filter(g => g.gameType === 2).length} regular-season games for TOR`],
+  ['rosters', 'https://api-web.nhle.com/v1/roster/TOR/20262027',
+    d => `${(d.forwards ?? []).length + (d.defensemen ?? []).length + (d.goalies ?? []).length} players on TOR`],
+  ['standings', 'https://api-web.nhle.com/v1/standings/now',
+    d => `${(d.standings ?? []).length} teams`]
+]) {
   try {
-    const token = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
-    token.access_token ? ok('access_token present') : bad('access_token missing');
-    token.refresh_token ? ok('refresh_token present') : bad('refresh_token missing — refresh will fail in 1 hour');
-
-    if (token.expires_at) {
-      const minutes = Math.round((token.expires_at - Date.now()) / 60000);
-      minutes > 0
-        ? ok(`access token valid for ~${minutes} more minute(s)`)
-        : warn(`access token expired ${Math.abs(minutes)} minute(s) ago — it will auto-refresh on first call`);
-    }
+    const res = await fetch(url);
+    if (!res.ok) { bad(`${label}: HTTP ${res.status}`); continue; }
+    ok(`${label} reachable — ${check(await res.json())}`);
   } catch (error) {
-    bad(`${tokenPath} is not valid JSON: ${error.message}`);
+    bad(`${label} unreachable: ${error.message}`);
   }
 }
 
-// ── 4. NHL public API (no auth needed) ──────────────────────────────────────
-console.log('\nNHL public API');
-try {
-  const response = await fetch('https://api-web.nhle.com/v1/club-schedule-season/TOR/20262027');
-  if (response.ok) {
-    const payload = await response.json();
-    const regular = (payload.games ?? []).filter(g => g.gameType === 2);
-    ok(`reachable — ${regular.length} regular-season games for TOR in 20262027`);
-  } else {
-    bad(`returned HTTP ${response.status}`);
-  }
-} catch (error) {
-  bad(`unreachable: ${error.message}`);
+for (const [dir, label] of [['.nhl-schedule-cache', 'NHL data cache'], ['.chirp-data', 'stored league data']]) {
+  fs.existsSync(dir)
+    ? info(`${label}: ${fs.readdirSync(dir).join(', ') || '(empty)'}`)
+    : info(`${label}: none yet`);
 }
 
-const cacheDir = '.nhl-schedule-cache';
-fs.existsSync(cacheDir)
-  ? ok(`schedule cache present (${fs.readdirSync(cacheDir).join(', ')})`)
-  : console.log('  ℹ️  no schedule cache yet — first call will build it (~350ms)');
-
-// ── 5. Live Yahoo call ──────────────────────────────────────────────────────
-console.log('\nYahoo API (live call)');
-if (failures > 0) {
-  console.log('  ⏭️  skipped — fix the failures above first');
-} else {
+console.log('\nYour league');
+const rosterFile = path.join('.chirp-data', 'roster.json');
+if (fs.existsSync(rosterFile)) {
   try {
-    const { YahooApiClient } = await import('../build/services/YahooApiClient.js');
-    const client = new YahooApiClient(process.env.YAHOO_CLIENT_ID, process.env.YAHOO_CLIENT_SECRET);
-
-    const cleanLeague = leagueId.replace(/^nhl\.l\./, '');
-    const data = await client.request(`/league/nhl.l.${cleanLeague}`);
-    const league = data?.fantasy_content?.league?.[0];
-
-    if (league?.name) {
-      ok(`authenticated — league "${league.name}" (${league.num_teams} teams, season ${league.season})`);
-      console.log(`     current week: ${league.current_week ?? '?'}   start: ${league.start_date ?? '?'}`);
-    } else {
-      warn('call succeeded but no league name found — check YAHOO_LEAGUE_ID');
-    }
-  } catch (error) {
-    const message = String(error.message);
-    bad(`live call failed: ${message.split('\n')[0]}`);
-
-    if (message.includes('403') || message.includes('not authorized')) {
-      console.log('');
-      console.log('     Your token is valid — Yahoo returns 401 for a bad token, not 403.');
-      console.log('     Yahoo is refusing the APPLICATION, not you and not the token.');
-      console.log('');
-      console.log('     Most likely: your app has not been approved for Fantasy Sports API');
-      console.log('     access. Since 2025 Yahoo reviews every request; ticking the Fantasy');
-      console.log('     Sports box when creating the app is no longer enough. An unapproved');
-      console.log('     app authenticates normally and then 403s on every endpoint.');
-      console.log('');
-      console.log('       → Apply at https://sports.yahoo.com/developer/access/');
-      console.log('         Describe the product, the data needed and the user base.');
-      console.log('         Personal / single-league use is an accepted category — say so.');
-      console.log('');
-      console.log('     Also worth confirming at https://developer.yahoo.com/apps/ that');
-      console.log('     the app for THIS Client ID has Fantasy Sports permission, is a');
-      console.log('     Confidential Client, and uses https://localhost:3000/callback.');
-    }
+    const r = JSON.parse(fs.readFileSync(rosterFile, 'utf8'));
+    ok(`roster stored: "${r.label}" — ${r.players.length} players (updated ${r.updated_at})`);
+  } catch {
+    bad('roster file present but unreadable');
   }
+} else {
+  info('no roster yet — paste one with the `set_roster` tool, then everything else works');
 }
 
 console.log(
   failures === 0
-    ? '\n✅ Preflight clean — ready to test.\n'
+    ? '\n✅ Preflight clean — no credentials needed.\n'
     : `\n❌ ${failures} check(s) failed.\n`
 );
 process.exit(failures === 0 ? 0 : 1);

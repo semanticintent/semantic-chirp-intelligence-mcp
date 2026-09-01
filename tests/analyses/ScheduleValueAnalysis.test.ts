@@ -17,8 +17,10 @@ function leagueSettings(playoffStartWeek = 22, endWeek = 24, startDate = '2026-0
   };
 }
 
-function makeClient(settings: any = leagueSettings()) {
-  return { getLeagueSettings: vi.fn(async () => settings) } as any;
+// v4 has no platform to read league settings from — the playoff window is
+// supplied as arguments, or anchored to the NHL season opener.
+function makeClient(_settings?: any) {
+  return {} as any;
 }
 
 /** Give TOR a heavy playoff window and SJS a light one. */
@@ -56,7 +58,9 @@ describe('ScheduleValueAnalysis', () => {
 
   it('ranks the club with the heavier playoff window first', async () => {
     const analysis = new ScheduleValueAnalysis(makeClient(), '12345', '1');
-    const result: any = await analysis.executeAnalysis({}, contract);
+    const result: any = await analysis.executeAnalysis(
+      { playoff_start_week: 22, playoff_end_week: 24 }, contract
+    );
 
     const best = result.analysis_insights.all_teams[0];
     expect(best.team).toBe('TOR');
@@ -66,24 +70,28 @@ describe('ScheduleValueAnalysis', () => {
     );
   });
 
-  it('scores the window the league actually plays, not a generic guess', async () => {
+  it('scores the window the user names, anchored to the NHL opener', async () => {
     const analysis = new ScheduleValueAnalysis(makeClient(), '12345', '1');
-    const result: any = await analysis.executeAnalysis({}, contract);
+    const result: any = await analysis.executeAnalysis(
+      { playoff_start_week: 22, playoff_end_week: 24 }, contract
+    );
 
     const window = result.analysis_insights.playoff_window;
     expect(window.resolved).toBe(true);
-    expect(window.source).toBe('Yahoo league settings');
+    expect(window.source).toBe('explicit argument');
+    expect(window.week_1_anchor).toContain('NHL season opener');
     expect(window.start).toBe('2027-02-22'); // week 22 of a 2026-09-28 week 1
     expect(window.weeks).toHaveLength(3);
   });
 
-  it('lets an explicit playoff_start_week override the league settings', async () => {
+  it('accepts an explicit playoff window spanning several weeks', async () => {
     const analysis = new ScheduleValueAnalysis(makeClient(), '12345', '1');
-    const result: any = await analysis.executeAnalysis({ playoff_start_week: 20 }, contract);
+    const result: any = await analysis.executeAnalysis(
+      { playoff_start_week: 20, playoff_end_week: 24 }, contract
+    );
 
     const window = result.analysis_insights.playoff_window;
     expect(window.playoff_start_week).toBe(20);
-    expect(window.source).toBe('explicit argument');
     expect(window.weeks).toHaveLength(5); // weeks 20-24
   });
 
@@ -95,17 +103,13 @@ describe('ScheduleValueAnalysis', () => {
     expect(teams).toEqual(['TOR', 'SJS']); // unknown abbreviation dropped, not guessed
   });
 
-  it('anchors week 1 to the NHL opener when Yahoo has no start_date', async () => {
-    // An explicit playoff_start_week is an index into nothing without an anchor,
-    // so the season's own first game stands in for the league start_date.
-    const client = makeClient({ fantasy_content: { league: [{ end_week: 24 }, {}] } });
-    const analysis = new ScheduleValueAnalysis(client, '12345', '1');
-    const result: any = await analysis.executeAnalysis({ playoff_start_week: 22 }, contract);
+  it('reports the window unresolved when no weeks are given', async () => {
+    // Without a stated playoff window there is nothing to score it against,
+    // and inventing one would silently rate the wrong three weeks.
+    const analysis = new ScheduleValueAnalysis(makeClient(), '12345', '1');
+    const result: any = await analysis.executeAnalysis({}, contract);
 
-    const window = result.analysis_insights.playoff_window;
-    expect(window.resolved).toBe(true);
-    expect(window.week_1_anchor).toContain('NHL season opener');
-    expect(window.start).toBe('2027-02-22');
+    expect(result.analysis_insights.playoff_window.resolved).toBe(false);
   });
 
   it('treats an unresolved window as missing information, not a bad schedule', async () => {
@@ -143,9 +147,8 @@ describe('ScheduleValueAnalysis', () => {
     expect(result.chirp_intelligence.chirp).toContain('No schedule, no verdict');
   });
 
-  it('survives league settings being unreachable', async () => {
-    const client = { getLeagueSettings: vi.fn(async () => { throw new Error('503'); }) } as any;
-    const analysis = new ScheduleValueAnalysis(client, '12345', '1');
+  it('rates every club even with no playoff window supplied', async () => {
+    const analysis = new ScheduleValueAnalysis(makeClient(), '12345', '1');
     const result: any = await analysis.executeAnalysis({}, contract);
 
     expect(result.analysis_insights.all_teams).toHaveLength(32);

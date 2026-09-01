@@ -4,6 +4,78 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] — "Universal"
+
+CHIRP is no longer a Yahoo tool. It is a players-and-teams intelligence layer that
+works with any roster, from any platform, with no account at all.
+
+### Removed — BREAKING
+
+- **The entire Yahoo Fantasy API integration.** No OAuth, no token lifecycle, no
+  certificate generation, no credentials of any kind. `YahooApiClient`,
+  `authenticate.js`, `scripts/verify-yahoo.mjs`, `src/experimental/`, the
+  placeholder-credential machinery and the `.env` requirement are all gone.
+- **Dependencies** `selfsigned`, `xml2js` and `dotenv`. The runtime dependency list
+  is now the MCP SDK alone.
+- **Five tools** that structurally required live platform data no public source
+  exposes: `get_current_matchup`, `get_weekly_stats`, `get_trending_players`,
+  `debug_api_call`, `semantic_player_comparison`.
+
+**Why.** In 2026 Yahoo put the Fantasy Sports API behind a manual approval process
+and revoked existing access — verified on a real account, where three apps
+including one that had worked for a full previous season all returned
+`403 This application is not authorized`. A working install could stop working
+with no change to this code. The intelligence layer was never the part that needed
+an account; the data source was.
+
+### Added
+
+- **`set_roster` / `set_opponent_roster`** — paste a roster from anywhere. Names
+  resolve against live NHL rosters, so team and position fill themselves in.
+  Handles tab-separated rows with lineup slots, bare names, `Lastname, Firstname`,
+  numbered lines and bracketed team/position, plus accents (`Stutzle` → `Stützle`)
+  and punctuation (`J.T. Miller`).
+- **`set_standings`** — paste league standings for league context.
+- **`show_stored_data`** — inspect or clear what CHIRP currently knows.
+- **`NhlStatsService`** — all 32 club rosters plus season statistics from the NHL
+  public API. 1,268 players in ~500ms cold, then a disk cache. Statistics default
+  to the previous season, because before opening night the current one has none —
+  and a draft is exactly when last season's line matters.
+- **`RosterStore`** and **`LeagueDataService`** — paste parsing, persistence, and a
+  source-agnostic view of league state in the shape the analyses already consume.
+- **`npm run smoke`** — calls every tool and distinguishes "returned data",
+  "clean error" and "crash-like".
+
+### Changed
+
+- **ICE's schedule advantage is now a measurement.** `fetchGamesInHand` had always
+  returned a hardcoded `0`, in every released version. It now counts each rostered
+  player's real club games over the look-ahead window.
+- **Pool-based tools** (`get_streaming_recommendations`, `analyze_weekend_streams`,
+  `analyze_breakout_players`, `chirp_draft_pick`) rank NHL players *not on the
+  rosters you provided*, and state plainly that league availability is private and
+  cannot be determined from public data. They no longer imply a waiver wire.
+- **`search_players`** searches all 1,200+ NHL players. **`get_player_stats`**
+  accepts a name rather than an internal id. **`compare_matchup`** and
+  **`chirp_opponent`** work from the pasted opponent roster.
+- **A name that does not resolve to exactly one player is reported**, with its
+  candidates, rather than guessed. A roster silently holding the wrong player is
+  worse than one that says it could not read line 7.
+
+### Migration from 3.x
+
+1. `npm install && npm run build`
+2. Delete `.env` and `.yahoo-oauth.json` — neither is read any more
+3. Remove the Yahoo `env` block from your MCP client config
+4. Paste your roster with `set_roster`
+
+The Yahoo integration is preserved at the
+[v3.2.0 tag](https://github.com/semanticintent/semantic-chirp-intelligence-mcp/releases/tag/v3.2.0).
+
+**Tools: 22 → 21. Tests: 110 → 136. Net −1,677 lines.**
+
+---
+
 ## [3.2.0] — "Real Ice"
 
 ### Added

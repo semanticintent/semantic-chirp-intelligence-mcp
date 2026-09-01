@@ -7,3 +7,4 @@ build/
 coverage/
 .nhl-schedule-cache/
 .yahoo-verify/
+.chirp-data/

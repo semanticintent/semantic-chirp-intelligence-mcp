@@ -6,7 +6,6 @@
  */
 
 import { AnalysisTemplate } from '../template/AnalysisTemplate.js';
-import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
 import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
 import {
@@ -18,6 +17,8 @@ import {
   AnalysisInsights,
   AnalysisMetadata
 } from '../domain/types.js';
+import { LEAGUE_DATA, LeagueDataService, NO_ROSTER_MESSAGE } from '../services/LeagueDataService.js';
+import { NHL_STATS } from '../services/NhlStatsService.js';
 
 export interface StreamingArgs {
   look_ahead_days?: number;
@@ -34,11 +35,7 @@ export interface StreamingPlayerAnalysis {
 }
 
 export class StreamingAnalysis extends AnalysisTemplate {
-  constructor(
-    private readonly apiClient: YahooApiClient,
-    private readonly leagueId: string,
-    private readonly teamId: string
-  ) {
+  constructor() {
     super("get_streaming_recommendations", "streaming_strategy");
   }
 
@@ -46,91 +43,31 @@ export class StreamingAnalysis extends AnalysisTemplate {
    * Hook 1: Fetch raw data from Yahoo API
    */
   protected async fetchData(args: StreamingArgs): Promise<any> {
-    try {
-      // Fetch trending players (hot pickups)
-      // Note: apiClient.request() already includes /fantasy/v2 base
-      const cleanLeagueId = this.leagueId.replace(/^nhl\.l\./, '');
-      const trendingData = await this.apiClient.request(
-        `/league/nhl.l.${cleanLeagueId}/players;status=A;sort=AR`
-      );
+    // v4: no waiver wire exists without league-private ownership data, so the
+    // pool is "NHL players not on the rosters you gave me", ranked by
+    // production. The caveat travels with the results.
+    await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
 
-      // Fetch your current roster to avoid recommending owned players
-      const rosterData = await this.apiClient.getTeamRoster(this.leagueId, this.teamId);
+    return {
+      pool: LEAGUE_DATA.getPlayerPool({ limit: 120 }),
+      roster: LEAGUE_DATA.getRoster(),
+      pool_caveat: LeagueDataService.POOL_CAVEAT
+    };
 
-      // Fetch league scoreboard for schedule data
-      const scoreboardData = await this.apiClient.getLeagueScoreboard(this.leagueId);
-
-      // Real NHL schedule - streaming is a volume play, so the game count is the analysis
-      await NHL_SCHEDULE.load();
-
-      return {
-        trending: trendingData,
-        roster: rosterData,
-        scoreboard: scoreboardData
-      };
-    } catch (error) {
-      throw new Error(`Failed to fetch streaming data: ${error}`);
-    }
   }
 
   /**
    * Hook 2: Prepare data into FantasyData structure
    */
   protected async prepareData(rawData: any, args: StreamingArgs): Promise<FantasyData> {
-    const { trending, roster, scoreboard } = rawData;
-
-    // Parse current roster to filter out owned players
-    const ownedPlayerIds = new Set<string>();
-    const rosterPlayers = roster.fantasy_content?.team?.[1]?.roster?.['0']?.players?.['0']?.player || [];
-
-    for (const playerData of rosterPlayers) {
-      const player = playerData.player?.[0] || playerData;
-      ownedPlayerIds.add(player.player_id);
-    }
-
-    // Parse available trending players
-    const availablePlayers: Player[] = [];
-    const trendingPlayers = trending.fantasy_content?.league?.[1]?.players?.['0']?.player || [];
-
-    for (const playerData of trendingPlayers) {
-      const player = playerData.player?.[0] || playerData;
-      const playerId = player.player_id;
-
-      // Skip if already owned
-      if (ownedPlayerIds.has(playerId)) {
-        continue;
-      }
-
-      // Apply position filter if specified
-      const position = player.display_position || player.primary_positions?.[0] || 'Unknown';
-      if (args.position_filter && args.position_filter.length > 0) {
-        if (!args.position_filter.includes(position)) {
-          continue;
-        }
-      }
-
-      availablePlayers.push({
-        player_id: playerId,
-        name: player.name?.full || 'Unknown',
-        position: position,
-        team: player.editorial_team_abbr || '',
-        selected_position: ['FA'], // Free agent
-        status: player.status,
-        percent_owned: parseFloat(player.percent_owned?.value || '0'),
-        stats: this.parsePlayerStats(player)
-      });
-
-      // Limit to top available players
-      if (availablePlayers.length >= (args.max_recommendations || 10) * 2) {
-        break;
-      }
-    }
-
+    // The pool is already resolved NHL players; there is no platform payload
+    // left to traverse.
     return {
-      availablePlayers,
-      roster: this.parseRoster(roster),
-      scoreboard: scoreboard
-    };
+      availablePlayers: rawData.pool ?? [],
+      roster: rawData.roster ?? undefined,
+      poolCaveat: rawData.pool_caveat
+    } as any;
+
   }
 
   /**
@@ -218,6 +155,7 @@ export class StreamingAnalysis extends AnalysisTemplate {
     }));
 
     const analysisInsights: AnalysisInsights = {
+      pool_caveat: (data as any).poolCaveat,
       schedule_source: this.scheduleAvailable()
         ? `NHL public API (season ${NHL_SCHEDULE.getSeason()})`
         : `UNAVAILABLE - ${NHL_SCHEDULE.getUnavailableReason()}; game counts shown as 0`,

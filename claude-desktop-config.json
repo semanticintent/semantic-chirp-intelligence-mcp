@@ -4,10 +4,7 @@
       "command": "node",
       "args": [
         "/absolute/path/to/semantic-chirp-intelligence-mcp/build/index.js"
-      ],
-      "env": {
-        "DOTENV_CONFIG_QUIET": "true"
-      }
+      ]
     }
   }
 }

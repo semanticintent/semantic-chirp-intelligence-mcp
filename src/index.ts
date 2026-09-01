@@ -13,12 +13,9 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 // Node.js
-import * as dotenv from "dotenv";
 import * as path from "path";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
-import { parseString } from "xml2js";
-import { promisify } from "util";
 
 // Domain layer
 import type {
@@ -39,7 +36,6 @@ import { PERSONALITY_MODES } from './config/personality-modes.js';
 import { TOOL_METADATA } from './config/tool-metadata.js';
 
 // Services layer
-import { YahooApiClient } from './services/YahooApiClient.js';
 import { ChirpIntelligence } from './services/ChirpIntelligence.js';
 
 // Analysis layer
@@ -49,47 +45,18 @@ import { StreamingAnalysis } from './analyses/StreamingAnalysis.js';
 import { LineupAnalysis } from './analyses/LineupAnalysis.js';
 import { WeekendStreamAnalysis } from './analyses/WeekendStreamAnalysis.js';
 
-// Experimental: Semantic Intent Parser
-import {
-  SEMANTIC_PLAYER_COMPARISON,
-  getPlayerComparisonInputSchema,
-  executePlayerComparison
-} from './experimental/semantic-tool-integration.js';
-
-import {
-  SEMANTIC_BREAKOUT_ANALYSIS,
-  getBreakoutAnalysisInputSchema,
-  executeBreakoutAnalysis
-} from './experimental/semantic-breakout-tool.js';
-
 import { BreakoutAnalysis } from './analyses/BreakoutAnalysis.js';
 import { ScheduleValueAnalysis } from './analyses/ScheduleValueAnalysis.js';
 import { DraftPickAnalysis } from './analyses/DraftPickAnalysis.js';
+import { NHL_STATS } from './services/NhlStatsService.js';
+import { ROSTER_STORE } from './services/RosterStore.js';
+import { LEAGUE_DATA, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE } from './services/LeagueDataService.js';
+import { NHL_SCHEDULE, NhlScheduleService } from './services/NhlScheduleService.js';
 
-/**
- * Load .env from the package directory, not the current working directory.
- *
- * MCP clients launch this server with an arbitrary cwd (Claude Desktop uses
- * `/`), so a bare dotenv.config() never finds the project's .env — which is
- * why the setup docs previously required copying all four Yahoo secrets into
- * the client config as well. Resolving against the module's own location means
- * the git-ignored .env is the single place credentials live.
- *
- * Real environment variables still win: dotenv does not overwrite anything
- * already set, so a client `env` block continues to override the file.
- */
-const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-dotenv.config({ path: path.join(PACKAGE_ROOT, ".env") });
 
-const parseXML = promisify(parseString);
 
 // Configuration
-const YAHOO_CLIENT_ID = process.env.YAHOO_CLIENT_ID!;
-const YAHOO_CLIENT_SECRET = process.env.YAHOO_CLIENT_SECRET!;
-const LEAGUE_ID = process.env.YAHOO_LEAGUE_ID!;
-const TEAM_ID = process.env.YAHOO_TEAM_ID!;
 
-const YAHOO_API_BASE = "https://fantasysports.yahooapis.com/fantasy/v2";
 
 // ==========================================
 // 🔧 MCP Tool Schema Base
@@ -117,22 +84,16 @@ const baseChirpSchema = {
 // 🏗️ Service Initialization
 // ==========================================
 
-// Initialize Yahoo API client
-const yahooClient = new YahooApiClient(
-  YAHOO_CLIENT_ID,
-  YAHOO_CLIENT_SECRET,
-  YAHOO_API_BASE
-);
 
 // Initialize analysis instances
-const iceAnalysis = new IceAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
-const gamesInHandAnalysis = new GamesInHandAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
-const streamingAnalysis = new StreamingAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
-const lineupAnalysis = new LineupAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
-const breakoutAnalysis = new BreakoutAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
-const scheduleValueAnalysis = new ScheduleValueAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
-const draftPickAnalysis = new DraftPickAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
-const weekendStreamAnalysis = new WeekendStreamAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
+const iceAnalysis = new IceAnalysis();
+const gamesInHandAnalysis = new GamesInHandAnalysis();
+const streamingAnalysis = new StreamingAnalysis();
+const lineupAnalysis = new LineupAnalysis();
+const breakoutAnalysis = new BreakoutAnalysis();
+const scheduleValueAnalysis = new ScheduleValueAnalysis();
+const draftPickAnalysis = new DraftPickAnalysis();
+const weekendStreamAnalysis = new WeekendStreamAnalysis();
 
 
 // Helper function to find current matchup by status
@@ -178,294 +139,192 @@ function findCurrentMatchup(matchups: any): any {
   return matchups[lastKey].matchup;
 }
 
-/**
- * All Yahoo access goes through the YahooApiClient service.
- *
- * index.ts previously carried its own copy of the token lifecycle -
- * loadToken / saveToken / refreshAccessToken / getValidAccessToken plus a
- * duplicate request function - while the analysis classes used the service.
- * Two independent refresh paths wrote the same .yahoo-oauth.json, so a
- * refresh triggered by a tool handler could race one triggered by an
- * analysis and clobber the newer token.
- */
-async function yahooApiRequest(endpoint: string, format: string = "json"): Promise<any> {
-  return yahooClient.request(endpoint, format);
-}
 
 // Tool: Get Team Roster
 async function getTeamRoster() {
-  const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/roster`);
-  
-  const teamArray = data.fantasy_content.team[0];
-  const rosterData = data.fantasy_content.team[1].roster["0"].players;
-  
-  // Extract team info
-  const teamKey = teamArray.find((item: any) => item.team_key)?.team_key;
-  const teamName = teamArray.find((item: any) => item.name)?.name;
-  
-  // Parse players
-  const playerKeys = Object.keys(rosterData).filter(key => key !== 'count');
-  const players = playerKeys.map(key => {
-    const playerData = rosterData[key].player[0];
-    const positionData = rosterData[key].player[1];
-    
-    // Find attributes in the array
-    const playerId = playerData.find((item: any) => item.player_id)?.player_id;
-    const name = playerData.find((item: any) => item.name)?.name?.full;
-    const displayPosition = playerData.find((item: any) => item.display_position)?.display_position;
-    const team = playerData.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr;
-    const status = playerData.find((item: any) => item.status)?.status || "";
-    const selectedPos = positionData?.selected_position?.find((item: any) => item.position)?.position || "BN";
-    
-    return {
-      player_id: playerId,
-      name: name,
-      position: displayPosition,
-      team: team,
-      status: status,
-      selected_position: selectedPos,
-    };
-  });
+  await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
+
+  const roster = LEAGUE_DATA.getRoster();
+  if (!roster) return { error: NO_ROSTER_MESSAGE };
+
+  const today = NhlScheduleService.today();
+  const weekEnd = NhlScheduleService.addDays(today, 6);
 
   return {
-    team_key: teamKey,
-    team_name: teamName,
-    roster: players,
+    team_name: roster.team_name,
+    player_count: roster.players.length,
+    players: roster.players.map((p: any) => ({
+      ...p,
+      games_next_7_days: NHL_SCHEDULE.isAvailable()
+        ? NHL_SCHEDULE.countGamesInRange(p.team, today, weekEnd)
+        : null,
+      season_stats: p.stats ?? null
+    })),
+    data_source: `NHL public API (rosters ${NHL_STATS.getSeasons().roster}, stats ${NHL_STATS.getSeasons().stats})`
   };
 }
 
 // Tool: Get League Standings
 async function getLeagueStandings() {
-  const data = await yahooApiRequest(`/league/nhl.l.${LEAGUE_ID}/standings`);
-  
-  const teams = data.fantasy_content.league[1].standings[0].teams;
-  
-  const standings = Object.keys(teams)
-    .filter(key => key !== 'count')
-    .map(key => {
-      const team = teams[key].team[0];
-      const standings = teams[key].team[1].team_standings;
-      return {
-        team_name: team[2].name,
-        rank: standings.rank,
-        wins: standings.outcome_totals?.wins || 0,
-        losses: standings.outcome_totals?.losses || 0,
-        ties: standings.outcome_totals?.ties || 0,
-        points: standings.points_for,
-      };
-    });
-
-  return { standings };
-}
-
-// Tool: Get Current Matchup
-async function getCurrentMatchup() {
-  console.error('[DEBUG] getCurrentMatchup called');
-  const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/matchups`);
-
-  console.error('[DEBUG] API response received');
-  const matchups = data.fantasy_content.team[1].matchups;
-  console.error('[DEBUG] Matchups count:', matchups?.count);
-
-  // Debug: log first 3 matchup keys and their structure
-  if (matchups) {
-    const keys = Object.keys(matchups).filter(k => k !== 'count').slice(0, 3);
-    keys.forEach(key => {
-      const m = matchups[key];
-      console.error(`[DEBUG] matchups["${key}"] structure:`, JSON.stringify({
-        hasMatchup: !!m?.matchup,
-        isArray: Array.isArray(m?.matchup),
-        week: m?.matchup?.[0]?.week || m?.matchup?.week,
-        status: m?.matchup?.[0]?.status || m?.matchup?.status
-      }));
-    });
+  const standings = LEAGUE_DATA.getStandings();
+  if (!standings) {
+    return {
+      error: 'No standings stored. Paste them with `set_standings` — copy the standings ' +
+             'table from your league, one team per line.'
+    };
   }
-
-  const currentMatchup = findCurrentMatchup(matchups);
-
-  if (!currentMatchup) {
-    console.error('[DEBUG] No current matchup found');
-    return { message: "No current matchup (bye week or season not started)" };
-  }
-
-  // currentMatchup is the matchup object with structure:
-  // matchup = { "0": { teams: {...} }, week: "1", status: "postevent", ... }
-  const matchupData = currentMatchup[0];
-  const week = currentMatchup.week;
-  const status = currentMatchup.status;
-  const teams = matchupData?.teams;
-
-  if (!teams) {
-    console.error('[DEBUG] No teams found in matchup');
-    return { message: "No teams data in current matchup" };
-  }
-
-  console.error('[DEBUG] Final result:', {
-    week,
-    status,
-    opponent: teams['1']?.team?.[0]?.[2]?.name
-  });
 
   return {
-    week,
-    status,
-    your_team: teams['0']?.team?.[0]?.[2]?.name || 'Unknown',
-    opponent: teams['1']?.team?.[0]?.[2]?.name || 'Unknown',
+    teams: standings.rows.length,
+    standings: standings.rows,
+    updated_at: standings.updated_at
   };
 }
 
+// Tool: Get Current Matchup
+// Removed in v4: getCurrentMatchup required live fantasy-platform data
+// (live matchup scoring, weekly results, or league ownership) that no
+// public source exposes. See CHANGELOG for the full list.
+
 // Tool: Search Players
 async function searchPlayers(position?: string, count: number = 25) {
-  let endpoint = `/league/nhl.l.${LEAGUE_ID}/players;status=A;count=${count}`;
-  if (position) {
-    endpoint += `;position=${position}`;
+  await NHL_STATS.load();
+  if (!NHL_STATS.isAvailable()) {
+    return { error: 'NHL player data unavailable', reason: NHL_STATS.getUnavailableReason() };
   }
 
-  const data = await yahooApiRequest(endpoint);
-  const playersData = data.fantasy_content.league[1].players;
+  // Fantasy platforms say LW/RW; the NHL says L/R.
+  const wanted = String(position ?? '').toUpperCase()
+    .replace(/^LW$/, 'L').replace(/^RW$/, 'R');
 
-  const players = Object.keys(playersData)
-    .filter(key => key !== 'count')
-    .map(key => {
-      const playerData = playersData[key].player[0];
+  const owned = new Set((LEAGUE_DATA.getRoster()?.players ?? []).map((p: any) => p.player_id));
 
-      // Find attributes in the array using .find() to handle dynamic structure
-      const playerId = playerData.find((item: any) => item.player_id)?.player_id;
-      const name = playerData.find((item: any) => item.name)?.name?.full;
-      const displayPosition = playerData.find((item: any) => item.display_position)?.display_position;
-      const team = playerData.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr;
-      const percentOwned = playerData.find((item: any) => item.percent_owned)?.percent_owned?.value || "0";
+  const players = NHL_STATS.getAll()
+    .filter(p => !wanted || p.position === wanted)
+    .map(p => ({
+      player_id: p.player_id,
+      name: p.name,
+      team: p.team,
+      position: p.position,
+      on_your_roster: owned.has(p.player_id),
+      season_stats: p.stats ?? null,
+      // Rank skaters by production, goalies by wins.
+      rank_value: p.position === 'G' ? (p.stats?.wins ?? 0) : (p.stats?.points ?? 0)
+    }))
+    .sort((a, b) => b.rank_value - a.rank_value)
+    .slice(0, Math.max(1, count));
 
-      return {
-        player_id: playerId,
-        name: name,
-        position: displayPosition,
-        team: team,
-        percent_owned: percentOwned,
-      };
-    });
-
-  return { players };
+  return {
+    position: position ?? 'all',
+    returned: players.length,
+    players,
+    note: 'Ranked by last season production across all NHL players. Whether a player ' +
+          'is available in your league is league-private and not knowable here — ' +
+          'on_your_roster reflects only the roster you pasted.',
+    data_source: `NHL public API (stats ${NHL_STATS.getSeasons().stats})`
+  };
 }
 
 // Tool: Get Player Stats
 async function getPlayerStats(playerId: string) {
-  const data = await yahooApiRequest(`/player/nhl.p.${playerId}/stats`);
+  await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
 
-  const playerData = data.fantasy_content.player[0];
-  const stats = data.fantasy_content.player[1]?.player_stats?.stats || [];
+  // Accept an NHL id or, far more usefully, a name a human would type.
+  const direct = NHL_STATS.getById(playerId);
+  const resolution = direct ? { player: direct } : NHL_STATS.resolve(playerId);
 
-  // Find attributes in the array using .find() to handle dynamic structure
-  const playerIdResult = playerData.find((item: any) => item.player_id)?.player_id;
-  const name = playerData.find((item: any) => item.name)?.name?.full;
-  const displayPosition = playerData.find((item: any) => item.display_position)?.display_position;
-  const team = playerData.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr;
+  if (!resolution.player) {
+    const r = resolution as any;
+    return {
+      error: `Could not resolve "${playerId}" to a single NHL player`,
+      reason: r.reason,
+      ...(r.ambiguous ? { candidates: r.ambiguous.map((p: any) => `${p.name} (${p.team} ${p.position})`) } : {})
+    };
+  }
+
+  const p = resolution.player;
+  const today = NhlScheduleService.today();
 
   return {
-    player_id: playerIdResult,
-    name: name,
-    position: displayPosition,
-    team: team,
-    stats: stats,
+    player_id: p.player_id,
+    name: p.name,
+    team: p.team,
+    position: p.position,
+    season_stats: p.stats ?? null,
+    stats_season: NHL_STATS.getSeasons().stats,
+    games_next_7_days: NHL_SCHEDULE.isAvailable()
+      ? NHL_SCHEDULE.countGamesInRange(p.team, today, NhlScheduleService.addDays(today, 6))
+      : null,
+    upcoming: NHL_SCHEDULE.isAvailable()
+      ? NHL_SCHEDULE.getGamesInRange(p.team, today, NhlScheduleService.addDays(today, 13)).slice(0, 6)
+      : []
   };
 }
 
 // Tool: Get Weekly Stats
-async function getWeeklyStats() {
-  const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/matchups`);
-
-  const matchups = data.fantasy_content.team[1].matchups;
-
-  const currentMatchup = findCurrentMatchup(matchups);
-
-  if (!currentMatchup) {
-    return { message: "No current matchup" };
-  }
-
-  // currentMatchup structure: { "0": { teams: {...} }, week: 5, status: "midevent", ... }
-  const teams = currentMatchup["0"]?.teams;
-  const week = currentMatchup.week;
-  const status = currentMatchup.status;
-
-  if (!teams) {
-    return { message: "No teams data in current matchup" };
-  }
-
-  // Extract games remaining data
-  const yourGames = teams['0']?.team?.[1]?.team_remaining_games?.total;
-  const oppGames = teams['1']?.team?.[1]?.team_remaining_games?.total;
-
-  return {
-    week,
-    status,
-    your_team: {
-      name: teams['0']?.team?.[0]?.[2]?.name || 'Unknown',
-      stats: teams['0']?.team?.[1]?.team_stats?.stats || [],
-      games_remaining: yourGames?.remaining_games || 0,
-      games_completed: yourGames?.completed_games || 0,
-      live_games: yourGames?.live_games || 0,
-    },
-    opponent: {
-      name: teams['1']?.team?.[0]?.[2]?.name || 'Unknown',
-      stats: teams['1']?.team?.[1]?.team_stats?.stats || [],
-      games_remaining: oppGames?.remaining_games || 0,
-      games_completed: oppGames?.completed_games || 0,
-      live_games: oppGames?.live_games || 0,
-    },
-    games_in_hand: {
-      your_remaining: yourGames?.remaining_games || 0,
-      opponent_remaining: oppGames?.remaining_games || 0,
-      difference: (yourGames?.remaining_games || 0) - (oppGames?.remaining_games || 0),
-      advantage: (yourGames?.remaining_games || 0) > (oppGames?.remaining_games || 0) ? "You" : "Opponent"
-    }
-  };
-}
+// Removed in v4: getWeeklyStats required live fantasy-platform data
+// (live matchup scoring, weekly results, or league ownership) that no
+// public source exposes. See CHANGELOG for the full list.
 
 // Tool: Compare Matchup
 async function compareMatchup() {
-  const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/matchups`);
+  await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
 
-  const matchups = data.fantasy_content.team[1].matchups;
+  const mine = LEAGUE_DATA.getRoster();
+  const theirs = LEAGUE_DATA.getOpponentRoster();
 
-  const currentMatchup = findCurrentMatchup(matchups);
+  if (!mine) return { error: NO_ROSTER_MESSAGE };
+  if (!theirs) return { error: NO_OPPONENT_MESSAGE };
 
-  if (!currentMatchup) {
-    return { message: "No current matchup" };
-  }
+  const today = NhlScheduleService.today();
+  const weekEnd = NhlScheduleService.addDays(today, 6);
 
-  // currentMatchup structure: { "0": { teams: {...} }, week: 5, status: "midevent", ... }
-  const teams = currentMatchup["0"]?.teams;
-  const week = currentMatchup.week;
+  const summarize = (roster: any) => {
+    const totals: Record<string, number> = { G: 0, A: 0, P: 0, '+/-': 0, PIM: 0, SOG: 0, PPG: 0, W: 0 };
+    let games = 0;
 
-  if (!teams) {
-    return { message: "No teams data in current matchup" };
-  }
+    for (const p of roster.players) {
+      if (p.selected_position === 'IR') continue;
+      const s = p.stats ?? {};
+      totals.G += s.goals ?? 0;
+      totals.A += s.assists ?? 0;
+      totals.P += s.points ?? 0;
+      totals['+/-'] += s.plus_minus ?? 0;
+      totals.PIM += s.penalty_minutes ?? 0;
+      totals.SOG += s.shots ?? 0;
+      totals.PPG += s.power_play_goals ?? 0;
+      totals.W += s.wins ?? 0;
+      games += NHL_SCHEDULE.isAvailable() ? NHL_SCHEDULE.countGamesInRange(p.team, today, weekEnd) : 0;
+    }
 
-  const yourStats = teams['0']?.team?.[1]?.team_stats?.stats || [];
-  const oppStats = teams['1']?.team?.[1]?.team_stats?.stats || [];
+    return { team_name: roster.team_name, totals, games_this_week: games };
+  };
 
-  const comparison = yourStats.map((stat: any, idx: number) => {
-    const yourVal = parseFloat(stat.stat.value) || 0;
-    const oppVal = parseFloat(oppStats[idx]?.stat?.value || 0) || 0;
+  const you = summarize(mine);
+  const them = summarize(theirs);
 
-    return {
-      category: stat.stat.display_name,
-      stat_id: stat.stat.stat_id,
-      your_value: yourVal,
-      opp_value: oppVal,
-      winning: yourVal > oppVal,
-    };
+  const categories = Object.keys(you.totals).map(cat => {
+    const a = you.totals[cat];
+    const b = them.totals[cat];
+    return { category: cat, you: Math.round(a * 10) / 10, opponent: Math.round(b * 10) / 10,
+             edge: a === b ? 'EVEN' : a > b ? 'YOU' : 'OPPONENT' };
   });
 
-  const categoriesWinning = comparison.filter((c: any) => c.winning).length;
+  const won = categories.filter(c => c.edge === 'YOU').length;
 
   return {
-    week,
-    your_team: teams['0']?.team?.[0]?.[2]?.name || 'Unknown',
-    opponent: teams['1']?.team?.[0]?.[2]?.name || 'Unknown',
-    categories_winning: categoriesWinning,
-    categories_total: comparison.length,
-    category_breakdown: comparison,
+    your_team: you.team_name,
+    opponent: them.team_name,
+    categories,
+    category_edge: `${won}-${categories.filter(c => c.edge === 'OPPONENT').length}`,
+    schedule: {
+      your_games_this_week: you.games_this_week,
+      opponent_games_this_week: them.games_this_week,
+      advantage: you.games_this_week - them.games_this_week
+    },
+    basis: `Last season totals (${NHL_STATS.getSeasons().stats}) as a proxy for current strength, ` +
+           'plus real games scheduled this week. Not live scoring — this compares roster ' +
+           'quality and volume, not what has actually happened in your matchup.'
   };
 }
 
@@ -486,7 +345,7 @@ async function getRosterTransactionRecommendations(lookAheadDays: number = 7, ta
     const recommendations = [];
     
     // 1. IMMEDIATE FIXES (injured players)
-    const injuredActive = roster.roster.filter(p => 
+    const injuredActive = (roster.players ?? []).filter((p: any) =>
       p.status && p.status !== "" && !p.selected_position.includes("IR")
     );
     
@@ -986,225 +845,148 @@ function findBenchUpgrades(roster: any, streaming: any) {
 // ==========================================
 
 // Tool: Get Trending Players
-async function getTrendingPlayers(trendType: string = "add", count: number = 25) {
-  const sortParam = trendType === "add" ? "AR" : "OR";
-  const endpoint = `/league/nhl.l.${LEAGUE_ID}/players;status=A;sort=${sortParam};count=${count}`;
-
-  const data = await yahooApiRequest(endpoint);
-  const playersData = data.fantasy_content.league[1].players;
-
-  const players = Object.keys(playersData)
-    .filter(key => key !== 'count')
-    .map(key => {
-      const playerData = playersData[key].player[0];
-
-      // Find attributes in the array using .find() to handle dynamic structure
-      const playerId = playerData.find((item: any) => item.player_id)?.player_id;
-      const name = playerData.find((item: any) => item.name)?.name?.full;
-      const displayPosition = playerData.find((item: any) => item.display_position)?.display_position;
-      const team = playerData.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr;
-      const percentOwned = playerData.find((item: any) => item.percent_owned)?.percent_owned?.value || "0";
-
-      return {
-        player_id: playerId,
-        name: name,
-        position: displayPosition,
-        team: team,
-        percent_owned: percentOwned,
-      };
-    });
-
-  return { trend_type: trendType, players };
-}
+// Removed in v4: getTrendingPlayers required live fantasy-platform data
+// (live matchup scoring, weekly results, or league ownership) that no
+// public source exposes. See CHANGELOG for the full list.
 
 // Tool: Chirp Opponent
 async function chirpOpponent(chirpIntensity = 'savage', personalityMode = 'roast_master') {
-  const data = await yahooApiRequest(`/team/nhl.l.${LEAGUE_ID}.t.${TEAM_ID}/matchups`);
-  const matchups = data.fantasy_content.team[1].matchups;
-  const currentMatchup = findCurrentMatchup(matchups);
+  await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
 
-  if (!currentMatchup) {
-    return { message: "No active matchup — nobody to chirp right now." };
-  }
+  const theirs = LEAGUE_DATA.getOpponentRoster();
+  if (!theirs) return { error: NO_OPPONENT_MESSAGE };
 
-  const matchupData = currentMatchup["0"];
-  const teams = matchupData?.teams;
-  if (!teams) return { message: "Could not read matchup teams." };
+  const today = NhlScheduleService.today();
+  const weekEnd = NhlScheduleService.addDays(today, 6);
 
-  const opponentTeamArray = teams['1']?.team?.[0];
-  const opponentTeamKey = opponentTeamArray?.find((item: any) => item.team_key)?.team_key;
-  const opponentName = opponentTeamArray?.find((item: any) => item.name)?.name || 'Unknown';
+  const players = theirs.players.map((p: any) => ({
+    name: p.name,
+    team: p.team,
+    position: p.position,
+    slot: p.selected_position,
+    points_last_season: p.stats?.points ?? null,
+    games_this_week: NHL_SCHEDULE.isAvailable()
+      ? NHL_SCHEDULE.countGamesInRange(p.team, today, weekEnd)
+      : null
+  }));
 
-  if (!opponentTeamKey) return { message: "Could not find opponent team key." };
+  const onIr = players.filter(p => p.slot === 'IR');
+  const idle = players.filter(p => p.games_this_week === 0);
+  const light = players.filter(p => (p.games_this_week ?? 9) <= 2 && p.slot !== 'IR');
+  const totalGames = players.reduce((n, p) => n + (p.games_this_week ?? 0), 0);
 
-  const rosterData = await yahooApiRequest(`/team/${opponentTeamKey}/roster`);
-  const rawPlayers = rosterData.fantasy_content.team[1].roster["0"].players;
-  const playerKeys = Object.keys(rawPlayers).filter(k => k !== 'count');
+  const style = (CHIRP_STYLES as any)[chirpIntensity] ?? (CHIRP_STYLES as any).standard;
+  const persona = (PERSONALITY_MODES as any)[personalityMode] ?? (PERSONALITY_MODES as any).analytical;
 
-  const players = playerKeys.map(key => {
-    const pd = rawPlayers[key].player[0];
-    const posData = rawPlayers[key].player[1];
-    return {
-      name: pd.find((item: any) => item.name)?.name?.full || 'Unknown',
-      position: pd.find((item: any) => item.display_position)?.display_position || '?',
-      team: pd.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr || '?',
-      status: pd.find((item: any) => item.status)?.status || '',
-      selected_position: posData?.selected_position?.find((item: any) => item.position)?.position || 'BN',
-    };
-  });
-
-  const injured = players.filter(p => p.status && p.status !== '');
-  const onIR = players.filter(p => p.selected_position === 'IR');
-  const onBench = players.filter(p => p.selected_position === 'BN');
-  const injuredActive = injured.filter(p => p.selected_position !== 'IR' && p.selected_position !== 'BN');
-  const activeCount = players.length - onBench.length - onIR.length;
-
-  const style = CHIRP_STYLES[chirpIntensity as keyof typeof CHIRP_STYLES] || CHIRP_STYLES['savage'];
-  const personality = PERSONALITY_MODES[personalityMode as keyof typeof PERSONALITY_MODES] || PERSONALITY_MODES['roast_master'];
-
-  const chirpLines: string[] = [];
-  if (injured.length >= 3) {
-    chirpLines.push(`${opponentName} is running a hospital roster with ${injured.length} banged-up players. They should rename the team to "The Walking Wounded."`);
-  } else if (injured.length > 0) {
-    chirpLines.push(`${injured.length} of ${opponentName}'s key players are dinged up. Couldn't happen to a nicer team.`);
-  }
-  if (injuredActive.length > 0) {
-    chirpLines.push(`They've got ${injuredActive.length} injured player${injuredActive.length > 1 ? 's' : ''} still in active slots — not even using their IR correctly. Amateur hour.`);
-  }
-  if (onBench.length >= 5) {
-    chirpLines.push(`${onBench.length} players collecting dust on the bench. That's not a fantasy team, that's a waiting room.`);
-  }
-  if (chirpLines.length === 0) {
-    chirpLines.push(`${opponentName} looks healthy on paper — but paper doesn't win categories. Execution does. That's your edge.`);
-  }
-
-  const weaknesses = [
-    ...(injured.length >= 3 ? [`${injured.length} players injured`] : []),
-    ...(injuredActive.length > 0 ? [`${injuredActive.length} injured players in active slots`] : []),
-    ...(onBench.length >= 5 ? [`Heavy bench (${onBench.length} players)`] : []),
-  ];
+  const lines: string[] = [];
+  if (idle.length) lines.push(`${idle.length} of their players don't play at all this week. Free real estate.`);
+  if (light.length) lines.push(`${light.length} more are stuck on two games or fewer.`);
+  if (onIr.length) lines.push(`${onIr.length} parked on IR — that roster is holding a hospital ward.`);
+  if (!lines.length) lines.push(`${theirs.team_name} is actually well set up this week. Annoying, but true.`);
 
   return {
-    opponent: opponentName,
-    week: currentMatchup.week,
-    opponent_roster_summary: {
-      total_players: players.length,
-      active_players: activeCount,
-      bench_players: onBench.length,
-      ir_players: onIR.length,
-      injured_players: injured.length,
-      injured_active: injuredActive.length,
-    },
-    weaknesses: weaknesses.length > 0 ? weaknesses : ["No obvious weaknesses detected — they're running a clean roster."],
-    chirp: {
-      style: style.tone,
-      personality: personality.voice,
-      main_chirp: `${style.prefix} ${chirpLines.join(' ')} ${style.suffix}`,
-      ice_cold_truth: `❄️ Bottom line: know your enemy. ${opponentName} has gaps — your job is to exploit them.`,
-    },
-    opponent_roster: players,
+    opponent: theirs.team_name,
+    roster_size: players.length,
+    total_games_this_week: totalGames,
+    weaknesses: { idle_players: idle.map(p => p.name), light_schedule: light.map(p => p.name), on_ir: onIr.map(p => p.name) },
+    players,
+    chirp: lines.join(' '),
+    chirp_style: style?.tone,
+    personality: persona?.voice,
+    basis: 'Real NHL schedule for this week, plus the opponent roster you pasted.'
   };
 }
 
 // Tool: Analyze Trade
 async function analyzeTradeImpact(giving: string[], receiving: string[], chirpIntensity = 'standard') {
-  const statIdLabels: Record<string, string> = {
-    '1': 'G', '2': 'A', '3': '+/-', '4': 'PIM', '5': 'SOG',
-    '8': 'PPP', '31': 'W', '32': 'GAA', '33': 'SV%',
-  };
-  const categories = ['G', 'A', '+/-', 'PIM', 'SOG', 'PPP', 'W', 'GAA', 'SV%'];
+  await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
+
+  if (!NHL_STATS.isAvailable()) {
+    return { error: 'NHL player data unavailable', reason: NHL_STATS.getUnavailableReason() };
+  }
+
+  const categories = ['G', 'A', 'P', '+/-', 'PIM', 'SOG', 'PPG', 'W', 'GAA', 'SV%'];
   const lowerIsBetter = new Set(['GAA']);
 
-  async function findPlayerStats(name: string) {
-    const searchData = await yahooApiRequest(
-      `/league/nhl.l.${LEAGUE_ID}/players;search=${encodeURIComponent(name)};count=1`
-    );
-    const playersData = searchData.fantasy_content.league[1].players;
-    const playerKeys = Object.keys(playersData).filter(k => k !== 'count');
-    if (playerKeys.length === 0) return { name, found: false, stats: {} as Record<string, number>, position: '', team: '' };
+  const resolveSide = (names: string[]) => names.map(n => {
+    const r = NHL_STATS.resolve(n);
+    return {
+      input: n,
+      found: Boolean(r.player),
+      name: r.player?.name ?? n,
+      team: r.player?.team ?? '?',
+      position: r.player?.position ?? '?',
+      stats: r.player?.stats ?? null,
+      ...(r.ambiguous ? { candidates: r.ambiguous.map(p => `${p.name} (${p.team} ${p.position})`) } : {}),
+      ...(r.player ? {} : { reason: r.reason })
+    };
+  });
 
-    const pd = playersData[playerKeys[0]].player[0];
-    const playerId = pd.find((item: any) => item.player_id)?.player_id;
-    const foundName = pd.find((item: any) => item.name)?.name?.full || name;
-    const position = pd.find((item: any) => item.display_position)?.display_position || '?';
-    const team = pd.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr || '?';
-
-    if (!playerId) return { name, found: false, stats: {} as Record<string, number>, position, team };
-
-    const statsData = await yahooApiRequest(`/player/nhl.p.${playerId}/stats`);
-    const statsArray = statsData.fantasy_content.player[1]?.player_stats?.stats || [];
-
-    const stats: Record<string, number> = {};
-    statsArray.forEach((sw: any) => {
-      const stat = sw.stat;
-      if (stat && statIdLabels[stat.stat_id]) {
-        stats[statIdLabels[stat.stat_id]] = parseFloat(stat.value) || 0;
-      }
-    });
-
-    return { name: foundName, found: true, playerId, position, team, stats };
-  }
-
-  const [givingPlayers, receivingPlayers] = await Promise.all([
-    Promise.all(giving.map(name => findPlayerStats(name))),
-    Promise.all(receiving.map(name => findPlayerStats(name))),
-  ]);
-
-  function sumStats(players: any[]): Record<string, number> {
+  const sum = (side: any[]) => {
     const totals: Record<string, number> = {};
-    players.filter(p => p.found).forEach(p => {
-      categories.forEach(cat => {
-        totals[cat] = (totals[cat] || 0) + (p.stats[cat] || 0);
-      });
-    });
+    const rates: Record<string, number[]> = {};
+
+    for (const p of side.filter(x => x.found && x.stats)) {
+      const s = p.stats;
+      totals.G = (totals.G ?? 0) + (s.goals ?? 0);
+      totals.A = (totals.A ?? 0) + (s.assists ?? 0);
+      totals.P = (totals.P ?? 0) + (s.points ?? 0);
+      totals['+/-'] = (totals['+/-'] ?? 0) + (s.plus_minus ?? 0);
+      totals.PIM = (totals.PIM ?? 0) + (s.penalty_minutes ?? 0);
+      totals.SOG = (totals.SOG ?? 0) + (s.shots ?? 0);
+      totals.PPG = (totals.PPG ?? 0) + (s.power_play_goals ?? 0);
+      totals.W = (totals.W ?? 0) + (s.wins ?? 0);
+      // Rate stats average rather than sum, and only across goalies who have them.
+      if (s.goals_against_average !== undefined) (rates.GAA ??= []).push(s.goals_against_average);
+      if (s.save_percentage !== undefined) (rates['SV%'] ??= []).push(s.save_percentage);
+    }
+
+    for (const [cat, values] of Object.entries(rates)) {
+      if (values.length) totals[cat] = values.reduce((a, b) => a + b, 0) / values.length;
+    }
     return totals;
-  }
+  };
 
-  const givingStats = sumStats(givingPlayers);
-  const receivingStats = sumStats(receivingPlayers);
+  const givingPlayers = resolveSide(giving);
+  const receivingPlayers = resolveSide(receiving);
+  const out = sum(givingPlayers);
+  const inn = sum(receivingPlayers);
 
-  let receivingWins = 0;
-  let givingWins = 0;
-  const categoryBreakdown = categories
-    .filter(cat => (givingStats[cat] || 0) !== 0 || (receivingStats[cat] || 0) !== 0)
-    .map(cat => {
-      const gVal = givingStats[cat] || 0;
-      const rVal = receivingStats[cat] || 0;
-      const lowerBetter = lowerIsBetter.has(cat);
-      let winner: 'receiving' | 'giving' | 'push';
-      if (Math.abs(rVal - gVal) < 0.01) {
-        winner = 'push';
-      } else if (lowerBetter ? rVal < gVal : rVal > gVal) {
-        winner = 'receiving';
-        receivingWins++;
-      } else {
-        winner = 'giving';
-        givingWins++;
-      }
-      return { category: cat, giving: gVal, receiving: rVal, winner };
-    });
+  let wins = 0, losses = 0;
+  const breakdown = categories.map(cat => {
+    const g = out[cat], r = inn[cat];
+    if (g === undefined && r === undefined) return null;
 
-  const verdict = receivingWins > givingWins ? 'ACCEPT' : receivingWins < givingWins ? 'DECLINE' : 'PUSH';
-  const style = CHIRP_STYLES[chirpIntensity as keyof typeof CHIRP_STYLES] || CHIRP_STYLES['standard'];
+    const gv = g ?? 0, rv = r ?? 0;
+    const better = lowerIsBetter.has(cat) ? rv < gv : rv > gv;
+    const same = Math.abs(rv - gv) < 1e-9;
+    if (!same) better ? wins++ : losses++;
 
-  const chirpText = verdict === 'ACCEPT'
-    ? `${style.prefix} you're gaining ${receivingWins} categories vs ${givingWins}. That's not a trade — that's a heist. Pull the trigger. ${style.suffix}`
-    : verdict === 'DECLINE'
-    ? `${style.prefix} you'd be handing away ${givingWins} categories for only ${receivingWins} back. Your opponent is praying you say yes. Hard pass. ${style.suffix}`
-    : `${style.prefix} dead even at ${receivingWins} categories each. Unless this fixes a positional need, don't bother. ${style.suffix}`;
+    const round = (n: number) => Math.round(n * 1000) / 1000;
+    return { category: cat, giving_up: round(gv), receiving: round(rv),
+             net: round(rv - gv), verdict: same ? 'PUSH' : better ? 'GAIN' : 'LOSS' };
+  }).filter(Boolean);
 
-  const iceColdTruth = verdict === 'ACCEPT'
-    ? '❄️ ICE Cold Truth: Smart managers see value before their opponent does. This is that moment.'
-    : verdict === 'DECLINE'
-    ? '🔥 Savage Reality: This trade has "I got played" written all over it. Close the chat.'
-    : '💡 Real Talk: Push trades only make sense when they fix a roster hole. Otherwise, pass.';
+  const verdict = wins > losses ? 'ACCEPT' : wins < losses ? 'DECLINE' : 'PUSH';
+  const unresolved = [...givingPlayers, ...receivingPlayers].filter(p => !p.found);
 
   return {
-    trade: { giving, receiving },
-    players: { giving: givingPlayers, receiving: receivingPlayers },
-    category_breakdown: categoryBreakdown,
-    summary: { receiving_wins: receivingWins, giving_wins: givingWins, verdict },
-    chirp: { verdict_chirp: chirpText, ice_cold_truth: iceColdTruth },
+    giving: givingPlayers,
+    receiving: receivingPlayers,
+    category_breakdown: breakdown,
+    categories_gained: wins,
+    categories_lost: losses,
+    verdict,
+    chirp: verdict === 'ACCEPT'
+      ? `You win ${wins} categories to ${losses}. Take it before they think twice.`
+      : verdict === 'DECLINE'
+        ? `You lose ${losses} categories to ${wins}. That's not a trade, that's a donation.`
+        : `Dead even at ${wins}-${losses}. Decide on need, not numbers.`,
+    ...(unresolved.length ? { unresolved } : {}),
+    basis: `Last full season totals (${NHL_STATS.getSeasons().stats}) from the NHL public API. ` +
+           'GAA and SV% are averaged across goalies; counting stats are summed. ' +
+           'This measures past production, not your league\'s scoring settings.',
+    chirp_intensity: chirpIntensity
   };
 }
 
@@ -1218,8 +1000,9 @@ async function analyzeTradeImpact(giving: string[], receiving: string[], chirpIn
  */
 function readPackageVersion(): string {
   try {
+    const packageRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
     const pkg = JSON.parse(
-      readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")
+      readFileSync(path.join(packageRoot, "package.json"), "utf8")
     );
     return pkg.version ?? "0.0.0";
   } catch {
@@ -1261,14 +1044,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: "get_current_matchup",
-        description: "Get information about your current week's matchup",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
         name: "search_players",
         description: "Search for available players (free agents) by position. Returns top available players.",
         inputSchema: {
@@ -1301,14 +1076,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: "get_weekly_stats",
-        description: "Get your team's current week statistics and compare with opponent",
-        inputSchema: {
-          type: "object",
-          properties: {},
-        },
-      },
-      {
         name: "compare_matchup",
         description: "Get detailed category-by-category comparison with your current opponent",
         inputSchema: {
@@ -1322,40 +1089,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {},
-        },
-      },
-      {
-        name: "get_trending_players",
-        description: "Get trending players (most added or most owned) to identify hot pickups",
-        inputSchema: {
-          type: "object",
-          properties: {
-            trend_type: {
-              type: "string",
-              description: "Type of trending: 'add' for most added, 'own' for most owned",
-              enum: ["add", "own"],
-              default: "add",
-            },
-            count: {
-              type: "number",
-              description: "Number of players to return (default 25)",
-              default: 25,
-            },
-          },
-        },
-      },
-      {
-        name: "debug_api_call",
-        description: "Debug tool to see raw Yahoo API responses for troubleshooting",
-        inputSchema: {
-          type: "object",
-          properties: {
-            endpoint: {
-              type: "string",
-              description: "API endpoint to call (e.g., '/team/nhl.l.{LEAGUE_ID}.t.{TEAM_ID}/roster')",
-            },
-          },
-          required: ["endpoint"],
         },
       },
       {
@@ -1449,14 +1182,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
-        name: SEMANTIC_PLAYER_COMPARISON.name,
-        description: `${SEMANTIC_PLAYER_COMPARISON.description} - Auto-configured from semantic intent!`,
-        inputSchema: getPlayerComparisonInputSchema()
-      },
-      {
-        name: SEMANTIC_BREAKOUT_ANALYSIS.name,
-        description: `${SEMANTIC_BREAKOUT_ANALYSIS.description} - 🏒 Comprehensive breakout analysis with data-driven scoring (40% recent, 30% projections, 20% opportunity, 10% risk)`,
-        inputSchema: getBreakoutAnalysisInputSchema()
+        name: "analyze_breakout_players",
+        description: "📈 Find breakout candidates among NHL players not on the rosters you have provided, scored on real season production, opportunity and risk. Availability in your league is league-private and cannot be determined here — treat these as candidates to check.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            position_filter: { type: "array", items: { type: "string" }, description: "Limit to positions, e.g. [\"C\", \"D\"]" },
+            breakout_age_max: { type: "number", description: "Maximum age for a breakout candidate (default 26)" },
+            min_score: { type: "number", description: "Minimum breakout score to include" },
+            max_results: { type: "number", description: "How many candidates to return (default 10)" },
+            ...baseChirpSchema
+          }
+        }
       },
       {
         name: "analyze_weekend_streams",
@@ -1539,6 +1276,61 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["giving", "receiving"],
         },
+      },
+      {
+        name: "set_roster",
+        description: "📋 Paste your team's roster to teach CHIRP who you own. Works with text copied from any fantasy platform — Yahoo, ESPN, Sleeper, a spreadsheet, or just a list of names. Player names are resolved against live NHL rosters, so team and position fill themselves in. Anything that can't be resolved to exactly one player is reported back rather than guessed. No account or API key needed.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            roster_text: {
+              type: "string",
+              description: "The pasted roster. One player per line, in whatever shape you copied it — \"Auston Matthews\", \"MATTHEWS, Auston\", or a full row like \"C  Auston Matthews  TOR - C  Q\". BN and IR slots are preserved if present."
+            },
+            team_name: {
+              type: "string",
+              description: "What to call this team (default: \"My Team\")"
+            }
+          },
+          required: ["roster_text"]
+        }
+      },
+      {
+        name: "set_opponent_roster",
+        description: "📋 Paste your weekly opponent's roster, so head-to-head tools (games-in-hand, matchup comparison, opponent scouting) can work without a league account. Same forgiving format as set_roster.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            roster_text: { type: "string", description: "The pasted opponent roster, one player per line" },
+            team_name: { type: "string", description: "Opponent's team name (default: \"Opponent\")" }
+          },
+          required: ["roster_text"]
+        }
+      },
+      {
+        name: "set_standings",
+        description: "📊 Paste your league standings to give CHIRP league context. Extracts rank, team name, record and points from rows like \"1. TeamDestroyersz 8-2-1 142 pts\".",
+        inputSchema: {
+          type: "object",
+          properties: {
+            standings_text: { type: "string", description: "The pasted standings, one team per line" }
+          },
+          required: ["standings_text"]
+        }
+      },
+      {
+        name: "show_stored_data",
+        description: "🗂️ Show what CHIRP currently knows about your league — stored roster, opponent roster and standings, with when each was last updated. Use `clear` to forget one of them.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            clear: {
+              type: "string",
+              enum: ["roster", "opponent", "standings"],
+              description: "Optionally forget one stored item instead of showing everything"
+            }
+          }
+        }
       },
       {
         name: "schedule_value",
@@ -1626,12 +1418,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "get_current_matchup": {
-        const matchup = await getCurrentMatchup();
-        return {
-          content: [{ type: "text", text: JSON.stringify(matchup, null, 2) }],
-        };
-      }
 
       case "search_players": {
         const position = args?.position as string | undefined;
@@ -1653,12 +1439,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "get_weekly_stats": {
-        const stats = await getWeeklyStats();
-        return {
-          content: [{ type: "text", text: JSON.stringify(stats, null, 2) }],
-        };
-      }
 
       case "compare_matchup": {
         const comparison = await compareMatchup();
@@ -1684,25 +1464,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "get_trending_players": {
-        const trendType = (args?.trend_type as string) || "add";
-        const count = (args?.count as number) || 25;
-        const trending = await getTrendingPlayers(trendType, count);
-        return {
-          content: [{ type: "text", text: JSON.stringify(trending, null, 2) }],
-        };
-      }
 
-      case "debug_api_call": {
-        const endpoint = args?.endpoint as string;
-        if (!endpoint) {
-          throw new Error("endpoint is required");
-        }
-        const rawData = await yahooApiRequest(endpoint);
-        return {
-          content: [{ type: "text", text: JSON.stringify(rawData, null, 2) }],
-        };
-      }
 
       case "get_streaming_recommendations": {
         // 🎯 Template Method Pattern: Use StreamingAnalysis class
@@ -1899,43 +1661,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [{ type: "text", text: JSON.stringify(reportData, null, 2) }]
         };
       }
-      case "semantic_player_comparison": {
-        try {
-          const result = await executePlayerComparison(
-            args as { player1?: string; player2?: string },
-            getPlayerStats,
-            searchPlayers
-          );
-
-          return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-          };
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          return {
-            content: [{ type: "text", text: JSON.stringify({
-              error: errorMessage,
-              note: "This is an experimental semantic intent-driven tool"
-            }, null, 2) }],
-            isError: true
-          };
-        }
-      }
 
       case "analyze_breakout_players": {
         try {
-          const result = await executeBreakoutAnalysis(
-            args as {
-              position_filter?: string[];
-              ownership_threshold?: number;
-              breakout_age_max?: number;
-              min_score?: number;
-              max_results?: number;
-              chirp_intensity?: string;
-              personality_mode?: string;
-              enable_chirp?: boolean;
-            },
-            breakoutAnalysis
+          const result = await breakoutAnalysis.executeAnalysis(
+            {
+              position_filter: args?.position_filter as string[] | undefined,
+              breakout_age_max: args?.breakout_age_max as number | undefined,
+              min_score: args?.min_score as number | undefined,
+              max_results: args?.max_results as number | undefined
+            } as any,
+            {
+              chirp_intensity: (args?.chirp_intensity as any) || 'standard',
+              personality_mode: (args?.personality_mode as any) || 'analytical',
+              enable_chirp: args?.enable_chirp !== false,
+              semantic_intent: 'user_requested' as const
+            }
           );
 
           return {
@@ -2008,6 +1749,99 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const intensity = (args?.chirp_intensity as string) || 'standard';
         const result = await analyzeTradeImpact(giving, receiving, intensity);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "set_roster":
+      case "set_opponent_roster": {
+        const key = name === "set_roster" ? "roster" as const : "opponent" as const;
+        const text = args?.roster_text as string;
+
+        if (!text || !text.trim()) {
+          throw new Error("roster_text is required — paste your roster, one player per line.");
+        }
+
+        await NHL_STATS.load();
+        if (!NHL_STATS.isAvailable()) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            error: "NHL player data unavailable",
+            reason: NHL_STATS.getUnavailableReason(),
+            note: "Names are resolved against live NHL rosters; retry shortly."
+          }, null, 2) }], isError: true };
+        }
+
+        const report = ROSTER_STORE.parseRoster(text);
+        const label = (args?.team_name as string) || (key === "roster" ? "My Team" : "Opponent");
+
+        if (report.resolved.length === 0) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            saved: false,
+            reason: "No player names could be resolved from that text.",
+            lines_read: report.lines_read,
+            unresolved: report.unresolved,
+            ambiguous: report.ambiguous
+          }, null, 2) }], isError: true };
+        }
+
+        const stored = ROSTER_STORE.saveRoster(key, report.resolved, label);
+
+        return { content: [{ type: "text", text: JSON.stringify({
+          saved: true,
+          team: label,
+          players_resolved: report.resolved.length,
+          lines_read: report.lines_read,
+          roster: stored.players,
+          // Surfaced, never silently dropped - the user decides what to do.
+          needs_attention: {
+            unresolved: report.unresolved,
+            ambiguous: report.ambiguous
+          },
+          note: report.unresolved.length || report.ambiguous.length
+            ? "Some lines could not be matched to exactly one NHL player. Re-run set_roster with corrected names to include them."
+            : "All lines resolved.",
+          data_source: `NHL public API (rosters ${NHL_STATS.getSeasons().roster}, stats ${NHL_STATS.getSeasons().stats})`
+        }, null, 2) }] };
+      }
+
+      case "set_standings": {
+        const text = args?.standings_text as string;
+        if (!text || !text.trim()) {
+          throw new Error("standings_text is required — paste your league standings, one team per line.");
+        }
+
+        const rows = ROSTER_STORE.parseStandings(text);
+        if (rows.length === 0) {
+          return { content: [{ type: "text", text: JSON.stringify({
+            saved: false,
+            reason: "No standings rows could be read from that text."
+          }, null, 2) }], isError: true };
+        }
+
+        ROSTER_STORE.saveStandings(rows);
+        return { content: [{ type: "text", text: JSON.stringify({
+          saved: true, teams: rows.length, standings: rows
+        }, null, 2) }] };
+      }
+
+      case "show_stored_data": {
+        const clearKey = args?.clear as 'roster' | 'opponent' | 'standings' | undefined;
+
+        if (clearKey) {
+          const removed = ROSTER_STORE.clear(clearKey);
+          return { content: [{ type: "text", text: JSON.stringify({
+            cleared: clearKey, existed: removed
+          }, null, 2) }] };
+        }
+
+        const roster = ROSTER_STORE.getRoster('roster');
+        const opponent = ROSTER_STORE.getRoster('opponent');
+        const standings = ROSTER_STORE.getStandings();
+
+        return { content: [{ type: "text", text: JSON.stringify({
+          roster: roster ?? "not set — paste yours with set_roster",
+          opponent: opponent ?? "not set — paste one with set_opponent_roster",
+          standings: standings ?? "not set — paste them with set_standings",
+          storage: ROSTER_STORE.getDataDir()
+        }, null, 2) }] };
       }
 
       case "schedule_value": {

@@ -18,8 +18,10 @@ import type {
   Recommendation,
   AnalysisInsights
 } from '../domain/types.js';
-import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
+import { LEAGUE_DATA, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE } from '../services/LeagueDataService.js';
+import { NHL_STATS } from '../services/NhlStatsService.js';
+import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
 
 interface IceAnalysisArgs {
   look_ahead_days?: number;
@@ -51,19 +53,8 @@ interface RosterAnalysis {
  * ICE Analysis - The ultimate roster optimization engine
  */
 export class IceAnalysis extends AnalysisTemplate {
-  private apiClient: YahooApiClient;
-  private leagueId: string;
-  private teamId: string;
-
-  constructor(
-    apiClient: YahooApiClient,
-    leagueId: string,
-    teamId: string
-  ) {
+  constructor() {
     super("get_roster_transaction_recommendations", "ice_roster");
-    this.apiClient = apiClient;
-    this.leagueId = leagueId;
-    this.teamId = teamId;
   }
 
   /**
@@ -72,17 +63,16 @@ export class IceAnalysis extends AnalysisTemplate {
   protected async fetchData(args: IceAnalysisArgs): Promise<any> {
     const lookAheadDays = args.look_ahead_days || 7;
 
-    // Fetch all data needed for ICE analysis in parallel
-    const [rosterData, gamesInHandData, streamingData] = await Promise.all([
-      this.apiClient.getTeamRoster(this.leagueId, this.teamId),
-      this.fetchGamesInHand(),
-      this.fetchStreamingRecommendations(lookAheadDays)
-    ]);
+    // v4: the roster comes from what the user pasted, and everything else from
+    // the NHL public API. No account, no OAuth, no platform binding.
+    await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
+
+    const roster = LEAGUE_DATA.getRoster();
 
     return {
-      roster: rosterData,
-      gamesInHand: gamesInHandData,
-      streaming: streamingData,
+      roster,
+      gamesInHand: this.calculateGamesInHand(lookAheadDays),
+      streaming: this.streamingContext(),
       lookAheadDays
     };
   }
@@ -91,35 +81,16 @@ export class IceAnalysis extends AnalysisTemplate {
    * Hook 2: Prepare and transform data for analysis
    */
   protected async prepareData(rawData: any, args: IceAnalysisArgs): Promise<FantasyData> {
-    // Parse roster from Yahoo API response
-    const teamArray = rawData.roster.fantasy_content.team[0];
-    const rosterData = rawData.roster.fantasy_content.team[1].roster["0"].players;
+    // 🏛️ Rule 3: an absent roster is reported, never treated as an empty one.
+    // "You have no players" and "you have not told me your players" are
+    // different statements and only one of them is true.
+    if (!rawData.roster) {
+      throw new Error(NO_ROSTER_MESSAGE);
+    }
 
-    const teamKey = teamArray.find((item: any) => item.team_key)?.team_key;
-    const teamName = teamArray.find((item: any) => item.name)?.name;
-
-    // Parse players
-    const playerKeys = Object.keys(rosterData).filter(key => key !== 'count');
-    const players = playerKeys.map(key => {
-      const playerData = rosterData[key].player[0];
-      const positionData = rosterData[key].player[1];
-
-      const player_id = playerData.find((item: any) => item.player_id)?.player_id;
-      const name = playerData.find((item: any) => item.name)?.name?.full;
-      const position = positionData.eligible_positions?.position.join(',') || '';
-      const team = playerData.find((item: any) => item.editorial_team_abbr)?.editorial_team_abbr;
-      const selected_position = positionData.selected_position?.position || '';
-      const status = playerData.find((item: any) => item.status)?.status || '';
-
-      return {
-        player_id,
-        name,
-        position,
-        team,
-        selected_position,
-        status
-      };
-    });
+    const teamKey = rawData.roster.team_key;
+    const teamName = rawData.roster.team_name;
+    const players = rawData.roster.players;
 
     // Return FantasyData with roster structure
     // Store extra context (gamesInHand, streaming) for use in analyzeData
@@ -379,31 +350,69 @@ export class IceAnalysis extends AnalysisTemplate {
   }
 
   /**
-   * Temporary stub for games in hand (to be migrated to its own analysis)
+   * Real schedule advantage over the look-ahead window.
+   *
+   * This was a stub returning zero, so ICE's "games in hand" line was never
+   * a measurement. It now counts each rostered player's actual club games
+   * from the NHL schedule. Without a stored opponent there is no differential
+   * to report, so it reports your own volume and says why.
    */
-  private async fetchGamesInHand(): Promise<any> {
-    // TODO: Replace with proper GamesInHandAnalysis when migrated
+  private calculateGamesInHand(lookAheadDays: number): any {
+    if (!NHL_SCHEDULE.isAvailable()) {
+      return {
+        available: false,
+        note: NHL_SCHEDULE.getUnavailableReason(),
+        games_in_hand_difference: 0
+      };
+    }
+
+    const start = NhlScheduleService.today();
+    const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
+
+    const countFor = (roster: { players: any[] } | null) =>
+      (roster?.players ?? [])
+        .filter(p => p.selected_position !== 'IR')
+        .reduce((total, p) => total + NHL_SCHEDULE.countGamesInRange(p.team, start, end), 0);
+
+    const mine = countFor(LEAGUE_DATA.getRoster());
+    const opponent = LEAGUE_DATA.getOpponentRoster();
+
+    if (!opponent) {
+      return {
+        available: true,
+        your_remaining: mine,
+        opponent_remaining: null,
+        games_in_hand_difference: 0,
+        note: NO_OPPONENT_MESSAGE
+      };
+    }
+
+    const theirs = countFor(opponent);
+
     return {
-      games_in_hand_difference: 0,
-      your_remaining: 0,
-      opponent_remaining: 0
+      available: true,
+      your_remaining: mine,
+      opponent_remaining: theirs,
+      games_in_hand_difference: mine - theirs,
+      window: { start, end }
     };
   }
 
   /**
-   * Temporary stub for streaming recommendations (to be migrated)
+   * Streaming context.
+   *
+   * Waiver-wire targets require knowing which players are unowned in your
+   * league, which no public data source can tell us. Rather than fabricate
+   * targets, this returns none and names the reason.
    */
-  private async fetchStreamingRecommendations(lookAheadDays: number): Promise<any> {
-    // TODO: Replace with proper StreamingAnalysis when migrated
+  private streamingContext(): any {
     return {
       streaming_targets: [],
-      optimal_timing: {
-        best_days: [],
-        avoid_days: []
-      },
-      market_intelligence: {
-        top_trending_team: "unknown"
-      }
+      unavailable_reason:
+        'Waiver targets need to know who is unowned in your league, which is ' +
+        'league-private. Roster, schedule and lineup analysis are unaffected.',
+      optimal_timing: { best_days: [], avoid_days: [] },
+      market_intelligence: { top_trending_team: 'unknown' }
     };
   }
 }

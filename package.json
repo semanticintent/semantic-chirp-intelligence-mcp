@@ -1,7 +1,7 @@
 {
   "name": "@semanticintent/semantic-chirp-intelligence-mcp",
-  "version": "3.2.0",
-  "description": "Semantic Intent pattern implementation for fantasy hockey intelligence - AI analysis that chirps you into championships",
+  "version": "4.0.0",
+  "description": "Universal fantasy hockey intelligence — a Model Context Protocol server that reads NHL schedule and player data and analyses any roster you paste. No account, no API key, no platform lock-in.",
   "type": "module",
   "main": "build/index.js",
   "scripts": {
@@ -14,7 +14,6 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "verify:yahoo": "npm run build && node scripts/verify-yahoo.mjs",
     "preflight": "npm run build && node scripts/preflight.mjs",
     "smoke": "npm run build && node scripts/smoke.mjs"
   },
@@ -22,10 +21,11 @@
     "mcp",
     "semantic-intent",
     "fantasy-hockey",
+    "nhl",
     "chirp",
     "intelligence",
-    "yahoo-fantasy",
-    "ice"
+    "ice",
+    "model-context-protocol"
   ],
   "author": "semanticintent",
   "license": "MIT",
@@ -35,7 +35,6 @@
   },
   "devDependencies": {
     "@types/node": "^24.7.0",
-    "@types/xml2js": "^0.4.14",
     "@vitest/coverage-v8": "^4.1.10",
     "@vitest/ui": "^4.1.10",
     "typescript": "^5.9.3",
@@ -43,8 +42,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.19.1",
-    "dotenv": "^17.4.2",
-    "selfsigned": "^5.5.0",
-    "xml2js": "^0.6.2"
+    "dotenv": "^17.4.2"
   }
 }
