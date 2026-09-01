@@ -2057,7 +2057,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("🏒❄️ Semantic Chirp Intelligence MCP v3.0 - ICE is ON! (Official API)");
+  console.error("🏒❄️ Semantic Chirp Intelligence MCP v3.2 - ICE is ON! (Real schedule, real stats)");
 }
 
 main().catch(console.error);

@@ -22,7 +22,8 @@ It's built on the same **Semantic Intent** philosophy as its sibling project, th
 ### Highlights
 
 - ❄️ **ICE — the Intent Chirp Engine** — championship-level roster analysis with brutal honesty
-- 🗓️ **Schedule intelligence** — games-in-hand edges and streaming windows (NHL public API for real schedules)
+- 🎯 **Draft intelligence** — with a pick on the clock, who to take against *your* draft: board state, Yahoo ADP, roster holes, and playoff-week schedule
+- 🗓️ **Schedule intelligence** — every game count comes from the NHL's public club-schedule API, per club, per week. Games-in-hand edges, streaming windows, and playoff-week schedule value
 - 🌊 **Weekend stream classifier** — tells desperation pickups apart from genuine multi-week opportunities
 - 🏛️ **Semantic Anchoring Governance** — every tool declares its intent; a dashboard surfaces the health metrics
 - 🧩 **Template Pattern architecture** — analyses are composable, consistent, and testable
@@ -83,7 +84,40 @@ It's built on the same **Semantic Intent** philosophy as its sibling project, th
 | `get_streaming_recommendations` | Schedule- and trend-aware waiver/streaming picks (weekly / weekend / daily strategies) |
 | `get_games_in_hand` | Schedule-advantage analysis — remaining games, you vs. opponent |
 | `analyze_weekend_streams` | 🌊 Weekend stream classifier — desperation filler vs. genuine multi-week upside (0–100 upside score) |
+| `chirp_opponent` | Scouts your matchup opponent's roster and chirps their weaknesses |
+| `analyze_trade` | Category-by-category trade breakdown with an ACCEPT / DECLINE / PUSH verdict |
 | `governance_dashboard` | 🏛️ Semantic Anchoring Governance health, analysis metrics, and violations |
+
+### Draft tools
+
+| Tool | Description |
+|------|-------------|
+| `chirp_draft_pick` | 🎯 **ICE at the draft table** — with pick N on the clock, ranks who to take against *your* draft: who's already gone, what your roster still needs, Yahoo ADP, and playoff-week schedule |
+| `schedule_value` | 🗓️ Rates all 32 NHL clubs — total games, four-game weeks, light weeks, back-to-backs, and games during **your league's** playoff weeks. The tiebreaker when two players are close |
+
+---
+
+## Where the numbers come from
+
+Every figure these tools report is fetched, not estimated:
+
+| Signal | Source |
+|--------|--------|
+| Games per week, back-to-backs, playoff-week volume | NHL public API (`api-web.nhle.com/v1/club-schedule-season`) — all 32 clubs, cached per season |
+| Opponent difficulty | NHL standings, ranked by goals allowed per game |
+| Player stats (season + last month) | Yahoo Fantasy player stats, batched |
+| ADP — average pick, percent drafted | Yahoo `draft_analysis` |
+| Draft board state | Yahoo `draftresults`, plus anything you pass in `already_drafted` |
+| Your playoff weeks | `playoff_start_week` from your Yahoo league settings |
+
+When a source is unreachable, the tool says so in its output and drops that
+component from its scoring — it does not substitute an estimate for a fact.
+
+> **Draft-day note:** Yahoo's REST draft results can lag a fast live draft.
+> `chirp_draft_pick` treats `already_drafted` as a first-class second source
+> rather than a fallback — a player is off the board if either source says so.
+> Run `npm run verify:yahoo` against your league before draft day to confirm
+> the live response shapes.
 
 ---
 
@@ -174,6 +208,8 @@ Use an **absolute path** to `build/index.js` (forward slashes, even on Windows).
 
 Once connected, just talk to Claude about your team:
 
+- *"I'm on the clock at pick 47 — who should I take?"*
+- *"Which teams have the best schedule during my league's playoff weeks?"*
 - *"Run ICE on my roster — what should I actually do this week?"*
 - *"Where do I have a games-in-hand edge over my opponent?"*
 - *"Find me streaming goalies for the weekend — real value, not desperation pickups."*
@@ -191,6 +227,7 @@ npm run type-check   # tsc --noEmit
 npm test             # run the vitest suite once
 npm run test:watch   # watch mode
 npm run test:coverage
+npm run verify:yahoo # check live Yahoo response shapes against your league
 ```
 
 ### Project structure
@@ -199,13 +236,15 @@ npm run test:coverage
 semantic-chirp-intelligence-mcp/
 ├── src/
 │   ├── index.ts            # MCP server (stdio) + tool registration
-│   ├── analyses/           # Template-Pattern analyses (Ice, Streaming, GamesInHand, WeekendStream, Lineup, Breakout)
+│   ├── analyses/           # Template-Pattern analyses (Ice, Streaming, GamesInHand,
+│   │                       #   WeekendStream, Lineup, Breakout, ScheduleValue, DraftPick)
 │   ├── template/           # AnalysisTemplate base
-│   ├── services/           # ChirpIntelligence, YahooApiClient
+│   ├── services/           # ChirpIntelligence, YahooApiClient, NhlScheduleService
 │   ├── config/             # tool-metadata, personality-modes, chirp-styles
-│   ├── domain/             # types, governance
+│   ├── domain/             # types, governance, nhl-teams, yahoo-stats
 │   └── experimental/       # semantic-intent parser experiments
 ├── tests/                  # vitest tests
+├── scripts/verify-yahoo.mjs # live Yahoo response-shape check
 ├── authenticate.js         # one-time Yahoo OAuth helper
 ├── docs/                   # documentation (architecture, setup, dev notes)
 └── .env.example
