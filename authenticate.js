@@ -22,10 +22,29 @@ if (!CLIENT_ID || !CLIENT_SECRET) {
   process.exit(1);
 }
 
+// A .env copied from the template but never filled in fails much later, at
+// Yahoo, with an opaque error. Catch it here instead.
+const PLACEHOLDERS = ['paste_here', 'your_client_id', 'your_client_secret', 'your_client_id_here', 'your_client_secret_here'];
+const unfilled = Object.entries({ YAHOO_CLIENT_ID: CLIENT_ID, YAHOO_CLIENT_SECRET: CLIENT_SECRET })
+  .filter(([, value]) => PLACEHOLDERS.includes(String(value).trim()));
+
+if (unfilled.length > 0) {
+  console.error(`❌ Still a placeholder in .env: ${unfilled.map(([key]) => key).join(', ')}`);
+  console.error('📝 Replace the placeholder(s) with the real values from your Yahoo app:');
+  console.error('   https://developer.yahoo.com/apps/');
+  process.exit(1);
+}
+
 // Generate self-signed certificate for local HTTPS
+//
+// selfsigned 5.x made generate() async. Calling it synchronously returned a
+// Promise, so pems.private and pems.cert were both undefined — Node starts an
+// HTTPS server with no certificate without complaining, then fails every
+// handshake with ERR_SSL_VERSION_OR_CIPHER_MISMATCH and no "Advanced" escape
+// hatch in the browser. It must be awaited.
 console.log('🔐 Generating self-signed certificate for HTTPS...');
 const attrs = [{ name: 'commonName', value: 'localhost' }];
-const pems = selfsigned.generate(attrs, {
+const pems = await selfsigned.generate(attrs, {
   keySize: 2048,
   days: 365,
   algorithm: 'sha256',
@@ -39,6 +58,13 @@ const pems = selfsigned.generate(attrs, {
     }
   ]
 });
+
+if (!pems?.private || !pems?.cert) {
+  console.error('❌ Certificate generation produced no key/cert.');
+  console.error('   Without this the browser fails with ERR_SSL_VERSION_OR_CIPHER_MISMATCH.');
+  console.error('   Check the installed `selfsigned` version and its generate() API.');
+  process.exit(1);
+}
 
 console.log('🔐 Starting Yahoo OAuth flow...\n');
 
