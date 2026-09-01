@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.3]
+
+### Changed
+- **`@modelcontextprotocol/sdk` 1.19.1 → 1.30.0.** Adds support for protocol
+  revision **`2025-11-25`**, which the previous SDK did not know; the server now
+  negotiates it when a client offers it, and continues to negotiate down to
+  `2025-06-18`, `2025-03-26` and `2024-11-05` for older clients. Also aligns this
+  server with the SDK version used across the rest of the Cormorant Foraging
+  family.
+
+No functional changes. Transport remains stdio, which is correct for a locally
+launched MCP server; the SDK's stateless Streamable HTTP transport applies to
+remotely hosted servers and is not used here.
+
+---
+
 ## [4.0.2]
 
 ### Fixed
