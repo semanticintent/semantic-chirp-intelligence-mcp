@@ -254,6 +254,38 @@ semantic-chirp-intelligence-mcp/
 
 ---
 
+## Troubleshooting
+
+**`ERR_SSL_VERSION_OR_CIPHER_MISMATCH` when opening `https://localhost:3000/`**
+The callback server started without a certificate. Fixed in 3.2.0 — `selfsigned`
+5.x made `generate()` async and it was being called synchronously. Note that this
+error gives no "Advanced → Proceed" option, unlike a normal self-signed warning.
+
+**`403 This application is not authorized to perform this action` on every endpoint**
+Including `/game/nhl`, which needs no user data. Yahoo issued a token with no
+Fantasy scope. The tell is `xoauth_yahoo_guid` missing from the token response —
+`authenticate.js` reports this immediately after the exchange.
+
+1. Confirm at [developer.yahoo.com/apps](https://developer.yahoo.com/apps/) that
+   **Fantasy Sports → Read** is actually *ticked* and the client type is
+   **Confidential Client**.
+2. If you already consented once under a misconfigured app, Yahoo reissues under
+   the **existing grant** and ignores the new scope request — you get a new
+   access token with the *same* refresh token, and the same 403. Revoke the app
+   at [login.yahoo.com/account/connected-apps](https://login.yahoo.com/account/connected-apps),
+   delete `.yahoo-oauth.json`, and authenticate again.
+3. A newly created or edited Yahoo app can take 15–60 minutes to propagate.
+
+**`EADDRINUSE: address already in use :::3000`**
+A previous `authenticate.js` is still running. `lsof -ti:3000 | xargs kill`.
+
+**Preflight is green but tools return nothing**
+Check the league is the current season's. `npm run preflight` prints the league
+name, season and start date on success — a stale league ID from last season
+resolves but scores your playoff window against the wrong dates.
+
+---
+
 ## Security
 
 - **Read-only** integration — requests the minimum Yahoo `Read` permission; never modifies your roster or transactions.
