@@ -505,9 +505,16 @@ describe('AnalysisTemplate', () => {
       // First analysis - fast
       await analysis.executeAnalysis({}, validContract);
 
-      // Second analysis - add delay
+      // Second analysis - add delay.
+      // The delay is generously larger than the assertion threshold: a
+      // setTimeout(n) measured with Date.now() can come back as n-1 once
+      // millisecond truncation at both ends is accounted for, which made this
+      // fail intermittently on loaded CI runners.
+      const DELAY_MS = 50;
+      const MIN_EXPECTED_MS = 10;
+
       vi.spyOn(analysis as any, 'analyzeData').mockImplementation(async () => {
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await new Promise(resolve => setTimeout(resolve, DELAY_MS));
         return {};
       });
       await analysis.executeAnalysis({}, validContract);
@@ -515,7 +522,7 @@ describe('AnalysisTemplate', () => {
       const slowest = GOVERNANCE_MONITOR.getSlowestAnalysis();
       expect(slowest).toBeDefined();
       expect(slowest?.type).toBe('ice_roster');
-      expect(slowest?.duration_ms).toBeGreaterThanOrEqual(10);
+      expect(slowest?.duration_ms).toBeGreaterThanOrEqual(MIN_EXPECTED_MS);
     });
   });
 });
