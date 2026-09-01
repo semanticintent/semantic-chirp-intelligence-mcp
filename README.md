@@ -22,7 +22,8 @@ It's built on the same **Semantic Intent** philosophy as its sibling project, th
 ### Highlights
 
 - ❄️ **ICE — the Intent Chirp Engine** — championship-level roster analysis with brutal honesty
-- 🗓️ **Schedule intelligence** — games-in-hand edges and streaming windows (NHL public API for real schedules)
+- 🎯 **Draft intelligence** — with a pick on the clock, who to take against *your* draft: board state, Yahoo ADP, roster holes, and playoff-week schedule
+- 🗓️ **Schedule intelligence** — every game count comes from the NHL's public club-schedule API, per club, per week. Games-in-hand edges, streaming windows, and playoff-week schedule value
 - 🌊 **Weekend stream classifier** — tells desperation pickups apart from genuine multi-week opportunities
 - 🏛️ **Semantic Anchoring Governance** — every tool declares its intent; a dashboard surfaces the health metrics
 - 🧩 **Template Pattern architecture** — analyses are composable, consistent, and testable
@@ -83,7 +84,40 @@ It's built on the same **Semantic Intent** philosophy as its sibling project, th
 | `get_streaming_recommendations` | Schedule- and trend-aware waiver/streaming picks (weekly / weekend / daily strategies) |
 | `get_games_in_hand` | Schedule-advantage analysis — remaining games, you vs. opponent |
 | `analyze_weekend_streams` | 🌊 Weekend stream classifier — desperation filler vs. genuine multi-week upside (0–100 upside score) |
+| `chirp_opponent` | Scouts your matchup opponent's roster and chirps their weaknesses |
+| `analyze_trade` | Category-by-category trade breakdown with an ACCEPT / DECLINE / PUSH verdict |
 | `governance_dashboard` | 🏛️ Semantic Anchoring Governance health, analysis metrics, and violations |
+
+### Draft tools
+
+| Tool | Description |
+|------|-------------|
+| `chirp_draft_pick` | 🎯 **ICE at the draft table** — with pick N on the clock, ranks who to take against *your* draft: who's already gone, what your roster still needs, Yahoo ADP, and playoff-week schedule |
+| `schedule_value` | 🗓️ Rates all 32 NHL clubs — total games, four-game weeks, light weeks, back-to-backs, and games during **your league's** playoff weeks. The tiebreaker when two players are close |
+
+---
+
+## Where the numbers come from
+
+Every figure these tools report is fetched, not estimated:
+
+| Signal | Source |
+|--------|--------|
+| Games per week, back-to-backs, playoff-week volume | NHL public API (`api-web.nhle.com/v1/club-schedule-season`) — all 32 clubs, cached per season |
+| Opponent difficulty | NHL standings, ranked by goals allowed per game |
+| Player stats (season + last month) | Yahoo Fantasy player stats, batched |
+| ADP — average pick, percent drafted | Yahoo `draft_analysis` |
+| Draft board state | Yahoo `draftresults`, plus anything you pass in `already_drafted` |
+| Your playoff weeks | `playoff_start_week` from your Yahoo league settings |
+
+When a source is unreachable, the tool says so in its output and drops that
+component from its scoring — it does not substitute an estimate for a fact.
+
+> **Draft-day note:** Yahoo's REST draft results can lag a fast live draft.
+> `chirp_draft_pick` treats `already_drafted` as a first-class second source
+> rather than a fallback — a player is off the board if either source says so.
+> Run `npm run verify:yahoo` against your league before draft day to confirm
+> the live response shapes.
 
 ---
 
@@ -91,7 +125,47 @@ It's built on the same **Semantic Intent** philosophy as its sibling project, th
 
 - **Node.js 20+**
 - A **Yahoo account** with a Fantasy Hockey team
+- **Approved access to the Yahoo Fantasy Sports API** — see below
 - An MCP client — e.g. **Claude Desktop**
+
+> ### ⚠️ Yahoo now gates the Fantasy Sports API behind manual approval
+>
+> Creating a Yahoo app and ticking "Fantasy Sports" is **no longer sufficient**.
+> Yahoo reviews every request for API access:
+>
+> > "Each application is reviewed by the Yahoo Fantasy Sports team."
+> > — [sports.yahoo.com/developer/access](https://sports.yahoo.com/developer/access/)
+>
+> Until your application is approved, OAuth completes normally — you get a
+> consent screen, a valid token, and a success page — but **every API call
+> returns 403 `This application is not authorized to perform this action`**,
+> including `/game/nhl`, which needs no user data at all. The token is fine;
+> the application has not been granted access.
+>
+> **Apply at [sports.yahoo.com/developer/access](https://sports.yahoo.com/developer/access/)**
+> before setting this up. Describe the product, the data you need, and your
+> user base — Yahoo states that "incomplete or insufficiently detailed
+> submissions cannot be evaluated and will be closed without further
+> correspondence." Personal or single-league use is an accepted category; say
+> so explicitly.
+>
+> **This applies to existing apps too.** Tested on one account in September 2026:
+> three apps — including one created in 2025 that worked throughout the previous
+> season — all returned the same 403. Yahoo appears to have swept legacy access
+> rather than only gating newly created apps. An app that worked last season is
+> not evidence that it still will. Older setups and tutorials predate the gate,
+> which is why none of them mention it.
+>
+> Note also that the API is **read-only** ("The Yahoo Fantasy Sports API
+> currently provides read access only"), so `fspt-r` is the correct scope and
+> read/write options in the old console are vestigial.
+
+### Attribution requirement
+
+Yahoo requires that products using this data display **"Fantasy data provided
+by Yahoo Fantasy"** along with the official Yahoo Fantasy logo, linking back to
+Yahoo Fantasy. If you build a user-facing product on this server, you must
+carry that attribution.
 
 ## Setup
 
@@ -155,10 +229,6 @@ Edit your Claude Desktop config:
       "command": "node",
       "args": ["/absolute/path/to/semantic-chirp-intelligence-mcp/build/index.js"],
       "env": {
-        "YAHOO_CLIENT_ID": "your_client_id",
-        "YAHOO_CLIENT_SECRET": "your_client_secret",
-        "YAHOO_LEAGUE_ID": "your_league_id",
-        "YAHOO_TEAM_ID": "your_team_id",
         "DOTENV_CONFIG_QUIET": "true"
       }
     }
@@ -168,12 +238,20 @@ Edit your Claude Desktop config:
 
 Use an **absolute path** to `build/index.js` (forward slashes, even on Windows). Restart Claude Desktop — the CHIRP tools will appear.
 
+Your credentials stay in the project's git-ignored `.env`; the server resolves
+it from its own install directory, so it is found regardless of the working
+directory the client launches it with. You do **not** need to copy secrets into
+the client config. If you prefer to set them there anyway, a client `env` block
+still overrides the file.
+
 ---
 
 ## Usage
 
 Once connected, just talk to Claude about your team:
 
+- *"I'm on the clock at pick 47 — who should I take?"*
+- *"Which teams have the best schedule during my league's playoff weeks?"*
 - *"Run ICE on my roster — what should I actually do this week?"*
 - *"Where do I have a games-in-hand edge over my opponent?"*
 - *"Find me streaming goalies for the weekend — real value, not desperation pickups."*
@@ -191,6 +269,7 @@ npm run type-check   # tsc --noEmit
 npm test             # run the vitest suite once
 npm run test:watch   # watch mode
 npm run test:coverage
+npm run verify:yahoo # check live Yahoo response shapes against your league
 ```
 
 ### Project structure
@@ -199,17 +278,75 @@ npm run test:coverage
 semantic-chirp-intelligence-mcp/
 ├── src/
 │   ├── index.ts            # MCP server (stdio) + tool registration
-│   ├── analyses/           # Template-Pattern analyses (Ice, Streaming, GamesInHand, WeekendStream, Lineup, Breakout)
+│   ├── analyses/           # Template-Pattern analyses (Ice, Streaming, GamesInHand,
+│   │                       #   WeekendStream, Lineup, Breakout, ScheduleValue, DraftPick)
 │   ├── template/           # AnalysisTemplate base
-│   ├── services/           # ChirpIntelligence, YahooApiClient
+│   ├── services/           # ChirpIntelligence, YahooApiClient, NhlScheduleService
 │   ├── config/             # tool-metadata, personality-modes, chirp-styles
-│   ├── domain/             # types, governance
+│   ├── domain/             # types, governance, nhl-teams, yahoo-stats
 │   └── experimental/       # semantic-intent parser experiments
 ├── tests/                  # vitest tests
+├── scripts/verify-yahoo.mjs # live Yahoo response-shape check
 ├── authenticate.js         # one-time Yahoo OAuth helper
 ├── docs/                   # documentation (architecture, setup, dev notes)
 └── .env.example
 ```
+
+---
+
+## Troubleshooting
+
+**`ERR_SSL_VERSION_OR_CIPHER_MISMATCH` when opening `https://localhost:3000/`**
+The callback server started without a certificate. Fixed in 3.2.0 — `selfsigned`
+5.x made `generate()` async and it was being called synchronously. Note that this
+error gives no "Advanced → Proceed" option, unlike a normal self-signed warning.
+
+**`403 This application is not authorized to perform this action` on every endpoint**
+Including `/game/nhl`, which needs no user data.
+
+**The usual cause is that your app has not been approved for Fantasy Sports API
+access** — see the prerequisites above. Yahoo gates the API behind a manual
+review, and an unapproved app authenticates perfectly and then 403s on
+everything. A quick way to confirm the token itself is healthy: send a
+deliberately corrupted token to the same endpoint. A bad token returns **401**
+`token_rejected`; if yours returns **403** instead, Yahoo is accepting your
+token and refusing your *application*.
+
+(Note: a missing `xoauth_yahoo_guid` in the token response is *not* a reliable
+tell — Yahoo only returns that field when the `openid` scope is requested.
+Verify with `npm run preflight`, which makes a real API call.)
+
+1. Confirm at [developer.yahoo.com/apps](https://developer.yahoo.com/apps/) that the
+   app has a **Fantasy Sports** permission at all. Yahoo's permission list opens on
+   other APIs (TW Auction, Profiles), so it is easy to end up with an app named for
+   fantasy that carries an unrelated permission. Such an app rejects every `fspt-*`
+   scope with `invalid_scope`, and any token it mints 403s everywhere. If you have
+   several similarly named apps, check the **App ID** matches the credentials in
+   `.env`. Client type must be **Confidential Client**.
+2. If you already consented once under a misconfigured app, Yahoo reissues under
+   the **existing grant** and ignores the new scope request — you get a new
+   access token with the *same* refresh token, and the same 403. Revoke the app
+   at [login.yahoo.com/account/connected-apps](https://login.yahoo.com/account/connected-apps),
+   delete `.yahoo-oauth.json`, and authenticate again.
+3. A newly created or edited Yahoo app can take 15–60 minutes to propagate.
+
+**`invalid_scope` at the consent screen**
+Either the requested scope does not match the app's registered permission
+(`fspt-r` for Read, `fspt-w` for Read/Write), or — far more often — the app has no
+Fantasy Sports permission at all. See the 403 entry above.
+
+**Yahoo will not delete an app**
+A long-standing bug in Yahoo's developer console. Untick every API permission and
+save instead: a permission-less app mints tokens that can do nothing. Also revoke
+the grant at [connected-apps](https://login.yahoo.com/account/connected-apps).
+
+**`EADDRINUSE: address already in use :::3000`**
+A previous `authenticate.js` is still running. `lsof -ti:3000 | xargs kill`.
+
+**Preflight is green but tools return nothing**
+Check the league is the current season's. `npm run preflight` prints the league
+name, season and start date on success — a stale league ID from last season
+resolves but scores your playoff window against the wrong dates.
 
 ---
 

@@ -9,6 +9,7 @@
 import { AnalysisTemplate } from '../template/AnalysisTemplate.js';
 import { YahooApiClient } from '../services/YahooApiClient.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
+import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
 import {
   FantasyData,
   AnalysisResponse,
@@ -57,6 +58,9 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
 
       // Fetch league scoreboard for schedule data
       const scoreboardData = await this.apiClient.getLeagueScoreboard(this.leagueId);
+
+      // Real NHL schedule - the games-in-hand number is meaningless without it
+      await NHL_SCHEDULE.load();
 
       return {
         matchup: matchupData,
@@ -190,9 +194,31 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
   protected async analyzeData(data: FantasyData, args: GamesInHandArgs): Promise<GamesInHandData> {
     const lookAheadDays = args.look_ahead_days || 7;
 
-    // Calculate games remaining for each team
+    // Calculate games remaining for each team from the real NHL schedule
     const yourGamesRemaining = this.calculateGamesRemaining(data.roster!.players, lookAheadDays);
     const opponentGamesRemaining = this.calculateGamesRemaining(data.opponent!.players || [], lookAheadDays);
+
+    // 🏛️ Rule 3: without the schedule there is no schedule advantage to report.
+    // Say so plainly instead of inventing a differential.
+    if (yourGamesRemaining === null || opponentGamesRemaining === null) {
+      return {
+        schedule_available: false,
+        schedule_note: NHL_SCHEDULE.getUnavailableReason() ?? 'NHL schedule unavailable',
+        your_team: {
+          team_name: data.roster!.team_name,
+          games_remaining: null,
+          players_with_games: data.roster!.players.filter(p => !p.selected_position.includes('IR'))
+        },
+        opponent: {
+          team_name: data.opponent!.team_name || 'Opponent',
+          games_remaining: null,
+          players_with_games: (data.opponent!.players || []).filter((p: Player) => !p.selected_position.includes('IR'))
+        },
+        advantage: null,
+        strategic_recommendation:
+          'SCHEDULE UNAVAILABLE: could not reach the NHL schedule API, so no games-in-hand edge can be calculated. Retry shortly.'
+      } as any;
+    }
 
     const advantage = yourGamesRemaining - opponentGamesRemaining;
 
@@ -215,6 +241,8 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
     }
 
     return {
+      schedule_available: true,
+      schedule_source: `NHL public API (season ${NHL_SCHEDULE.getSeason()})`,
       your_team: {
         team_name: data.roster!.team_name,
         games_remaining: yourGamesRemaining,
@@ -305,20 +333,29 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
   }
 
   /**
-   * Helper: Calculate total games remaining for a roster
+   * Helper: Count real games remaining for a roster over the look-ahead window.
+   *
+   * Sums each active player's club games from the NHL schedule. A roster of
+   * eight MTL skaters and a roster of eight SEA skaters are not the same
+   * number of games, which is precisely the edge this tool exists to find.
+   *
+   * Returns null when the schedule is unavailable — callers must report that
+   * rather than fall back to an estimate.
    */
-  private calculateGamesRemaining(players: Player[], lookAheadDays: number): number {
-    // This is a simplified calculation
-    // In production, would parse actual NHL schedule data from scoreboard
+  private calculateGamesRemaining(players: Player[], lookAheadDays: number): number | null {
+    if (!NHL_SCHEDULE.isAvailable()) return null;
 
-    // Active players (not on IR) typically play 3-4 games per week
+    const start = NhlScheduleService.today();
+    const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
+
     const activePlayers = players.filter(p =>
       !p.selected_position.includes('IR') &&
       !p.selected_position.includes('BN')
     );
 
-    // Rough estimate: 3.5 games per active player per week
-    const weeksInLookAhead = lookAheadDays / 7;
-    return Math.round(activePlayers.length * 3.5 * weeksInLookAhead);
+    return activePlayers.reduce(
+      (total, player) => total + NHL_SCHEDULE.countGamesInRange(player.team, start, end),
+      0
+    );
   }
 }

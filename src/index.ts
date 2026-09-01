@@ -13,19 +13,17 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 // Node.js
-import * as fs from "fs";
-import * as path from "path";
-import { fileURLToPath } from "url";
 import * as dotenv from "dotenv";
-import https from "https";
+import * as path from "path";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
 import { parseString } from "xml2js";
 import { promisify } from "util";
 
 // Domain layer
 import type {
   ChirpParameters,
-  SemanticChirpContract,
-  YahooToken
+  SemanticChirpContract
 } from './domain/types.js';
 
 import {
@@ -65,8 +63,23 @@ import {
 } from './experimental/semantic-breakout-tool.js';
 
 import { BreakoutAnalysis } from './analyses/BreakoutAnalysis.js';
+import { ScheduleValueAnalysis } from './analyses/ScheduleValueAnalysis.js';
+import { DraftPickAnalysis } from './analyses/DraftPickAnalysis.js';
 
-dotenv.config();
+/**
+ * Load .env from the package directory, not the current working directory.
+ *
+ * MCP clients launch this server with an arbitrary cwd (Claude Desktop uses
+ * `/`), so a bare dotenv.config() never finds the project's .env — which is
+ * why the setup docs previously required copying all four Yahoo secrets into
+ * the client config as well. Resolving against the module's own location means
+ * the git-ignored .env is the single place credentials live.
+ *
+ * Real environment variables still win: dotenv does not overwrite anything
+ * already set, so a client `env` block continues to override the file.
+ */
+const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+dotenv.config({ path: path.join(PACKAGE_ROOT, ".env") });
 
 const parseXML = promisify(parseString);
 
@@ -75,9 +88,6 @@ const YAHOO_CLIENT_ID = process.env.YAHOO_CLIENT_ID!;
 const YAHOO_CLIENT_SECRET = process.env.YAHOO_CLIENT_SECRET!;
 const LEAGUE_ID = process.env.YAHOO_LEAGUE_ID!;
 const TEAM_ID = process.env.YAHOO_TEAM_ID!;
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const TOKEN_FILE = path.join(__dirname, "..", ".yahoo-oauth.json");
 
 const YAHOO_API_BASE = "https://fantasysports.yahooapis.com/fantasy/v2";
 
@@ -120,107 +130,10 @@ const gamesInHandAnalysis = new GamesInHandAnalysis(yahooClient, LEAGUE_ID, TEAM
 const streamingAnalysis = new StreamingAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const lineupAnalysis = new LineupAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const breakoutAnalysis = new BreakoutAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
+const scheduleValueAnalysis = new ScheduleValueAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
+const draftPickAnalysis = new DraftPickAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 const weekendStreamAnalysis = new WeekendStreamAnalysis(yahooClient, LEAGUE_ID, TEAM_ID);
 
-let cachedToken: YahooToken | null = null;
-
-function loadToken(): YahooToken | null {
-  try {
-    console.error(`[DEBUG] Looking for token at: ${TOKEN_FILE}`);
-    if (fs.existsSync(TOKEN_FILE)) {
-      const tokenData = fs.readFileSync(TOKEN_FILE, "utf8");
-      const token = JSON.parse(tokenData) as YahooToken;
-      console.error(`[DEBUG] Token loaded successfully`);
-      cachedToken = token;
-      return token;
-    } else {
-      console.error(`[DEBUG] Token file not found`);
-    }
-  } catch (error) {
-    console.error("[ERROR] Error loading token:", error);
-  }
-  return null;
-}
-
-function saveToken(token: YahooToken) {
-  token.expires_at = Date.now() + (token.expires_in * 1000);
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify(token, null, 2));
-  cachedToken = token;
-  console.error("[DEBUG] Token saved successfully");
-}
-
-async function refreshAccessToken(): Promise<string> {
-  const token = cachedToken || loadToken();
-  
-  if (!token) {
-    throw new Error("No refresh token available. Please re-authenticate.");
-  }
-
-  console.error("[DEBUG] Refreshing access token...");
-
-  const tokenData = new URLSearchParams({
-    client_id: YAHOO_CLIENT_ID,
-    client_secret: YAHOO_CLIENT_SECRET,
-    redirect_uri: "oob",
-    refresh_token: token.refresh_token,
-    grant_type: "refresh_token",
-  });
-
-  const options = {
-    hostname: "api.login.yahoo.com",
-    port: 443,
-    path: "/oauth2/get_token",
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Content-Length": tokenData.toString().length,
-    },
-  };
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(options, (res) => {
-      let data = "";
-
-      res.on("data", (chunk) => {
-        data += chunk;
-      });
-
-      res.on("end", () => {
-        try {
-          const newToken = JSON.parse(data) as YahooToken;
-          saveToken(newToken);
-          console.error("[DEBUG] Token refreshed successfully");
-          resolve(newToken.access_token);
-        } catch (error) {
-          reject(new Error(`Failed to parse token response: ${error}`));
-        }
-      });
-    });
-
-    req.on("error", (error) => {
-      reject(error);
-    });
-
-    req.write(tokenData.toString());
-    req.end();
-  });
-}
-
-async function getValidAccessToken(): Promise<string> {
-  const token = cachedToken || loadToken();
-  
-  if (!token) {
-    throw new Error("No authentication token found! Run: node authenticate.js");
-  }
-
-  // Check if token is expired (with 5 minute buffer)
-  if (token.expires_at && token.expires_at < Date.now() + 300000) {
-    console.error("[DEBUG] Token expired or expiring soon, refreshing...");
-    return await refreshAccessToken();
-  }
-
-  return token.access_token;
-}
 
 // Helper function to find current matchup by status
 function findCurrentMatchup(matchups: any): any {
@@ -265,65 +178,18 @@ function findCurrentMatchup(matchups: any): any {
   return matchups[lastKey].matchup;
 }
 
-// Yahoo API helper function
+/**
+ * All Yahoo access goes through the YahooApiClient service.
+ *
+ * index.ts previously carried its own copy of the token lifecycle -
+ * loadToken / saveToken / refreshAccessToken / getValidAccessToken plus a
+ * duplicate request function - while the analysis classes used the service.
+ * Two independent refresh paths wrote the same .yahoo-oauth.json, so a
+ * refresh triggered by a tool handler could race one triggered by an
+ * analysis and clobber the newer token.
+ */
 async function yahooApiRequest(endpoint: string, format: string = "json"): Promise<any> {
-  const accessToken = await getValidAccessToken();
-  
-  const url = `${YAHOO_API_BASE}${endpoint}${endpoint.includes('?') ? '&' : '?'}format=${format}`;
-  
-  console.error(`[DEBUG] API Request: ${endpoint}`);
-
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(url);
-    
-    const options = {
-      hostname: urlObj.hostname,
-      port: 443,
-      path: urlObj.pathname + urlObj.search,
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/json",
-      },
-    };
-
-    const req = https.request(options, (res) => {
-      let data = "";
-
-      res.on("data", (chunk) => {
-        data += chunk;
-      });
-
-      res.on("end", () => {
-        if (res.statusCode === 401) {
-          // Token expired, try to refresh and retry
-          refreshAccessToken()
-            .then(() => yahooApiRequest(endpoint, format))
-            .then(resolve)
-            .catch(reject);
-          return;
-        }
-
-        if (res.statusCode !== 200) {
-          reject(new Error(`API returned status ${res.statusCode}: ${data}`));
-          return;
-        }
-
-        try {
-          const parsed = JSON.parse(data);
-          resolve(parsed);
-        } catch (error) {
-          reject(new Error(`Failed to parse API response: ${error}`));
-        }
-      });
-    });
-
-    req.on("error", (error) => {
-      reject(error);
-    });
-
-    req.end();
-  });
+  return yahooClient.request(endpoint, format);
 }
 
 // Tool: Get Team Roster
@@ -1344,11 +1210,28 @@ async function analyzeTradeImpact(giving: string[], receiving: string[], chirpIn
 
 
 
+/**
+ * Version reported in the MCP handshake.
+ *
+ * Read from package.json rather than hardcoded — this string had drifted to
+ * 3.0.0 while the package was on 3.2.0, so clients were told the wrong version.
+ */
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")
+    );
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
 // Initialize MCP Server
 const server = new Server(
   {
     name: "semantic-chirp-intelligence-mcp",
-    version: "3.0.0",
+    version: readPackageVersion(),
   },
   {
     capabilities: {
@@ -1656,6 +1539,68 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["giving", "receiving"],
         },
+      },
+      {
+        name: "schedule_value",
+        description: "🗓️ Rate all 32 NHL clubs on what their schedule is worth to a fantasy roster — total games, four-game weeks, light weeks, back-to-backs, and games played during YOUR league's playoff weeks (read from your Yahoo league settings, not guessed). The draft tiebreaker when two players are close.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            teams: {
+              type: "array",
+              items: { type: "string" },
+              description: "Limit to specific clubs (NHL or Yahoo abbreviations, e.g. [\"TOR\", \"SJ\"]). Omit to rate all 32."
+            },
+            playoff_start_week: {
+              type: "number",
+              description: "Override the fantasy playoff start week. Defaults to playoff_start_week from your Yahoo league settings."
+            },
+            playoff_end_week: {
+              type: "number",
+              description: "Override the final fantasy week. Defaults to your league's end_week."
+            },
+            top_n: {
+              type: "number",
+              description: "How many clubs to highlight (default 8)",
+              default: 8
+            },
+            ...baseChirpSchema
+          }
+        }
+      },
+      {
+        name: "chirp_draft_pick",
+        description: "❄️ ICE at the draft table — with a pick on the clock, ranks who to take against YOUR draft: who is already gone, what your roster still needs, Yahoo's ADP (so 'value' means the market is wrong here), and each club's schedule during your league's playoff weeks. Pass already_drafted if Yahoo's draft results lag your live draft.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            pick_number: {
+              type: "number",
+              description: "The pick currently on the clock. Inferred from Yahoo draft results if omitted."
+            },
+            already_drafted: {
+              type: "array",
+              items: { type: "string" },
+              description: "Player names already off the board. Merged with Yahoo's draft results — use this when Yahoo's API lags a fast live draft."
+            },
+            roster_needs: {
+              type: "array",
+              items: { type: "string" },
+              description: "Positions you still need, e.g. [\"RW\", \"G\"]. Inferred from your roster if omitted."
+            },
+            max_results: {
+              type: "number",
+              description: "How many candidates to return (default 8)",
+              default: 8
+            },
+            pool_size: {
+              type: "number",
+              description: "How deep to pull the player pool (default 150, max 300)",
+              default: 150
+            },
+            ...baseChirpSchema
+          }
+        }
       },
     ],
   };
@@ -2065,6 +2010,71 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
 
+      case "schedule_value": {
+        try {
+          const semanticContract = {
+            chirp_intensity: (args?.chirp_intensity as any) || 'standard',
+            personality_mode: (args?.personality_mode as any) || 'analytical',
+            enable_chirp: args?.enable_chirp !== false,
+            semantic_intent: 'user_requested' as const
+          };
+
+          const result = await scheduleValueAnalysis.executeAnalysis(
+            {
+              teams: args?.teams as string[] | undefined,
+              playoff_start_week: args?.playoff_start_week as number | undefined,
+              playoff_end_week: args?.playoff_end_week as number | undefined,
+              top_n: args?.top_n as number | undefined
+            },
+            semanticContract
+          );
+
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              error: errorMessage,
+              note: "Schedule value analysis failed - rates NHL club schedules against your league's playoff weeks"
+            }, null, 2) }],
+            isError: true
+          };
+        }
+      }
+
+      case "chirp_draft_pick": {
+        try {
+          const semanticContract = {
+            chirp_intensity: (args?.chirp_intensity as any) || 'ice_cold',
+            personality_mode: (args?.personality_mode as any) || 'championship_coach',
+            enable_chirp: args?.enable_chirp !== false,
+            semantic_intent: 'user_requested' as const
+          };
+
+          const result = await draftPickAnalysis.executeAnalysis(
+            {
+              pick_number: args?.pick_number as number | undefined,
+              already_drafted: args?.already_drafted as string[] | undefined,
+              roster_needs: args?.roster_needs as string[] | undefined,
+              max_results: args?.max_results as number | undefined,
+              pool_size: args?.pool_size as number | undefined
+            },
+            semanticContract
+          );
+
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              error: errorMessage,
+              note: "Draft pick analysis failed - pass already_drafted explicitly if Yahoo draft results are unavailable"
+            }, null, 2) }],
+            isError: true
+          };
+        }
+      }
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -2080,7 +2090,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("🏒❄️ Semantic Chirp Intelligence MCP v3.0 - ICE is ON! (Official API)");
+  console.error(`🏒❄️ Semantic Chirp Intelligence MCP v${readPackageVersion()} - ICE is ON! (Real schedule, real stats)`);
 }
 
 main().catch(console.error);

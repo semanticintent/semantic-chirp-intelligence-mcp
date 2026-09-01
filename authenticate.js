@@ -7,6 +7,7 @@ import * as dotenv from 'dotenv';
 import * as https from 'https';
 import * as url from 'url';
 import selfsigned from 'selfsigned';
+import { isPlaceholder } from './scripts/placeholders.mjs';
 
 dotenv.config();
 
@@ -22,10 +23,29 @@ if (!CLIENT_ID || !CLIENT_SECRET) {
   process.exit(1);
 }
 
+// A .env copied from the template but never filled in fails much later, at
+// Yahoo, with an opaque error. Catch it here instead, using the same list
+// preflight uses so the two cannot disagree.
+const unfilled = Object.entries({ YAHOO_CLIENT_ID: CLIENT_ID, YAHOO_CLIENT_SECRET: CLIENT_SECRET })
+  .filter(([, value]) => isPlaceholder(value));
+
+if (unfilled.length > 0) {
+  console.error(`❌ Still a placeholder in .env: ${unfilled.map(([key]) => key).join(', ')}`);
+  console.error('📝 Replace the placeholder(s) with the real values from your Yahoo app:');
+  console.error('   https://developer.yahoo.com/apps/');
+  process.exit(1);
+}
+
 // Generate self-signed certificate for local HTTPS
+//
+// selfsigned 5.x made generate() async. Calling it synchronously returned a
+// Promise, so pems.private and pems.cert were both undefined — Node starts an
+// HTTPS server with no certificate without complaining, then fails every
+// handshake with ERR_SSL_VERSION_OR_CIPHER_MISMATCH and no "Advanced" escape
+// hatch in the browser. It must be awaited.
 console.log('🔐 Generating self-signed certificate for HTTPS...');
 const attrs = [{ name: 'commonName', value: 'localhost' }];
-const pems = selfsigned.generate(attrs, {
+const pems = await selfsigned.generate(attrs, {
   keySize: 2048,
   days: 365,
   algorithm: 'sha256',
@@ -39,6 +59,13 @@ const pems = selfsigned.generate(attrs, {
     }
   ]
 });
+
+if (!pems?.private || !pems?.cert) {
+  console.error('❌ Certificate generation produced no key/cert.');
+  console.error('   Without this the browser fails with ERR_SSL_VERSION_OR_CIPHER_MISMATCH.');
+  console.error('   Check the installed `selfsigned` version and its generate() API.');
+  process.exit(1);
+}
 
 console.log('🔐 Starting Yahoo OAuth flow...\n');
 
@@ -54,7 +81,37 @@ const server = https.createServer(serverOptions, async (req, res) => {
 
   if (parsedUrl.pathname === '/') {
     // Build Yahoo OAuth authorization URL
-    const authUrl = `https://api.login.yahoo.com/oauth2/request_auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&language=en-us`;
+    // Request the Fantasy Sports scope explicitly.
+    //
+    // Yahoo will otherwise fall back to whatever the app happens to be
+    // configured with, and a token issued without a Fantasy scope is accepted
+    // at the token endpoint but 403s on every Fantasy endpoint afterwards -
+    // including /game/nhl, which needs no user data at all. Asking for it by
+    // name makes a misconfigured app fail at consent, where the cause is
+    // visible.
+    //
+    // fspt-r  = Fantasy Sports read
+    // fspt-w  = Fantasy Sports read/write
+    //
+    // This server only ever issues GET requests, so read is all it needs.
+    // Yahoo apps registered as Read-only are widely reported to mint tokens
+    // that 403 regardless, and switching the app to Read/Write is the known
+    // workaround — set YAHOO_OAUTH_SCOPE=fspt-w to match such an app.
+    // Default to sending NO scope parameter, letting Yahoo apply whatever the
+    // app is registered for. That is how this flow worked for a year, and
+    // Yahoo rejects an explicit scope with `invalid_scope` whenever it does not
+    // exactly match the app's registration — including on apps that work fine
+    // without one. Set YAHOO_OAUTH_SCOPE to request a specific scope.
+    const scope = process.env.YAHOO_OAUTH_SCOPE || '';
+    console.log(scope
+      ? `🔑 Requesting OAuth scope: ${scope}`
+      : '🔑 Requesting no explicit scope (Yahoo applies the app\'s registered permissions)');
+    const authUrl =
+      `https://api.login.yahoo.com/oauth2/request_auth?client_id=${CLIENT_ID}` +
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&response_type=code` +
+      (scope ? `&scope=${encodeURIComponent(scope)}` : '') +
+      `&language=en-us`;
 
     res.writeHead(302, { 'Location': authUrl });
     res.end();
@@ -66,8 +123,58 @@ const server = https.createServer(serverOptions, async (req, res) => {
     const authCode = parsedUrl.query.code;
 
     if (!authCode) {
-      res.writeHead(400, { 'Content-Type': 'text/html' });
-      res.end('<h1>❌ Error: No authorization code received</h1>');
+      // Yahoo redirects back with error / error_description when it refuses.
+      // Reporting only "no authorization code" discards the one thing that
+      // says why — invalid_scope, access_denied, invalid_client and so on.
+      const { error, error_description } = parsedUrl.query;
+
+      console.error('\n❌ Yahoo did not return an authorization code.');
+      if (error) {
+        console.error(`   error:       ${error}`);
+        if (error_description) console.error(`   description: ${error_description}`);
+
+        if (String(error) === 'invalid_scope') {
+          console.error(`\n   You asked Yahoo for scope: ${process.env.YAHOO_OAUTH_SCOPE || '(none)'}`);
+          console.error('   If YAHOO_OAUTH_SCOPE is set in .env, try removing it entirely —');
+          console.error('   Yahoo rejects any explicit scope that does not exactly match the');
+          console.error('   app\'s registration, including on apps that authenticate fine');
+          console.error('   with no scope parameter at all.');
+          console.error('');
+          console.error('   The most common cause is NOT a read/write mismatch — it is that the');
+          console.error('   app has no Fantasy Sports permission at all. Yahoo\'s permission list');
+          console.error('   opens on other APIs (TW Auction, Profiles), so it is easy to create an');
+          console.error('   app with the right name and the wrong permission. Such an app rejects');
+          console.error('   every fspt-* scope, and any token it does mint 403s on every Fantasy');
+          console.error('   endpoint — including /game/nhl, which needs no user data.');
+          console.error('');
+          console.error('   At https://developer.yahoo.com/apps/ open the app for THIS Client ID');
+          console.error('   and confirm, in API Permissions:');
+          console.error('     • "Fantasy Sports" is listed and ticked (not TW Auction, not Profiles)');
+          console.error('     • Read is enough; use fspt-w only if the app is registered Read/Write');
+          console.error('   If you have several apps with similar names, check the App ID matches');
+          console.error('   the one whose credentials are in .env.');
+        }
+        if (String(error) === 'access_denied') {
+          console.error('\n   Consent was declined, or the app lacks the permission it asked for.');
+        }
+      } else {
+        console.error('   Yahoo returned no error parameter either.');
+        console.error(`   Full callback query: ${JSON.stringify(parsedUrl.query)}`);
+      }
+      console.error('');
+
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(`
+        <html><head><meta charset="utf-8"><title>Authentication failed</title></head>
+        <body style="font-family: system-ui, sans-serif; padding: 40px; max-width: 640px; margin: 0 auto;">
+          <h1>❌ Authentication failed</h1>
+          <p>Yahoo did not return an authorization code.</p>
+          ${error ? `<p><strong>error:</strong> <code>${error}</code></p>` : ''}
+          ${error_description ? `<p><strong>description:</strong> ${error_description}</p>` : ''}
+          <p>See your terminal for what to change.</p>
+        </body></html>
+      `);
+
       setTimeout(() => {
         server.close();
         process.exit(1);
@@ -99,6 +206,19 @@ const server = https.createServer(serverOptions, async (req, res) => {
       const token = await tokenResponse.json();
       console.log('📝 Token retrieved successfully');
 
+      // Report what the token actually carries. A token issued without the
+      // Fantasy scope is accepted here and then 403s on every Fantasy
+      // endpoint, so surface the tell now rather than three commands later.
+      console.log(`   fields returned: ${Object.keys(token).sort().join(', ')}`);
+      // Note: xoauth_yahoo_guid is only returned when the request includes the
+      // `openid` scope. Its absence with a bare fspt-r request is normal and is
+      // NOT evidence of a missing Fantasy scope — verify with a real API call
+      // (`npm run preflight`) rather than by inspecting the token fields.
+      if (token.xoauth_yahoo_guid) {
+        console.log('   xoauth_yahoo_guid present');
+      }
+      console.log('   Run `npm run preflight` to confirm the token actually works.');
+
       // Save the token with timestamp
       const tokenWithTimestamp = {
         access_token: token.access_token,
@@ -113,7 +233,7 @@ const server = https.createServer(serverOptions, async (req, res) => {
       console.log(`✅ Token saved to ${TOKEN_FILE}`);
 
       // Success page
-      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(`
         <html>
           <head>
@@ -175,7 +295,7 @@ const server = https.createServer(serverOptions, async (req, res) => {
       }, 1000);
     } catch (error) {
       console.error('❌ Error during callback:', error);
-      res.writeHead(500, { 'Content-Type': 'text/html' });
+      res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(`
         <html>
           <head><title>Authentication Failed</title></head>

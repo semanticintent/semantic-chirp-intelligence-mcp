@@ -5,3 +5,5 @@ build/
 .DS_Store
 .yahoo-oauth.json
 coverage/
+.nhl-schedule-cache/
+.yahoo-verify/

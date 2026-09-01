@@ -1,6 +1,6 @@
 {
   "name": "@semanticintent/semantic-chirp-intelligence-mcp",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Semantic Intent pattern implementation for fantasy hockey intelligence - AI analysis that chirps you into championships",
   "type": "module",
   "main": "build/index.js",
@@ -13,7 +13,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "verify:yahoo": "npm run build && node scripts/verify-yahoo.mjs",
+    "preflight": "npm run build && node scripts/preflight.mjs",
+    "smoke": "npm run build && node scripts/smoke.mjs"
   },
   "keywords": [
     "mcp",

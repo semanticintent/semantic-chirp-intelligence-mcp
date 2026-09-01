@@ -24,6 +24,7 @@ import type {
   ChirpResponse
 } from '../domain/types.js';
 import { YahooApiClient } from '../services/YahooApiClient.js';
+import { parseStatArray } from '../domain/yahoo-stats.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
 
 interface BreakoutAnalysisArgs {
@@ -52,6 +53,9 @@ interface PickupCandidate extends StreamingTarget {
 }
 
 export class BreakoutAnalysis extends AnalysisTemplate {
+  /** Season stat lines keyed by Yahoo player id, loaded in fetchData. */
+  private seasonStats: Record<string, any[]> = {};
+
   constructor(
     private readonly yahooClient: YahooApiClient,
     private readonly leagueId: string,
@@ -95,10 +99,18 @@ export class BreakoutAnalysis extends AnalysisTemplate {
       new Map(allFreeAgents.map(p => [p.player_id, p])).values()
     ).filter(p => (p.percent_owned || 0) < ownershipThreshold);
 
+    // Real season stats for every candidate. The breakout score advertises
+    // "40% recent, 30% projections, 20% opportunity, 10% risk" - none of which
+    // means anything while the underlying stat line is generated.
+    const seasonStats = await this.yahooClient.getPlayersStats(
+      uniqueFreeAgents.map(p => p.player_id), 'season', this.leagueId
+    );
+
     return {
       freeAgents: uniqueFreeAgents,
       trendingAdds: trendingAdds.players || [],
-      roster
+      roster,
+      seasonStats
     };
   }
 
@@ -106,6 +118,8 @@ export class BreakoutAnalysis extends AnalysisTemplate {
    * Prepare data for analysis
    */
   protected async prepareData(rawData: any, args: BreakoutAnalysisArgs): Promise<FantasyData> {
+    this.seasonStats = rawData.seasonStats ?? {};
+
     return {
       availablePlayers: rawData.freeAgents,
       trendingPlayers: rawData.trendingAdds,
@@ -308,17 +322,22 @@ export class BreakoutAnalysis extends AnalysisTemplate {
   }
 
   /**
-   * Get player metrics (mock implementation)
+   * Real season stat line for a candidate, from Yahoo.
+   *
+   * Missing categories come back as 0 rather than absent so the scoring
+   * formula keeps its shape; `has_stats` distinguishes a genuine zero from a
+   * player Yahoo returned nothing for.
    */
   private async getPlayerMetrics(player: Player): Promise<any> {
-    // In real implementation, fetch detailed stats
-    // For now, return mock data
+    const stats = parseStatArray(this.seasonStats[player.player_id] ?? []);
+
     return {
-      G: Math.random() * 30,
-      A: Math.random() * 40,
-      GP: 50 + Math.random() * 30,
-      PPP: Math.random() * 20,
-      SOG: Math.random() * 150
+      G: stats['G'] ?? 0,
+      A: stats['A'] ?? 0,
+      GP: stats['GP'] ?? 0,
+      PPP: stats['PPP'] ?? 0,
+      SOG: stats['SOG'] ?? 0,
+      has_stats: Object.keys(stats).length > 0
     };
   }
 

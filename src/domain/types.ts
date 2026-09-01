@@ -27,7 +27,8 @@ export type AnalysisType =
   | 'lineup_optimization'
   | 'streaming_recommendations'
   | 'games_in_hand'
-  | 'weekly_matchup';
+  | 'weekly_matchup'
+  | 'draft_pick';
 
 /**
  * Chirp personality modes

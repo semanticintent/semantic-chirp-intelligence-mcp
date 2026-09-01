@@ -4,6 +4,41 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] — "Real Ice"
+
+### Added
+- **`chirp_draft_pick`** — 🎯 ICE at the draft table. With a pick on the clock, ranks who to take against *your* draft: who is already off the board, what your roster still needs, Yahoo's ADP (`average_pick`, `percent_drafted`), and each club's schedule during your league's playoff weeks. Value is measured as ADP delta, so "value" means the market is wrong at this pick — not "this player is good". Yahoo's REST draft results can lag a fast live draft, so `already_drafted` is a first-class second source of board state, not a fallback.
+- **`schedule_value`** — 🗓️ Rates all 32 NHL clubs on what their schedule is worth to a fantasy roster: total games, four-game weeks, light weeks, back-to-backs, and games during **your league's** playoff weeks, read from `playoff_start_week` in your Yahoo league settings. A public schedule grid has to guess when your playoffs are; this reads them.
+- **`NhlScheduleService`** — the single source of schedule truth, backed by the NHL's public club-schedule endpoint. No API key, ~350ms for all 32 clubs cold, then a season-scoped disk cache. Exposes games in range, per-week counts, back-to-backs, season profiles, and standings-derived opponent difficulty.
+- **`src/domain/nhl-teams.ts`** — Yahoo ↔ NHL abbreviation mapping for all 32 clubs.
+- **`src/domain/yahoo-stats.ts`** — shared stat-id identity that prefers Yahoo's own `/game/nhl/stat_categories` catalogue over a hardcoded map.
+- **`npm run verify:yahoo`** — read-only script that checks the live Yahoo response shapes against your league, including whether the inherited stat-id map actually agrees with Yahoo's catalogue.
+- Tool count: 20 → 22. Tests: 45 → 101.
+
+### Fixed
+- **The schedule tools did not use a schedule.** `get_games_in_hand` and `get_streaming_recommendations` both returned the same constant (`players * 3.5 * weeks`), so every player had identical volume and the "4 games this week" branch was unreachable. `analyze_weekend_streams` generated its game counts and back-to-backs with `Math.random()`. All three now read the real NHL schedule per club.
+- **Player metrics were synthetic.** `analyze_weekend_streams` used `Math.random()` as recent PPG and TOI, so its advertised 0–100 upside score was mostly noise. `analyze_breakout_players` generated its entire stat line (G/A/GP/PPP/SOG) with `Math.random()` while advertising "data-driven scoring". Both now read Yahoo's real season and last-month stats via a new batched `getPlayersStats`.
+- **Matchup quality was `Math.random() * 100`.** Opponent difficulty is now ranked from NHL standings by goals allowed per game.
+- **Five clubs never showed a game.** Yahoo and the NHL spell `LA`/`LAK`, `NJ`/`NJD`, `SJ`/`SJS`, `TB`/`TBL` and `StL`/`STL` differently, and `LineupAnalysis` compared the two abbreviations directly — so those five always reported "no game today", silently.
+- **Two token-refresh paths wrote the same file.** `index.ts` carried its own copy of the token lifecycle plus a byte-identical duplicate of `request()`, while the analysis classes used `YahooApiClient`. A refresh from a tool handler could race one from an analysis and clobber the newer token. All Yahoo access now goes through the service.
+
+### Changed
+- Tools report their data source in their output. When the NHL schedule or Yahoo stats are unreachable, the affected component is dropped from scoring and the response says so — no estimate is substituted for a fact.
+- README no longer claims "NHL public API for real schedules" as a blanket feature; there is now a "Where the numbers come from" table naming the source of every figure.
+
+- **Authentication was completely broken since 2026-07-27.** The Dependabot bump `selfsigned` 3.x → 5.5.0 (`e5dae4f`) crossed a major version that made `generate()` async. `authenticate.js` kept calling it synchronously, so `pems.private` and `pems.cert` were both `undefined`. Node starts an HTTPS server with no certificate without complaining, then fails every TLS handshake with `ERR_SSL_VERSION_OR_CIPHER_MISMATCH` — and the browser offers no "Advanced → Proceed" escape hatch, so **nobody who cloned the repo after that commit could authenticate at all**. Now awaited, with a guard that fails loudly if key or cert is ever missing again, and a regression test covering the async contract and a real handshake.
+- **`authenticate.js` now rejects an unfilled `.env`.** A `.env` copied from the template but never edited previously failed much later, at Yahoo, with an opaque error.
+- **Credentials now live in one place.** `dotenv.config()` resolved `.env` against the current working directory, and MCP clients launch the server with an arbitrary cwd (Claude Desktop uses `/`), so the project's `.env` was never found — which is why setup previously required copying all four Yahoo secrets into the client config as well. The server now resolves `.env` from its own install directory. A client `env` block still overrides the file.
+
+### Documented
+- **Yahoo now gates the Fantasy Sports API behind manual approval.** Creating an app and ticking "Fantasy Sports" is no longer sufficient — Yahoo reviews every access request at [sports.yahoo.com/developer/access](https://sports.yahoo.com/developer/access/). Until approved, OAuth completes normally and every API call returns `403 This application is not authorized to perform this action`, including `/game/nhl`. Verified on one account in September 2026 that this applies to **existing** apps as well: three apps, including one from 2025 that worked all of the previous season, all returned the same 403. Existing setups and tutorials predate the gate, which is why none mention it. Documented in the prerequisites, the troubleshooting section and `npm run preflight`, along with Yahoo's attribution requirement.
+
+### Known gaps
+- The stat-id map inherited by `analyze_trade` (`1=G, 2=A, 3=+/-, 4=PIM, 5=SOG, 8=PPP, 31=W, 32=GAA, 33=SV%`) has **not** been verified against a live league. If any id is wrong, that tool's category verdicts are wrong. `npm run verify:yahoo` reports the mismatches; at runtime Yahoo's own catalogue overrides the map once loaded.
+- `GamesInHandAnalysis`, `LineupAnalysis` and `StreamingAnalysis` still carry `// @ts-nocheck`, so TypeScript does not check them.
+
+---
+
 ## [3.1.0]
 
 ### Added
