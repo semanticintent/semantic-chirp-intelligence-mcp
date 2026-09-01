@@ -116,7 +116,20 @@ if (failures > 0) {
       warn('call succeeded but no league name found — check YAHOO_LEAGUE_ID');
     }
   } catch (error) {
-    bad(`live call failed: ${error.message}`);
+    const message = String(error.message);
+    bad(`live call failed: ${message.split('\n')[0]}`);
+
+    if (message.includes('403') || message.includes('not authorized')) {
+      console.log('');
+      console.log('     A 403 here means Yahoo issued a token that carries no Fantasy scope.');
+      console.log('     The token is fine; the app it was issued for is not authorized.');
+      console.log('     Check https://developer.yahoo.com/apps/ for THIS Client ID:');
+      console.log('       • API Permissions must include "Fantasy Sports" with Read ticked');
+      console.log('       • OAuth Client Type must be "Confidential Client"');
+      console.log('       • Redirect URI must be exactly https://localhost:3000/callback');
+      console.log('     If you just created or edited the app, Yahoo can take 15-60 minutes');
+      console.log('     to propagate the permission. Re-run `node authenticate.js` after.');
+    }
   }
 }
 

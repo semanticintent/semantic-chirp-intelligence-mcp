@@ -81,7 +81,15 @@ const server = https.createServer(serverOptions, async (req, res) => {
 
   if (parsedUrl.pathname === '/') {
     // Build Yahoo OAuth authorization URL
-    const authUrl = `https://api.login.yahoo.com/oauth2/request_auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&language=en-us`;
+    // Request the Fantasy Sports read scope explicitly.
+    //
+    // Yahoo will otherwise fall back to whatever the app happens to be
+    // configured with, and a token issued without fspt-r is accepted at the
+    // token endpoint but 403s on every Fantasy endpoint afterwards - including
+    // /game/nhl, which needs no user data at all. Asking for it by name makes
+    // a misconfigured app fail at consent, where the cause is visible.
+    const scope = 'fspt-r';
+    const authUrl = `https://api.login.yahoo.com/oauth2/request_auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${scope}&language=en-us`;
 
     res.writeHead(302, { 'Location': authUrl });
     res.end();
@@ -93,7 +101,7 @@ const server = https.createServer(serverOptions, async (req, res) => {
     const authCode = parsedUrl.query.code;
 
     if (!authCode) {
-      res.writeHead(400, { 'Content-Type': 'text/html' });
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end('<h1>❌ Error: No authorization code received</h1>');
       setTimeout(() => {
         server.close();
@@ -140,7 +148,7 @@ const server = https.createServer(serverOptions, async (req, res) => {
       console.log(`✅ Token saved to ${TOKEN_FILE}`);
 
       // Success page
-      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(`
         <html>
           <head>
@@ -202,7 +210,7 @@ const server = https.createServer(serverOptions, async (req, res) => {
       }, 1000);
     } catch (error) {
       console.error('❌ Error during callback:', error);
-      res.writeHead(500, { 'Content-Type': 'text/html' });
+      res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(`
         <html>
           <head><title>Authentication Failed</title></head>
