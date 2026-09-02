@@ -39,6 +39,7 @@ const TOOLS = [
   ['analyze_trade', { giving: ['Cale Makar'], receiving: ['Quinn Hughes'] }],
   ['schedule_value', { teams: ['TOR', 'SEA'], playoff_start_week: 22, playoff_end_week: 24 }],
   ['chirp_draft_pick', { pick_number: 5, max_results: 5 }],
+  ['draft_kit', { playoff_start_week: 22, playoff_end_week: 24, positions: ['C'], max_per_position: 6 }],
 ];
 
 const proc = spawn(process.execPath, ['build/index.js'], { stdio: ['pipe', 'pipe', 'pipe'] });

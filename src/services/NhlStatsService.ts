@@ -29,12 +29,24 @@ const NHL_API_BASE = 'https://api-web.nhle.com/v1';
 const GAME_TYPE_REGULAR_SEASON = 2;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Bump whenever the cached player shape changes.
+ *
+ * The cache is keyed by season, so adding a field to NhlPlayer would otherwise
+ * keep serving records without it until the TTL expired — silently, and looking
+ * exactly like the field is unavailable from the NHL. Including the version in
+ * the filename makes a shape change invalidate the cache immediately.
+ */
+const CACHE_SCHEMA_VERSION = 2;
+
 /** A player as the NHL knows them, with their most recent full-season line. */
 export interface NhlPlayer {
   readonly player_id: string;
   readonly name: string;
   readonly team: NhlTricode;
   readonly position: string;        // C, L, R, D, G
+  /** ISO date, as published by the NHL. */
+  readonly birth_date?: string;
   readonly stats?: PlayerStats;
 }
 
@@ -183,6 +195,7 @@ export class NhlStatsService {
             name: `${p.firstName?.default ?? ''} ${p.lastName?.default ?? ''}`.trim(),
             team,
             position: p.positionCode ?? (group === 'goalies' ? 'G' : '?'),
+            birth_date: p.birthDate,
             stats: statsById.get(id)
           });
         }
@@ -321,6 +334,22 @@ export class NhlStatsService {
     return this.getAll().filter(p => p.team === team);
   }
 
+  /**
+   * Age in years at a given date, or null when the birth date is unknown.
+   *
+   * Age drives the breakout and decline signals a draft kit needs, and the NHL
+   * publishes it on the roster endpoint, so there is no reason to estimate it.
+   */
+  public static ageOf(player: NhlPlayer, asOf: Date = new Date()): number | null {
+    if (!player.birth_date) return null;
+
+    const born = Date.parse(`${player.birth_date}T00:00:00Z`);
+    if (!Number.isFinite(born)) return null;
+
+    const years = (asOf.getTime() - born) / (365.2425 * 24 * 60 * 60 * 1000);
+    return Number(years.toFixed(1));
+  }
+
   public getPlayerCount(): number {
     return this.byId.size;
   }
@@ -351,7 +380,10 @@ export class NhlStatsService {
   // ==========================================
 
   private cachePath(rosterSeason: string, statsSeason: string): string {
-    return path.join(this.cacheDir, `players-${rosterSeason}-${statsSeason}.json`);
+    return path.join(
+      this.cacheDir,
+      `players-v${CACHE_SCHEMA_VERSION}-${rosterSeason}-${statsSeason}.json`
+    );
   }
 
   private readCache(rosterSeason: string, statsSeason: string): CacheFile | null {

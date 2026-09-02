@@ -4,6 +4,46 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0]
+
+### Added
+- **`draft_kit`** — positional tiers, a printable cheat sheet, and the flags that
+  come from facts rather than forecasts. One engine, two entry points:
+
+  - **called plain**, it builds the board from last completed season production
+    (skaters ranked on points, goalies on wins, because those are not comparable)
+  - **given `rankings`**, it keeps *that* order as the baseline and annotates it
+
+  The second mode is the useful one. A published draft kit does the projection
+  work, which ChirpIQX cannot; ChirpIQX adds what a published kit cannot know —
+  the schedule during *your* playoff weeks.
+
+  Signals, all computed from real data:
+  - **playoff-window games** per club, against the weeks you name
+  - **shooting-luck rebounds** — young, high shot volume, low conversion
+  - **decline risk** — 33+ still carrying heavy minutes
+  - **category specialists** — PIM and shot volume for niche leagues, plus
+    goalies whose rate stats beat their win total
+  - **tier breaks** per position, so you can see when a position dries up
+
+  The response states plainly what it does **not** include: projections, ADP,
+  line combinations, injuries, and league availability. Naming the gap is the
+  point — the overlay mode exists precisely because those come from elsewhere.
+
+- **`birth_date` on every player**, from the NHL roster endpoint, with
+  `NhlStatsService.ageOf()`. Age drives the breakout and decline signals; it was
+  available all along and did not need estimating.
+
+### Fixed
+- **The player cache is now schema-versioned.** Adding `birth_date` kept serving
+  cached records without it until the TTL expired — silently, and looking exactly
+  like the NHL does not publish birth dates. The cache filename now carries a
+  schema version, so a shape change invalidates it immediately.
+
+**Tools: 21 → 22. Tests: 135 → 153.**
+
+---
+
 ## [4.0.4]
 
 ### Fixed
