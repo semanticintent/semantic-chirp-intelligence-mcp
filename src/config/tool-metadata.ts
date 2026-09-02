@@ -158,6 +158,18 @@ export const TOOL_METADATA: Record<string, any> = {
     template_version: "1.0.0",
     analysis_type: "schedule_advantage"
   },
+  draft_kit: {
+    chirp_style: "strategic_advantage",
+    discovery_tags: ["draft", "kit", "tiers", "cheat_sheet", "rankings", "sleepers"],
+    intent_category: "draft_intelligence",
+    hockey_context: "draft_preparation",
+    chirp_potential: "draft_board_truth",
+    // 🆕 Template Pattern Metadata
+    uses_template_pattern: true,
+    analysis_class: "DraftKitAnalysis",
+    template_version: "1.0.0",
+    analysis_type: "draft_pick"
+  },
   chirp_draft_pick: {
     chirp_style: "ice_cold_truth",
     discovery_tags: ["draft", "pick", "ADP", "value", "roster_build"],

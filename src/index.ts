@@ -48,6 +48,7 @@ import { WeekendStreamAnalysis } from './analyses/WeekendStreamAnalysis.js';
 import { BreakoutAnalysis } from './analyses/BreakoutAnalysis.js';
 import { ScheduleValueAnalysis } from './analyses/ScheduleValueAnalysis.js';
 import { DraftPickAnalysis } from './analyses/DraftPickAnalysis.js';
+import { DraftKitAnalysis } from './analyses/DraftKitAnalysis.js';
 import { NHL_STATS } from './services/NhlStatsService.js';
 import { ROSTER_STORE } from './services/RosterStore.js';
 import { LEAGUE_DATA, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE } from './services/LeagueDataService.js';
@@ -93,6 +94,7 @@ const lineupAnalysis = new LineupAnalysis();
 const breakoutAnalysis = new BreakoutAnalysis();
 const scheduleValueAnalysis = new ScheduleValueAnalysis();
 const draftPickAnalysis = new DraftPickAnalysis();
+const draftKitAnalysis = new DraftKitAnalysis();
 const weekendStreamAnalysis = new WeekendStreamAnalysis();
 
 
@@ -1361,6 +1363,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
+        name: "draft_kit",
+        description: "📋 A full draft kit — positional tiers, a cheat sheet, and flags you cannot get elsewhere: playoff-window schedule per club, shooting-luck rebound candidates, age-based decline risk, and category specialists. Works two ways: call it plain and it builds the board from last season's NHL production, or paste a ranked list (from any published kit) and it keeps that order while annotating it with schedule and flags. States plainly what it does not include — no projections, no ADP, no line combos, no injuries.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            playoff_start_week: {
+              type: "number",
+              description: "First week of your fantasy playoffs. Supply this with playoff_end_week and every player gets their club's playoff-window game count."
+            },
+            playoff_end_week: {
+              type: "number",
+              description: "Final week of your fantasy playoffs."
+            },
+            rankings: {
+              type: "string",
+              description: "Optional. Paste a ranked player list — from NHL.com, Dobber, FantasyPros, anywhere — one per line. Its order becomes the baseline rank and CHIRP annotates it rather than replacing it. Omit to have the board built from NHL production instead."
+            },
+            positions: {
+              type: "array",
+              items: { type: "string" },
+              description: "Limit to positions, e.g. [\"C\", \"G\"] (default: all)"
+            },
+            tier_size: { type: "number", description: "Players per tier (default 6)", default: 6 },
+            max_per_position: { type: "number", description: "How deep to go per position (default 24)", default: 24 },
+            ...baseChirpSchema
+          }
+        }
+      },
+      {
         name: "chirp_draft_pick",
         description: "❄️ ICE at the draft table — with a pick on the clock, ranks who to take against YOUR draft: who is already gone, what your roster still needs, Yahoo's ADP (so 'value' means the market is wrong here), and each club's schedule during your league's playoff weeks. Pass already_drafted if Yahoo's draft results lag your live draft.",
         inputSchema: {
@@ -1878,6 +1909,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [{ type: "text", text: JSON.stringify({
               error: errorMessage,
               note: "Schedule value analysis failed - rates NHL club schedules against your league's playoff weeks"
+            }, null, 2) }],
+            isError: true
+          };
+        }
+      }
+
+      case "draft_kit": {
+        try {
+          const result = await draftKitAnalysis.executeAnalysis(
+            {
+              playoff_start_week: args?.playoff_start_week as number | undefined,
+              playoff_end_week: args?.playoff_end_week as number | undefined,
+              rankings: args?.rankings as string | undefined,
+              positions: args?.positions as string[] | undefined,
+              tier_size: args?.tier_size as number | undefined,
+              max_per_position: args?.max_per_position as number | undefined
+            },
+            {
+              chirp_intensity: (args?.chirp_intensity as any) || 'standard',
+              personality_mode: (args?.personality_mode as any) || 'analytical',
+              enable_chirp: args?.enable_chirp !== false,
+              semantic_intent: 'user_requested' as const
+            }
+          );
+
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              error: errorMessage,
+              note: "Draft kit failed - it needs only the NHL public API, so retry shortly"
             }, null, 2) }],
             isError: true
           };
