@@ -19,8 +19,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { NHL_STATS, type NhlPlayer, type Resolution } from './NhlStatsService.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+function defaultDataDir(): string {
+  try { return path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.chirp-data'); }
+  catch { return '.chirp-data'; }
+}
 
 export interface StoredPlayer {
   readonly player_id: string;
@@ -66,7 +68,7 @@ export class RosterStore {
   private readonly dataDir: string;
 
   constructor(dataDir?: string) {
-    this.dataDir = dataDir ?? path.join(__dirname, '..', '..', '.chirp-data');
+    this.dataDir = dataDir ?? defaultDataDir();
   }
 
   // ==========================================

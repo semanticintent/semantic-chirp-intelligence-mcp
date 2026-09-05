@@ -25,3 +25,7 @@ SEMANTIC_ANCHORING_GOVERNANCE.md
 .yahoo-oauth.json
 *.log
 .DS_Store
+
+# Worker config (chirp-edge); the npm package is the MCP server
+wrangler.jsonc
+.wrangler/

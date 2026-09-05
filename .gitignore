@@ -8,3 +8,4 @@ coverage/
 .nhl-schedule-cache/
 .yahoo-verify/
 .chirp-data/
+.wrangler/
