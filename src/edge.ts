@@ -2,7 +2,8 @@
  * chirp-edge — the analyst on Cloudflare Workers, so the telestrator page can read without a local server.
  *
  * Same core as the MCP server and chirp-http; the NHL services cache in KV instead of on disk. Stateless: the roster
- * travels in the request. Anonymous by default with a per-address rate limit and CORS pinned to the page (CORS_ORIGIN).
+ * travels in the request. Anonymous by default with a per-address rate limit and CORS allowlisted to the page (CORS_ORIGIN,
+ * comma-separated; add the ChatGPT Site origin there when the single file is published to one).
  * AUTH_MODE=jwt is reserved for a Signet-issued token check, modelled on Wake's JWKS validator, and is not wired yet.
  *
  * The NHL's edge throttles shared egress addresses (429), so the 96 club requests are never made on a viewer's clock:
@@ -16,6 +17,7 @@ import { NHL_STATS } from './services/NhlStatsService.js';
 import { KvJsonCache, MemoryJsonCache, type KvLike } from './services/cache.js';
 import { handleReadRequest } from './read-handler.js';
 import { setVersion } from './version.js';
+import { corsOrigin } from './cors.js';
 import pkg from '../package.json';
 
 export interface Env {
@@ -50,8 +52,9 @@ export default {
 
   async fetch(request: Request, env: Env, ctx: { waitUntil(p: Promise<unknown>): void }): Promise<Response> {
     wire(env);
+    const origin = corsOrigin(request.headers.get('origin'), env.CORS_ORIGIN);
     const headers: Record<string, string> = {
-      'access-control-allow-origin': env.CORS_ORIGIN ?? '*',
+      ...(origin ? { 'access-control-allow-origin': origin, vary: 'origin' } : {}),
       'access-control-allow-headers': 'content-type',
       'access-control-allow-methods': 'GET, POST, OPTIONS',
       'content-type': 'application/json',
