@@ -37,7 +37,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
  * exactly like the field is unavailable from the NHL. Including the version in
  * the filename makes a shape change invalidate the cache immediately.
  */
-const CACHE_SCHEMA_VERSION = 2;
+const CACHE_SCHEMA_VERSION = 3; // 3: sweater_number
 
 /** A player as the NHL knows them, with their most recent full-season line. */
 export interface NhlPlayer {
@@ -47,6 +47,8 @@ export interface NhlPlayer {
   readonly position: string;        // C, L, R, D, G
   /** ISO date, as published by the NHL. */
   readonly birth_date?: string;
+  /** Jersey number, as published on the club roster. */
+  readonly sweater_number?: number;
   readonly stats?: PlayerStats;
 }
 
@@ -196,6 +198,7 @@ export class NhlStatsService {
             team,
             position: p.positionCode ?? (group === 'goalies' ? 'G' : '?'),
             birth_date: p.birthDate,
+            sweater_number: Number.isInteger(p.sweaterNumber) ? Number(p.sweaterNumber) : undefined,
             stats: statsById.get(id)
           });
         }

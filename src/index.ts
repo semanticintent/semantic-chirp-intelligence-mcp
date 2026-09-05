@@ -53,6 +53,7 @@ import { NHL_STATS } from './services/NhlStatsService.js';
 import { ROSTER_STORE } from './services/RosterStore.js';
 import { LEAGUE_DATA, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE } from './services/LeagueDataService.js';
 import { NHL_SCHEDULE, NhlScheduleService } from './services/NhlScheduleService.js';
+import { readIce, readIceFromText } from './services/ReadIceService.js';
 
 
 
@@ -1363,6 +1364,31 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
+        name: "read_ice",
+        description: "📺 Read the ice for the telestrator: one drawable Read. Per skater — game bits for the window, back-to-back, schedule value 0–100, flag, a one-line reason, points per game and projected points. Plus the start/sit/stream/IR calls, games in hand, the closing line for each replay, and the take. Validates against the vendored read contract (contracts/read.schema.json). Real NHL schedule and club stats only; refuses rather than estimates when they are unavailable. Pass roster_text, or omit it to use the roster set with set_roster.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            roster_text: {
+              type: "string",
+              description: "Pasted lineup, one player per line, any format. Omit to use the stored roster."
+            },
+            look_ahead_days: {
+              type: "number",
+              description: "Window length in days, 1–14 (default 7)."
+            },
+            opponent_text: {
+              type: "string",
+              description: "Opponent's pasted lineup, for games in hand. Omit to use the stored opponent, if any."
+            },
+            start: {
+              type: "string",
+              description: "First day of the window, YYYY-MM-DD. Defaults to today. Use it to read a future week, or to demo before opening night."
+            }
+          }
+        }
+      },
+      {
         name: "draft_kit",
         description: "📋 A full draft kit — positional tiers, a cheat sheet, and flags you cannot get elsewhere: playoff-window schedule per club, shooting-luck rebound candidates, age-based decline risk, and category specialists. Works two ways: call it plain and it builds the board from last season's NHL production, or paste a ranked list (from any published kit) and it keeps that order while annotating it with schedule and flags. States plainly what it does not include — no projections, no ADP, no line combos, no injuries.",
         inputSchema: {
@@ -1881,6 +1907,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           standings: standings ?? "not set — paste them with set_standings",
           storage: ROSTER_STORE.getDataDir()
         }, null, 2) }] };
+      }
+
+      case "read_ice": {
+        const rosterText = (args?.roster_text as string | undefined)?.trim();
+        const lookAhead = typeof args?.look_ahead_days === "number" ? (args.look_ahead_days as number) : undefined;
+        const opponentText = (args?.opponent_text as string | undefined)?.trim();
+        const startDay = (args?.start as string | undefined)?.trim() || undefined;
+        let read;
+        if (rosterText) {
+          read = await readIceFromText(rosterText, { look_ahead_days: lookAhead, opponent_text: opponentText, today: startDay });
+        } else {
+          const stored = ROSTER_STORE.getRoster("roster");
+          if (!stored?.players.length) throw new Error(NO_ROSTER_MESSAGE);
+          let opponent = ROSTER_STORE.getRoster("opponent")?.players;
+          if (opponentText) {
+            await NHL_STATS.load();
+            opponent = ROSTER_STORE.parseRoster(opponentText).resolved;
+          }
+          read = await readIce(stored.players, { look_ahead_days: lookAhead, opponent, today: startDay });
+        }
+        return { content: [{ type: "text", text: JSON.stringify(read, null, 2) }], structuredContent: read as unknown as Record<string, unknown> };
       }
 
       case "schedule_value": {

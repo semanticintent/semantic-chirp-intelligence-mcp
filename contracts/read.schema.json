@@ -1,0 +1,313 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semanticintent.dev/chirp/read.schema.json",
+  "title": "Read",
+  "description": "What the analyst (CHIRP) returns and the only thing the screen may draw. Every number and every line of copy on screen traces back to a field here. The screen never derives a new fact from these values; it only lays them out. `notes` is optional; everything else is required.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "analysis_id",
+    "generated_at",
+    "window",
+    "skaters",
+    "calls",
+    "games_in_hand",
+    "verdicts",
+    "take",
+    "source"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "0.1"
+    },
+    "analysis_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque handle for this read. The pen hands it back to replay()."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end",
+        "days",
+        "labels"
+      ],
+      "properties": {
+        "start": {
+          "type": "string",
+          "format": "date"
+        },
+        "end": {
+          "type": "string",
+          "format": "date"
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 14
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 14,
+          "description": "One label per day, in the analyst's words (Mon, Tue ...). Length equals days. The screen does not compute weekdays."
+        }
+      }
+    },
+    "skaters": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/skater"
+      }
+    },
+    "calls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "sit",
+        "stream",
+        "ir"
+      ],
+      "description": "Skater ids, in the order the analyst wants them shown.",
+      "properties": {
+        "start": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sit": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stream": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ir": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "games_in_hand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "you",
+        "opp",
+        "take"
+      ],
+      "properties": {
+        "you": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "opp": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "Null when no opponent roster was given. The screen draws one bar and says so."
+        },
+        "take": {
+          "type": "string",
+          "description": "The one-line edge caption. Analyst's words."
+        }
+      }
+    },
+    "verdicts": {
+      "type": "array",
+      "description": "The line that drops at the end of a replay. replay(id) matches {ids:[id]}; split(a,b) matches {ids:[a,b]} as a set. If no verdict matches, the replay runs without a closing line.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ids",
+          "line"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true
+          },
+          "line": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "take": {
+      "type": "string",
+      "description": "One line of chirp for the panel."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analyst",
+        "data"
+      ],
+      "properties": {
+        "analyst": {
+          "type": "string",
+          "description": "e.g. chirp@4.2.0, or fixture"
+        },
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the numbers came from. CHIRP already reports this; the screen shows it in the panel footer."
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Optional. Analyst remarks the screen shows under the source: lines it could not resolve, data it did not have. Never a verdict."
+    }
+  },
+  "$defs": {
+    "skater": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "num",
+        "pos",
+        "slot",
+        "club",
+        "games",
+        "b2b",
+        "schedule_value",
+        "flag",
+        "reason",
+        "ppg",
+        "projected_pts",
+        "note"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque. Live CHIRP uses the NHL player id; fixtures use slugs. The screen never parses it."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "As it should read on the jersey."
+        },
+        "num": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 99
+        },
+        "pos": {
+          "enum": [
+            "C",
+            "LW",
+            "RW",
+            "D",
+            "G"
+          ]
+        },
+        "slot": {
+          "enum": [
+            "L1",
+            "L2",
+            "D1",
+            "D2",
+            "G",
+            "BN",
+            "IR"
+          ]
+        },
+        "club": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Z]{3}$",
+          "description": "NHL tricode; the screen maps it to a jersey colour token. Null draws the neutral jersey."
+        },
+        "games": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "minItems": 1,
+          "maxItems": 14,
+          "description": "One bit per day of the window. Length equals window.days."
+        },
+        "b2b": {
+          "type": "boolean"
+        },
+        "schedule_value": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Drives ice quality under the skates. 100 is fresh ice."
+        },
+        "flag": {
+          "enum": [
+            "warn",
+            "stream",
+            "ir",
+            null
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "description": "One line, the analyst's words. Shown in the panel row and as the default circle callout."
+        },
+        "ppg": {
+          "type": "number",
+          "minimum": 0
+        },
+        "projected_pts": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Analyst-computed. The screen fills a bar from it; it does not multiply ppg by games."
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Injury or status note, if any."
+        }
+      }
+    }
+  }
+}
