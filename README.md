@@ -106,6 +106,7 @@ occasional chirp.
 | `analyze_breakout_players` | 📈 Breakout candidates scored on real production, opportunity and risk |
 | `analyze_trade` | Category-by-category trade breakdown with an ACCEPT / DECLINE / PUSH verdict |
 | `chirp_opponent` | Scouts your opponent's roster and chirps its weaknesses |
+| `read_ice` | 📺 The read as a drawing — one structured Read for the [telestrator](https://github.com/semanticintent/semantic-chirp-telestrator): game bits, schedule value, flags, calls, games in hand, replay lines, the take. Also served over HTTP by `npm run serve:http` |
 | `governance_dashboard` | 🏛️ Semantic Anchoring Governance health and analysis metrics |
 
 ### Draft tools
@@ -114,6 +115,7 @@ occasional chirp.
 |------|-------------|
 | `chirp_draft_pick` | 🎯 **ICE at the draft table** — who to take at pick N, given who is gone, what you need, and playoff-week schedule |
 | `schedule_value` | 🗓️ All 32 clubs rated — total games, four-game weeks, light weeks, back-to-backs, playoff-window volume |
+| `draft_kit` | 📋 Positional tiers, a cheat sheet, and flags from facts — playoff-window games, shooting-luck rebounds, decline risk, category specialists. Call it plain, or paste a ranked list and it annotates that order |
 
 > **On availability:** CHIRP knows every NHL player, but it cannot know who is
 > *unowned in your league* — ownership is league-private and no public source
@@ -127,7 +129,7 @@ Every figure is fetched, not estimated — and none of it needs an account:
 | Signal | Source |
 |--------|--------|
 | Games per week, back-to-backs, playoff-window volume | NHL public API (`club-schedule-season`) — all 32 clubs, cached per season |
-| Player identity, club, position | NHL public API (`roster`) — 1,268 players |
+| Player identity, club, position, jersey number | NHL public API (`roster`) — 1,268 players |
 | Season statistics (skaters and goalies) | NHL public API (`club-stats`) |
 | Opponent difficulty | NHL standings, ranked by goals allowed per game |
 | Your roster, opponent, standings | What you paste |

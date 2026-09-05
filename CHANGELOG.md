@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0]
+
+### Added
+- **`read_ice`** — the read as a drawing, not a paragraph. One structured Read that
+  a screen can render without forming an opinion of its own: per skater, the game
+  bits for the window, back-to-back, a schedule value 0–100, a flag, a one-line
+  reason, points per game and projected points; plus the start / sit / stream / IR
+  calls, games in hand, the closing line for every replay, and the take. It
+  validates against `contracts/read.schema.json`, the contract vendored from the
+  telestrator ([semantic-chirp-telestrator](https://github.com/semanticintent/semantic-chirp-telestrator)),
+  which is the first screen built for it.
+
+  Real sources only: the NHL schedule for game bits and back-to-backs, club stats
+  for production, club rosters for jersey numbers. When the schedule is
+  unavailable the read is refused, not estimated. Lines from a paste that do not
+  resolve are returned in `notes`, never dropped. `start` (YYYY-MM-DD) moves the
+  window, so a week can be read ahead of time — or demoed before opening night.
+
+  Two faces, one core:
+  - **MCP tool `read_ice`** — pass `roster_text`, or omit it to use the roster set
+    with `set_roster`. Returns the Read as text and as `structuredContent`.
+  - **`chirp-http`** (`src/http.ts`, `npm run serve:http`) — a stateless
+    `POST /read { roster_text, look_ahead_days?, opponent_text?, start? }` on
+    `localhost:3200` with CORS, for the telestrator page. The roster travels in the
+    request; nothing is stored. `GET /health` reports the loaded season.
+
+- **`sweater_number` on every player**, from the NHL roster endpoint. The screen
+  puts it on the jersey.
+
+- **`contracts/read.schema.json`** with a drift test against a sibling checkout of
+  the telestrator, and Ajv-backed validation of every `read_ice` output in tests.
+
+### Changed
+- **Player cache schema version 2 → 3** (for `sweater_number`). Old cache files
+  are ignored, not misread.
+
 ## [4.1.0]
 
 ### Added
