@@ -1365,7 +1365,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "read_ice",
-        description: "📺 Read the ice for the telestrator: one drawable Read. Per skater — game bits for the window, back-to-back, schedule value 0–100, flag, a one-line reason, points per game and projected points. Plus the start/sit/stream/IR calls, games in hand, the closing line for each replay, and the take. Validates against the vendored read contract (contracts/read.schema.json). Real NHL schedule and club stats only; refuses rather than estimates when they are unavailable. Pass roster_text, or omit it to use the roster set with set_roster.",
+        description: "📺 Read the ice for Sepiola, the telestrator: one drawable Read. Per skater — game bits for the window, back-to-back, schedule value 0–100, flag, a one-line reason, points per game and projected points. Plus the start/sit/stream/IR calls, games in hand, the closing line for each replay, and the take. Validates against the vendored read contract (contracts/read.schema.json). Real NHL schedule and club stats only; refuses rather than estimates when they are unavailable. Pass roster_text, or omit it to use the roster set with set_roster.",
         inputSchema: {
           type: "object",
           properties: {

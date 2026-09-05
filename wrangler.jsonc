@@ -13,7 +13,7 @@
   ],
   "vars": {
     // Browser origins allowed to call /read. Add the *.chatgpt.site origin when the page is published there.
-    "CORS_ORIGIN": "https://chirp-telestrator.pages.dev,http://localhost:5173,http://localhost:4173",
+    "CORS_ORIGIN": "https://sepiola.pages.dev,https://chirp-telestrator.pages.dev,http://localhost:5173,http://localhost:4173",
     "AUTH_MODE": "none"
   },
   "triggers": { "crons": ["17 */6 * * *"] },

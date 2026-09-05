@@ -2,7 +2,7 @@
 /**
  * chirp-http — the analyst's second face.
  *
- * Same core as the MCP server, one stateless endpoint for the telestrator: POST /read with the pasted lineup returns a
+ * Same core as the MCP server, one stateless endpoint for Sepiola, the telestrator: POST /read with the pasted lineup returns a
  * Read (contracts/read.schema.json). `start` (YYYY-MM-DD) moves the window; before opening night, that is how you demo. Nothing is stored; the roster lives in the request. CORS is open by default so the
  * page can call it from any origin; set CHIRP_HTTP_ORIGIN to pin it. Localhost by default: CHIRP_HTTP_PORT (3200).
  *

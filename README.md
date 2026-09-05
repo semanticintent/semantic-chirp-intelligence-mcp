@@ -106,7 +106,7 @@ occasional chirp.
 | `analyze_breakout_players` | 📈 Breakout candidates scored on real production, opportunity and risk |
 | `analyze_trade` | Category-by-category trade breakdown with an ACCEPT / DECLINE / PUSH verdict |
 | `chirp_opponent` | Scouts your opponent's roster and chirps its weaknesses |
-| `read_ice` | 📺 The read as a drawing — one structured Read for the [telestrator](https://github.com/semanticintent/semantic-chirp-telestrator): game bits, schedule value, flags, calls, games in hand, replay lines, the take. Also served over HTTP by `npm run serve:http` |
+| `read_ice` | 📺 The read as a drawing — one structured Read for [Sepiola](https://github.com/semanticintent/sepiola), the telestrator: game bits, schedule value, flags, calls, games in hand, replay lines, the take. Also served over HTTP by `npm run serve:http` |
 | `governance_dashboard` | 🏛️ Semantic Anchoring Governance health and analysis metrics |
 
 ### Draft tools
