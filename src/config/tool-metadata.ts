@@ -158,6 +158,18 @@ export const TOOL_METADATA: Record<string, any> = {
     template_version: "1.0.0",
     analysis_type: "schedule_advantage"
   },
+  read_ice: {
+    chirp_style: "strategic_advantage",
+    discovery_tags: ["telestrator", "schedule", "start_sit", "games_in_hand", "drawable_read"],
+    intent_category: "draft_intelligence",
+    hockey_context: "schedule_warfare",
+    chirp_potential: "schedule_domination",
+    // Emits the telestrator's read contract (contracts/read.schema.json); not a Template Pattern analysis.
+    uses_template_pattern: false,
+    analysis_class: "ReadIceService",
+    template_version: "1.0.0",
+    analysis_type: "schedule_advantage"
+  },
   draft_kit: {
     chirp_style: "strategic_advantage",
     discovery_tags: ["draft", "kit", "tiers", "cheat_sheet", "rankings", "sleepers"],

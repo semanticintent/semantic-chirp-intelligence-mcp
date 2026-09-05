@@ -17,7 +17,9 @@
     "preflight": "npm run build && node scripts/preflight.mjs",
     "smoke": "npm run build && node scripts/smoke.mjs",
     "clean": "rm -rf build",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run build && npm test",
+    "serve:http": "node build/http.js",
+    "dev:http": "npm run build && node build/http.js"
   },
   "keywords": [
     "mcp",
@@ -39,6 +41,8 @@
     "@types/node": "^24.7.0",
     "@vitest/coverage-v8": "^4.1.10",
     "@vitest/ui": "^4.1.10",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   },

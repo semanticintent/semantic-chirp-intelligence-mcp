@@ -15,8 +15,8 @@ cp ../semantic-chirp-telestrator/contracts/read.schema.json contracts/read.schem
 version, and — when a sibling checkout of the telestrator is present — that the two files are
 byte-identical.
 
-Synced from telestrator commit `8f4b867` on 2026-09-04. Contract version 0.1.
+Synced from telestrator commit `591d4e6` on 2026-09-04. Contract version 0.1 (with optional `notes`).
 
-What it is for: `read_ice` (planned, see the telestrator's `docs/plan.md` task A2) will emit a
+What it is for: `read_ice` (src/services/ReadIceService.ts, MCP tool `read_ice`, HTTP `POST /read` in src/http.ts) emits a
 Read that validates against this schema, so the same analysis can be drawn by the telestrator
 and read as text by any MCP client.
