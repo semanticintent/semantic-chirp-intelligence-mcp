@@ -63,6 +63,8 @@ const NOISE = new Set([
 
 /** Slot labels worth preserving when a paste includes them. */
 const SLOT_TOKENS = new Set(['bn', 'ir', 'ir+', 'na', 'util', 'c', 'lw', 'rw', 'd', 'g']);
+/** Positions a paste may name after the player ("Matvei Gridin LW"); taken as the fantasy slot, which can differ from the NHL's listing. */
+const POSITION_TOKENS = new Set(['c', 'lw', 'rw', 'd', 'g']);
 
 export class RosterStore {
   private readonly dataDir: string;
@@ -173,6 +175,15 @@ export class RosterStore {
 
     if (/\bIR\+?\b/.test(line)) return 'IR';
     if (/\bBN\b|\bbench\b/i.test(line)) return 'BN';
+
+    // A position named anywhere after the name ("Matvei Gridin LW", "Makar - D", "TOR - C") is the slot the
+    // paste plays him at. A letter followed by a period is an initial (J.T., C.), never a position.
+    const tokens = line.split(/[\s\t|,;()\-]+/).filter(Boolean);
+    for (let i = tokens.length - 1; i > 0; i--) {
+      if (/\.$/.test(tokens[i])) continue;
+      const t = tokens[i].toLowerCase().replace(/[^a-z]/g, '');
+      if (POSITION_TOKENS.has(t)) return t.toUpperCase();
+    }
     return undefined;
   }
 

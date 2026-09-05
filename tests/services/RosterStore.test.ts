@@ -90,6 +90,13 @@ describe('roster paste parsing', () => {
     expect(r.resolved[0].name).toBe('J.T. Miller');
   });
 
+  it('takes a position named after the player as his slot, and never mistakes an initial for one', () => {
+    const r = store.parseRoster('Auston Matthews LW\nCale Makar - D\nIgor Shesterkin G\nJ.T. Miller\nWill Smith RW');
+    expect(r.resolved.map(p => [p.name, p.slot])).toEqual([
+      ['Auston Matthews', 'LW'], ['Cale Makar', 'D'], ['Igor Shesterkin', 'G'], ['J.T. Miller', undefined], ['Will Smith', 'RW'],
+    ]);
+  });
+
   it('preserves BN and IR slots', () => {
     const r = store.parseRoster('BN\tTim Stützle\tOTT - C\nIR\tCale Makar\tCOL - D');
     expect(r.resolved.map(p => p.slot)).toEqual(['BN', 'IR']);
