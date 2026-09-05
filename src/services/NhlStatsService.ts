@@ -17,13 +17,17 @@
  * as unresolved. It is never silently matched to the nearest guess.
  */
 
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import type { JsonCache } from './cache.js';
+import { nhlFetch } from './nhl-fetch.js';
+import { DiskJsonCache } from './cache-disk.js';
 import { NHL_TRICODES, type NhlTricode } from '../domain/nhl-teams.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+function defaultCacheDir(): string {
+  try { return path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.nhl-schedule-cache'); }
+  catch { return '.nhl-schedule-cache'; }
+}
 
 const NHL_API_BASE = 'https://api-web.nhle.com/v1';
 const GAME_TYPE_REGULAR_SEASON = 2;
@@ -98,11 +102,17 @@ export class NhlStatsService {
   private loaded = false;
   private loadError: string | null = null;
   private inFlight: Promise<void> | null = null;
-  private readonly cacheDir: string;
+  private cache: JsonCache;
+  /** Why a club could not be fetched, by tricode — so 'unavailable' says what actually happened. */
+  private readonly failures = new Map<string, string>();
 
-  constructor(cacheDir?: string) {
-    this.cacheDir = cacheDir ?? path.join(__dirname, '..', '..', '.nhl-schedule-cache');
+  /** Pass a directory (disk cache there), a JsonCache (KV, memory), or nothing for the package-root disk cache. */
+  constructor(cache?: JsonCache | string) {
+    this.cache = typeof cache === 'object' ? cache : new DiskJsonCache(cache ?? defaultCacheDir());
   }
+
+  /** Swap the cache before load(): a Worker hands the singleton its KV binding. */
+  public setCache(cache: JsonCache): void { this.cache = cache; }
 
   // ==========================================
   // 🎯 Loading
@@ -136,7 +146,7 @@ export class NhlStatsService {
     this.statsSeason = statsSeason;
     this.loadError = null;
 
-    const cached = this.readCache(rosterSeason, statsSeason);
+    const cached = await this.readCache(rosterSeason, statsSeason);
     if (cached) {
       this.index(cached.players);
       this.loaded = true;
@@ -153,14 +163,15 @@ export class NhlStatsService {
     // partial load is treated as no load at all.
     if (failed.length > 0) {
       this.loaded = false;
-      this.loadError = `NHL player data unavailable for ${failed.length} club(s): ${failed.join(', ')}`;
+      const why = failed.map((t) => `${t}: ${this.failures.get(t) ?? 'no response'}`).join('; ');
+      this.loadError = `NHL player data unavailable for ${failed.length} club(s): ${failed.join(', ')} (${why})`;
       return;
     }
 
     const players = results.flat() as NhlPlayer[];
     this.index(players);
     this.loaded = true;
-    this.writeCache(rosterSeason, statsSeason, players);
+    await this.writeCache(rosterSeason, statsSeason, players);
   }
 
   private async fetchClub(
@@ -170,11 +181,11 @@ export class NhlStatsService {
   ): Promise<NhlPlayer[] | null> {
     try {
       const [rosterRes, statsRes] = await Promise.all([
-        fetch(`${NHL_API_BASE}/roster/${team}/${rosterSeason}`),
-        fetch(`${NHL_API_BASE}/club-stats/${team}/${statsSeason}/${GAME_TYPE_REGULAR_SEASON}`)
+        nhlFetch(`${NHL_API_BASE}/roster/${team}/${rosterSeason}`),
+        nhlFetch(`${NHL_API_BASE}/club-stats/${team}/${statsSeason}/${GAME_TYPE_REGULAR_SEASON}`)
       ]);
 
-      if (!rosterRes.ok) return null;
+      if (!rosterRes.ok) { this.failures.set(team, `HTTP ${rosterRes.status}`); return null; }
 
       const rosterData = await rosterRes.json() as any;
       // Stats are best-effort: a club with no published line still has players.
@@ -205,7 +216,8 @@ export class NhlStatsService {
       }
 
       return players;
-    } catch {
+    } catch (error) {
+      this.failures.set(team, error instanceof Error ? error.message : String(error));
       return null;
     }
   }
@@ -382,42 +394,28 @@ export class NhlStatsService {
   // 🎯 Cache
   // ==========================================
 
-  private cachePath(rosterSeason: string, statsSeason: string): string {
-    return path.join(
-      this.cacheDir,
-      `players-v${CACHE_SCHEMA_VERSION}-${rosterSeason}-${statsSeason}.json`
-    );
+  private cacheKey(rosterSeason: string, statsSeason: string): string {
+    return `players-v${CACHE_SCHEMA_VERSION}-${rosterSeason}-${statsSeason}`;
   }
 
-  private readCache(rosterSeason: string, statsSeason: string): CacheFile | null {
-    try {
-      const file = this.cachePath(rosterSeason, statsSeason);
-      if (!fs.existsSync(file)) return null;
-
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as CacheFile;
-      if (Date.now() - parsed.fetched_at > CACHE_TTL_MS) return null;
-      if (!Array.isArray(parsed.players) || parsed.players.length === 0) return null;
-
-      return parsed;
-    } catch {
-      return null;
-    }
+  private async readCache(rosterSeason: string, statsSeason: string): Promise<CacheFile | null> {
+    const parsed = await this.cache.get<CacheFile>(this.cacheKey(rosterSeason, statsSeason));
+    if (!parsed) return null;
+    if (Date.now() - parsed.fetched_at > CACHE_TTL_MS) return null;
+    if (!Array.isArray(parsed.players) || parsed.players.length === 0) return null;
+    return parsed;
   }
 
-  private writeCache(rosterSeason: string, statsSeason: string, players: NhlPlayer[]): void {
-    try {
-      fs.mkdirSync(this.cacheDir, { recursive: true });
-      const payload: CacheFile = {
-        roster_season: rosterSeason,
-        stats_season: statsSeason,
-        fetched_at: Date.now(),
-        players
-      };
-      fs.writeFileSync(this.cachePath(rosterSeason, statsSeason), JSON.stringify(payload));
-    } catch (error) {
-      console.error('[DEBUG] Could not write NHL player cache:', error);
-    }
+  private async writeCache(rosterSeason: string, statsSeason: string, players: NhlPlayer[]): Promise<void> {
+    const payload: CacheFile = {
+      roster_season: rosterSeason,
+      stats_season: statsSeason,
+      fetched_at: Date.now(),
+      players
+    };
+    await this.cache.set(this.cacheKey(rosterSeason, statsSeason), payload);
   }
+
 }
 
 /** Shared instance — one player index serves every analysis in the process. */

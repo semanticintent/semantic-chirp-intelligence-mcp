@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`chirp-edge`** — the analyst on Cloudflare Workers (`src/edge.ts`, `wrangler.jsonc`,
+  `npm run edge:deploy`), so the telestrator page can read without a local server.
+  Same core as the MCP server and `chirp-http`; stateless; CORS pinned by
+  `CORS_ORIGIN`; a per-address rate limit; `AUTH_MODE` reserved for a Signet
+  JWT check. The NHL's edge throttles shared egress addresses (429), so the
+  96 club requests are never made on a viewer's clock: a cron warms KV every
+  six hours, and a request that finds KV cold starts the warm-up in the
+  background and answers 503 with `warming: true`.
+- **A JSON cache interface** (`src/services/cache.ts`) behind both NHL services:
+  disk for the CLI and MCP server (unchanged behaviour), KV for the Worker,
+  memory for tests. Constructors still accept a directory; `setCache()` swaps it.
+- **`nhlFetch`** — the one way to call the NHL API: a User-Agent, at most four
+  requests in flight, two retries with backoff on 429 / 502 / 503 / 504.
+- **The unavailable reason now says why.** "NHL player data unavailable for 5
+  clubs" became "... (UTA: HTTP 429; ...)". It found the throttling in a minute.
+
+### Changed
+- `chirp-http` and `chirp-edge` share one request handler (`src/read-handler.ts`).
+- `.env` is no longer loaded by `npm run edge:dev`; the retired Yahoo variables
+  in a local `.env` must never reach a Worker.
+
 ## [4.2.0]
 
 ### Added

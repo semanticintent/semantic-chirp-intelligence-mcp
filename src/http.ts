@@ -10,7 +10,7 @@
  *   curl -s localhost:3200/read -H 'content-type: application/json' -d '{"roster_text":"Nazem Kadri C\nConnor Zary LW"}'
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
-import { readIceFromText } from './services/ReadIceService.js';
+import { handleReadRequest } from './read-handler.js';
 import { NHL_SCHEDULE } from './services/NhlScheduleService.js';
 import { NHL_STATS } from './services/NhlStatsService.js';
 
@@ -32,41 +32,16 @@ export function createHttpServer(options: { origin?: string } = {}): Server {
     res.setHeader('Access-Control-Allow-Headers', 'content-type');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   };
-  const send = (res: ServerResponse, status: number, payload: unknown) => {
+  return createServer(async (req, res) => {
     cors(res);
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    let text = '';
+    try { text = req.method === 'POST' ? await body(req) : ''; }
+    catch { res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'Body too large.' })); return; }
+    const { status, payload } = await handleReadRequest(req.method ?? 'GET', url.pathname, text);
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(payload));
-  };
-
-  return createServer(async (req, res) => {
-    const url = new URL(req.url ?? '/', 'http://localhost');
-    if (req.method === 'OPTIONS') { cors(res); res.writeHead(204); res.end(); return; }
-    if (req.method === 'GET' && url.pathname === '/health') {
-      send(res, 200, { ok: true, analyst: 'chirp', season: NHL_SCHEDULE.getSeason(), read: 'POST /read { roster_text, look_ahead_days?, opponent_text?, start? }' });
-      return;
-    }
-    if (req.method === 'POST' && url.pathname === '/read') {
-      let input: any;
-      try { input = JSON.parse((await body(req)) || '{}'); }
-      catch (e) { send(res, 400, { error: e instanceof Error && e.message === 'Body too large.' ? e.message : 'Body must be JSON: { roster_text, look_ahead_days?, opponent_text? }' }); return; }
-      if (typeof input.roster_text !== 'string' || !input.roster_text.trim()) {
-        send(res, 400, { error: 'roster_text is required — paste your lineup, one player per line.' });
-        return;
-      }
-      try {
-        const read = await readIceFromText(input.roster_text, {
-          look_ahead_days: typeof input.look_ahead_days === 'number' ? input.look_ahead_days : undefined,
-          opponent_text: typeof input.opponent_text === 'string' ? input.opponent_text : undefined,
-          today: typeof input.start === 'string' ? input.start : undefined,
-        });
-        send(res, 200, read);
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        send(res, message.startsWith('No players resolved') || message.startsWith('start must be') ? 422 : 503, { error: message });
-      }
-      return;
-    }
-    send(res, 404, { error: 'Not found. POST /read or GET /health.' });
   });
 }
 

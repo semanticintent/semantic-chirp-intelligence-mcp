@@ -8,14 +8,11 @@
  *
  * Stateless: takes players, returns a Read. The MCP tool and the HTTP face both call it.
  */
-import { createRequire } from 'module';
 import { NHL_SCHEDULE, NhlScheduleService } from './NhlScheduleService.js';
 import { NHL_STATS, NhlStatsService } from './NhlStatsService.js';
 import { ROSTER_STORE, type StoredPlayer } from './RosterStore.js';
 import { toNhlTricode } from '../domain/nhl-teams.js';
-
-const require = createRequire(import.meta.url);
-const VERSION: string = (() => { try { return String(require('../../package.json').version); } catch { return '0.0.0'; } })();
+import { getVersion } from '../version.js';
 
 // ---- the contract, as types ----
 export type Slot = 'L1' | 'L2' | 'D1' | 'D2' | 'G' | 'BN' | 'IR';
@@ -198,7 +195,7 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
     verdicts,
     take,
     source: {
-      analyst: `chirp@${VERSION}`,
+      analyst: `chirp@${getVersion()}`,
       data: [
         `NHL api-web club-schedule-season ${NHL_SCHEDULE.getSeason() ?? 'unknown season'}`,
         NHL_STATS.isAvailable() ? `NHL club stats ${NhlStatsService.currentSeason()}` : 'NHL club stats unavailable; ppg and projected_pts are 0',

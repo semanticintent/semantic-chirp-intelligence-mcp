@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { NhlScheduleService } from '../../src/services/NhlScheduleService.js';
 import { NHL_TRICODES } from '../../src/domain/nhl-teams.js';
+import { MemoryJsonCache } from '../../src/services/cache.js';
 
 /** Two regular-season games plus one preseason game that must be excluded. */
 function seasonPayload(team: string) {
@@ -195,5 +196,32 @@ describe('NhlScheduleService opponent strength', () => {
 
     expect(service.hasStandings()).toBe(false);
     expect(service.getTeamStrength('TOR')).toBeNull();
+  });
+});
+
+describe('NhlScheduleService with an injected cache', () => {
+  it('serves a second instance from a shared memory cache without refetching', async () => {
+    stubFetchOk();
+    const shared = new MemoryJsonCache();
+    const cold = new NhlScheduleService(shared);
+    await cold.load('20262027');
+    expect(shared.size).toBe(1);
+
+    const spy = vi.fn();
+    vi.stubGlobal('fetch', spy);
+    const warm = new NhlScheduleService(shared);
+    await warm.load('20262027');
+    expect(spy).not.toHaveBeenCalled();
+    expect(warm.getTeamGames('TOR')).toHaveLength(3);
+  });
+
+  it('setCache swaps the cache before load', async () => {
+    stubFetchOk();
+    const shared = new MemoryJsonCache();
+    const svc = new NhlScheduleService(tmpDir);
+    svc.setCache(shared);
+    await svc.load('20262027');
+    expect(shared.size).toBe(1);
+    expect(fs.readdirSync(tmpDir)).toHaveLength(0);
   });
 });

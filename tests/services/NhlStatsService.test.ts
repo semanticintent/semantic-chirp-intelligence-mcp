@@ -62,7 +62,8 @@ function stubFetch(opts: { failRosterFor?: string; failStats?: boolean } = {}) {
     }
     if (s.includes('/club-stats/')) {
       const t = s.split('/club-stats/')[1].split('/')[0];
-      if (opts.failStats) return { ok: false, status: 503 } as any;
+      // 404: no published stat line. (503 would be retried with backoff by nhlFetch, which is right in production and slow here.)
+      if (opts.failStats) return { ok: false, status: 404 } as any;
       return { ok: true, json: async () => statsPayload(t) } as any;
     }
     return { ok: false, status: 404 } as any;

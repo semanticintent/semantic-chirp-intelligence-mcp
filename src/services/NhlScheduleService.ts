@@ -20,13 +20,18 @@
  * fact — an analysis that cannot see the schedule must say so.
  */
 
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import type { JsonCache } from './cache.js';
+import { nhlFetch } from './nhl-fetch.js';
+import { DiskJsonCache } from './cache-disk.js';
 import { NHL_TRICODES, toNhlTricode, type NhlTricode } from '../domain/nhl-teams.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+/** `<package root>/.nhl-schedule-cache` when this module has a file URL; a relative directory when bundled (Workers). */
+function defaultCacheDir(): string {
+  try { return path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.nhl-schedule-cache'); }
+  catch { return '.nhl-schedule-cache'; }
+}
 
 const NHL_API_BASE = 'https://api-web.nhle.com/v1';
 
@@ -76,11 +81,15 @@ export class NhlScheduleService {
   private inFlight: Promise<void> | null = null;
   private strengths: Map<NhlTricode, TeamStrength> = new Map();
   private strengthsInFlight: Promise<void> | null = null;
-  private readonly cacheDir: string;
+  private cache: JsonCache;
 
-  constructor(cacheDir?: string) {
-    this.cacheDir = cacheDir ?? path.join(__dirname, '..', '..', '.nhl-schedule-cache');
+  /** Pass a directory (disk cache there), a JsonCache (KV, memory), or nothing for the package-root disk cache. */
+  constructor(cache?: JsonCache | string) {
+    this.cache = typeof cache === 'object' ? cache : new DiskJsonCache(cache ?? defaultCacheDir());
   }
+
+  /** Swap the cache before load(): a Worker hands the singleton its KV binding. */
+  public setCache(cache: JsonCache): void { this.cache = cache; }
 
   // ==========================================
   // 🎯 Season resolution
@@ -122,7 +131,7 @@ export class NhlScheduleService {
     this.season = season;
     this.loadError = null;
 
-    const cached = this.readCache(season);
+    const cached = await this.readCache(season);
     if (cached) {
       this.schedules = new Map(
         Object.entries(cached.teams) as [NhlTricode, ScheduledGame[]][]
@@ -153,7 +162,7 @@ export class NhlScheduleService {
       results.map(r => [r.team, r.games as ScheduledGame[]])
     );
     this.loaded = true;
-    this.writeCache(season);
+    await this.writeCache(season);
   }
 
   private async fetchTeamSeason(
@@ -161,7 +170,7 @@ export class NhlScheduleService {
     season: string
   ): Promise<ScheduledGame[] | null> {
     try {
-      const response = await fetch(
+      const response = await nhlFetch(
         `${NHL_API_BASE}/club-schedule-season/${team}/${season}`
       );
       if (!response.ok) return null;
@@ -353,7 +362,7 @@ export class NhlScheduleService {
 
   private async performStandingsLoad(): Promise<void> {
     try {
-      const response = await fetch(`${NHL_API_BASE}/standings/now`);
+      const response = await nhlFetch(`${NHL_API_BASE}/standings/now`);
       if (!response.ok) return;
 
       const payload = await response.json() as any;
@@ -408,41 +417,23 @@ export class NhlScheduleService {
   // 🎯 Cache
   // ==========================================
 
-  private cachePath(season: string): string {
-    return path.join(this.cacheDir, `${season}.json`);
+  private async readCache(season: string): Promise<CacheFile | null> {
+    const parsed = await this.cache.get<CacheFile>(season);
+    if (!parsed) return null;
+    if (Date.now() - parsed.fetched_at > CACHE_TTL_MS) return null;
+    if (Object.keys(parsed.teams ?? {}).length !== NHL_TRICODES.length) return null;
+    return parsed;
   }
 
-  private readCache(season: string): CacheFile | null {
-    try {
-      const file = this.cachePath(season);
-      if (!fs.existsSync(file)) return null;
-
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as CacheFile;
-      if (Date.now() - parsed.fetched_at > CACHE_TTL_MS) return null;
-      if (Object.keys(parsed.teams ?? {}).length !== NHL_TRICODES.length) return null;
-
-      return parsed;
-    } catch {
-      return null;
-    }
+  private async writeCache(season: string): Promise<void> {
+    const payload: CacheFile = {
+      season,
+      fetched_at: Date.now(),
+      teams: Object.fromEntries(this.schedules)
+    };
+    await this.cache.set(season, payload);
   }
 
-  private writeCache(season: string): void {
-    try {
-      fs.mkdirSync(this.cacheDir, { recursive: true });
-
-      const payload: CacheFile = {
-        season,
-        fetched_at: Date.now(),
-        teams: Object.fromEntries(this.schedules)
-      };
-
-      fs.writeFileSync(this.cachePath(season), JSON.stringify(payload));
-    } catch (error) {
-      // A cache miss costs 8 seconds; it is never worth failing the analysis over.
-      console.error('[DEBUG] Could not write NHL schedule cache:', error);
-    }
-  }
 }
 
 /** Shared instance — one schedule load serves every analysis in the process. */
