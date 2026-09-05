@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **A position pasted after a player's name is now his slot.** `Matvei Gridin LW`
+  used to be slotted by the NHL's listing (RW); the paste's own position is the
+  fantasy eligibility and wins. Initials such as `J.T.` are never read as positions.
+  `read_ice` already preferred the pasted position when present.
+
 ## [4.3.0]
 
 ### Added
