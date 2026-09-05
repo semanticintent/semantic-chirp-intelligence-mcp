@@ -160,7 +160,7 @@ export const TOOL_METADATA: Record<string, any> = {
   },
   read_ice: {
     chirp_style: "strategic_advantage",
-    discovery_tags: ["telestrator", "schedule", "start_sit", "games_in_hand", "drawable_read"],
+    discovery_tags: ["sepiola", "telestrator", "schedule", "start_sit", "games_in_hand", "drawable_read"],
     intent_category: "draft_intelligence",
     hockey_context: "schedule_warfare",
     chirp_potential: "schedule_domination",

@@ -1,7 +1,7 @@
 /**
- * read_ice — the Read the telestrator draws.
+ * read_ice — the Read that Sepiola (the telestrator) draws.
  *
- * Emits contracts/read.schema.json (vendored from semanticintent/semantic-chirp-telestrator). Every number and every
+ * Emits contracts/read.schema.json (vendored from semanticintent/sepiola). Every number and every
  * sentence the screen will show is decided here, in the analyst's voice: the screen has no opinions, so this file has
  * all of them. Real sources only — the NHL schedule for game bits and back-to-backs, NHL club stats for production.
  * Nothing is estimated. When the schedule is unavailable the read is refused, not faked.

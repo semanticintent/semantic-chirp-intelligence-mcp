@@ -1,7 +1,7 @@
 /**
  * The vendored read contract (contracts/read.schema.json).
  *
- * Source of truth is semanticintent/semantic-chirp-telestrator. This test keeps the copy honest:
+ * Source of truth is semanticintent/sepiola (the telestrator). This test keeps the copy honest:
  * it parses, it pins contract version 0.1, it names the fields read_ice must emit, and when a
  * sibling checkout of the telestrator exists it is byte-identical to the original.
  */
@@ -10,7 +10,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const HERE = resolve(__dirname, '../../contracts/read.schema.json');
-const SIBLING = resolve(__dirname, '../../../semantic-chirp-telestrator/contracts/read.schema.json');
+const SIBLING = resolve(__dirname, '../../../sepiola/contracts/read.schema.json');
 
 const text = readFileSync(HERE, 'utf8');
 const schema = JSON.parse(text);

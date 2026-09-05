@@ -3,12 +3,12 @@
 ## read.schema.json — the telestrator's read contract
 
 A **vendored copy**. The source of truth lives in the telestrator repo
-(`semanticintent/semantic-chirp-telestrator`, `contracts/read.schema.json`), because the
+(`semanticintent/sepiola`, `contracts/read.schema.json`), because the
 screen defines what it can draw and the analyst adapts to that vocabulary. Never edit this
 copy; re-sync it:
 
 ```
-cp ../semantic-chirp-telestrator/contracts/read.schema.json contracts/read.schema.json
+cp ../sepiola/contracts/read.schema.json contracts/read.schema.json
 ```
 
 `tests/contracts/read-contract.test.ts` checks the copy is well-formed, pins the contract

@@ -1,5 +1,5 @@
 /**
- * chirp-edge — the analyst on Cloudflare Workers, so the telestrator page can read without a local server.
+ * chirp-edge — the analyst on Cloudflare Workers, so Sepiola (the telestrator page) can read without a local server.
  *
  * Same core as the MCP server and chirp-http; the NHL services cache in KV instead of on disk. Stateless: the roster
  * travels in the request. Anonymous by default with a per-address rate limit and CORS allowlisted to the page (CORS_ORIGIN,
