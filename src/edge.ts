@@ -16,6 +16,9 @@ import { NHL_SCHEDULE } from './services/NhlScheduleService.js';
 import { NHL_STATS } from './services/NhlStatsService.js';
 import { KvJsonCache, MemoryJsonCache, type KvLike } from './services/cache.js';
 import { handleReadRequest } from './read-handler.js';
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { createChirpServer } from './server.js';
+import { setStateless } from './tools.js';
 import { setVersion } from './version.js';
 import { corsOrigin } from './cors.js';
 import pkg from '../package.json';
@@ -33,6 +36,7 @@ const WARM_WAIT_MS = 8000;
 function wire(env: Env): void {
   if (wired) return;
   setVersion(String((pkg as { version?: string }).version ?? '0.0.0'));
+  setStateless(true); // no disk here: every call carries its roster; the set_* tools refuse
   const cache = env.CACHE ? new KvJsonCache(env.CACHE) : new MemoryJsonCache();
   NHL_SCHEDULE.setCache(cache);
   NHL_STATS.setCache(cache);
@@ -55,7 +59,8 @@ export default {
     const origin = corsOrigin(request.headers.get('origin'), env.CORS_ORIGIN);
     const headers: Record<string, string> = {
       ...(origin ? { 'access-control-allow-origin': origin, vary: 'origin' } : {}),
-      'access-control-allow-headers': 'content-type',
+      'access-control-allow-headers': 'content-type, accept, authorization, mcp-protocol-version, mcp-session-id',
+      'access-control-expose-headers': 'mcp-session-id, mcp-protocol-version',
       'access-control-allow-methods': 'GET, POST, OPTIONS',
       'content-type': 'application/json',
     };
@@ -71,6 +76,32 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    // The analyst's MCP face: stateless Streamable HTTP, one server per request, JSON responses.
+    if (url.pathname === '/mcp') {
+      let parsedBody: unknown;
+      if (request.method === 'POST') {
+        const text = await request.text();
+        if (text.length > 1_000_000) return json(400, { error: 'Body too large.' });
+        try { parsedBody = text ? JSON.parse(text) : undefined; } catch { return json(400, { error: 'Body must be JSON-RPC.' }); }
+        // A tool call on a cold cache would wait on the NHL; answer with a JSON-RPC error instead and warm in the background.
+        const ready = warm().then(() => 'ready' as const);
+        const late = new Promise<'late'>((r) => setTimeout(() => r('late'), WARM_WAIT_MS));
+        if ((await Promise.race([ready, late])) === 'late') {
+          ctx.waitUntil(ready);
+          const id = (parsedBody as { id?: unknown } | undefined)?.id ?? null;
+          return json(503, { jsonrpc: '2.0', id, error: { code: -32000, message: 'The analyst is warming up its NHL data. Try again in a minute.', data: { warming: true } } });
+        }
+      }
+      const server = createChirpServer();
+      const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+      await server.connect(transport);
+      const res = await transport.handleRequest(request, { parsedBody });
+      const h = new Headers(res.headers);
+      for (const [k, v] of Object.entries(headers)) if (k !== 'content-type') h.set(k, v);
+      return new Response(res.body, { status: res.status, headers: h });
+    }
+
     if (request.method === 'POST' && url.pathname === '/read') {
       const ready = warm().then(() => 'ready' as const);
       const late = new Promise<'late'>((r) => setTimeout(() => r('late'), WARM_WAIT_MS));
