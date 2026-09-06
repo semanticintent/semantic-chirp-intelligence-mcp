@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`window.label`, `window.previous`, `window.next` on the read** — the window in
+  words ("Sep 29 – Oct 5") and the first days of the adjacent windows, so a screen
+  can say which week it shows and offer previous/next controls without formatting a
+  date or doing arithmetic itself. Contract re-vendored (still 0.1; the fields are optional).
+
 ## [4.4.0]
 
 ### Added

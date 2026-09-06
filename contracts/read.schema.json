@@ -61,6 +61,20 @@
           "minItems": 1,
           "maxItems": 14,
           "description": "One label per day, in the analyst's words (Mon, Tue ...). Length equals days. The screen does not compute weekdays."
+        },
+        "label": {
+          "type": "string",
+          "description": "Optional. The window in the analyst's words, e.g. \"Sep 29 \u2013 Oct 5\". The screen shows it wherever week data appears and never formats dates itself."
+        },
+        "previous": {
+          "type": "string",
+          "format": "date",
+          "description": "Optional. First day of the window before this one, for a previous-week control."
+        },
+        "next": {
+          "type": "string",
+          "format": "date",
+          "description": "Optional. First day of the window after this one, for a next-week control."
         }
       }
     },
