@@ -122,6 +122,19 @@ occasional chirp.
 > exposes it. Pool-based tools therefore return "players not on the rosters you
 > provided", ranked by production, and say so. Check availability before adding.
 
+## Two ways to reach it
+
+**Locally, over stdio** — the usual MCP setup; Claude Desktop, Codex, or any client spawns
+`npx @semanticintent/semantic-chirp-intelligence-mcp` and gets all 23 tools with a roster it
+can store between calls (`set_roster`).
+
+**Remotely, over Streamable HTTP** — `https://chirp-mcp.semanticintent.dev/mcp`. Same 23
+tools from the same registry, hosted on Cloudflare Workers, no account. It is **stateless**:
+pass `roster_text` (and `opponent_text`) with each call instead of `set_roster`; nothing is
+stored. `GET /health` on the same host reports the endpoint and tool count. The stateless
+`POST /read` beside it is what the [Sepiola](https://github.com/semanticintent/sepiola)
+telestrator draws from.
+
 ## Where the numbers come from
 
 Every figure is fetched, not estimated — and none of it needs an account:

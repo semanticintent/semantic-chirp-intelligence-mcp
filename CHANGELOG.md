@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **A remote MCP face.** `POST https://chirp-mcp.semanticintent.dev/mcp` speaks the
+  Model Context Protocol over Streamable HTTP — the same 23 tools as the stdio
+  server, served by the same registry, from the same Cloudflare Worker that serves
+  `/read`. Stateless: one server per request, JSON responses, no sessions, no
+  accounts. `GET /health` reports it (`mcp: { endpoint, tools, stateless }`).
+- **The roster travels in the call.** Every roster-dependent tool (`ice`,
+  `get_games_in_hand`, `draft_kit`, `chirp_opponent`, `analyze_trade`, …) accepts
+  `roster_text` and `opponent_text`. A pasted lineup stands in for the stored one
+  for that call only — request-scoped, so concurrent callers never see each
+  other's rosters. On the hosted endpoint this is how every call works; the
+  `set_*` tools there refuse and say so. Locally nothing changes.
+- **`src/tools.ts`, the tool registry.** The 23 definitions and their handlers,
+  defined once; `src/index.ts` (stdio) and `src/edge.ts` (HTTP) both derive from it.
+- **`CHIRP_DATA_DIR`** overrides where the stdio server keeps its store. Tests run
+  against a throwaway directory and can no longer touch a real one.
+
+### Changed
+- `src/index.ts` is now a thin stdio entry; everything it used to inline lives in
+  `src/tools.ts` and `src/server.ts`.
+
 ## [4.3.1]
 
 ### Fixed

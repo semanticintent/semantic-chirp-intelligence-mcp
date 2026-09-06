@@ -17,6 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { AsyncLocalStorage } from 'async_hooks';
 import { NHL_STATS, type NhlPlayer, type Resolution } from './NhlStatsService.js';
 
 function defaultDataDir(): string {
@@ -66,11 +67,25 @@ const SLOT_TOKENS = new Set(['bn', 'ir', 'ir+', 'na', 'util', 'c', 'lw', 'rw', '
 /** Positions a paste may name after the player ("Matvei Gridin LW"); taken as the fantasy slot, which can differ from the NHL's listing. */
 const POSITION_TOKENS = new Set(['c', 'lw', 'rw', 'd', 'g']);
 
+/** Rosters that apply to the current call only — a remote client pasting its lineup with every request. */
+export type TransientRosters = Partial<Record<'roster' | 'opponent', StoredRoster>>;
+const transient = new AsyncLocalStorage<TransientRosters>();
+
 export class RosterStore {
+  /** Run fn with these rosters standing in for the stored ones. Scoped to the async call; concurrent calls do not see each other. */
+  public static runWith<T>(rosters: TransientRosters, fn: () => Promise<T>): Promise<T> {
+    return transient.run(rosters, fn);
+  }
+
+  /** A StoredRoster shape without writing anything. */
+  public static asStored(players: StoredPlayer[], label: string): StoredRoster {
+    return { label, players, updated_at: new Date().toISOString() };
+  }
+
   private readonly dataDir: string;
 
   constructor(dataDir?: string) {
-    this.dataDir = dataDir ?? defaultDataDir();
+    this.dataDir = dataDir ?? process.env.CHIRP_DATA_DIR ?? defaultDataDir();
   }
 
   // ==========================================
@@ -266,6 +281,8 @@ export class RosterStore {
   }
 
   public getRoster(key: 'roster' | 'opponent'): StoredRoster | null {
+    const pasted = transient.getStore()?.[key];
+    if (pasted) return pasted;
     return this.read<StoredRoster>(key);
   }
 
