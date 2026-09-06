@@ -28,7 +28,7 @@ export interface Read {
   contract_version: '0.1';
   analysis_id: string;
   generated_at: string;
-  window: { start: string; end: string; days: number; labels: string[] };
+  window: { start: string; end: string; days: number; labels: string[]; label: string; previous: string; next: string };
   skaters: ReadSkater[];
   calls: { start: string[]; sit: string[]; stream: string[]; ir: string[] };
   games_in_hand: { you: number; opp: number | null; take: string };
@@ -48,6 +48,15 @@ export interface ReadIceOptions {
 
 // ---- small helpers ----
 const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** The window in words: "Oct 5 – 11", "Sep 29 – Oct 5", "Dec 29 – Jan 4". The screen shows this and formats nothing. */
+export function windowLabel(start: string, end: string): string {
+  const a = new Date(`${start}T12:00:00Z`); const b = new Date(`${end}T12:00:00Z`);
+  const am = MONTH[a.getUTCMonth()]; const bm = MONTH[b.getUTCMonth()];
+  if (start === end) return `${am} ${a.getUTCDate()}`;
+  return am === bm && a.getUTCFullYear() === b.getUTCFullYear() ? `${am} ${a.getUTCDate()} – ${b.getUTCDate()}` : `${am} ${a.getUTCDate()} – ${bm} ${b.getUTCDate()}`;
+}
 const label = (date: string): string => DAY[new Date(`${date}T12:00:00Z`).getUTCDay()];
 const round = (n: number, places: number): number => Math.round(n * 10 ** places) / 10 ** places;
 const POS: Record<string, Pos> = { C: 'C', L: 'LW', LW: 'LW', R: 'RW', RW: 'RW', D: 'D', G: 'G' };
@@ -188,7 +197,12 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
     contract_version: '0.1',
     analysis_id: `read-${start}-${days}d-${hash(skaters.map((s) => s.id))}`,
     generated_at: (opts.now ?? new Date()).toISOString(),
-    window: { start, end, days, labels: dates.map(label) },
+    window: {
+      start, end, days, labels: dates.map(label),
+      label: windowLabel(start, end),
+      previous: NhlScheduleService.addDays(start, -days),
+      next: NhlScheduleService.addDays(start, days),
+    },
     skaters,
     calls: { start: startIds, sit: sitIds, stream: streamIds, ir: irIds },
     games_in_hand: { you, opp, take: gihTake },

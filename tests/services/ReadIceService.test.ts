@@ -9,7 +9,7 @@ import { resolve } from 'node:path';
 import { NHL_SCHEDULE } from '../../src/services/NhlScheduleService.js';
 import { NHL_STATS } from '../../src/services/NhlStatsService.js';
 import { ROSTER_STORE, type StoredPlayer } from '../../src/services/RosterStore.js';
-import { readIce, readIceFromText, assignSlots, scheduleValue } from '../../src/services/ReadIceService.js';
+import { readIce, readIceFromText, assignSlots, scheduleValue, windowLabel } from '../../src/services/ReadIceService.js';
 
 const schema = JSON.parse(readFileSync(resolve(__dirname, '../../contracts/read.schema.json'), 'utf8'));
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -65,7 +65,7 @@ describe('readIce', () => {
 
   it('draws the window from the schedule: one bit per day, labels in order', async () => {
     const read = await readIce(ROSTER, OPTS);
-    expect(read.window).toEqual({ start: '2026-10-05', end: '2026-10-11', days: 7, labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] });
+    expect(read.window).toEqual({ start: '2026-10-05', end: '2026-10-11', days: 7, labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], label: 'Oct 5 – 11', previous: '2026-09-28', next: '2026-10-12' });
     const gridin = read.skaters.find((s) => s.id === 'gridin')!;
     expect(gridin.games).toEqual([true, false, true, false, true, false, true]);
     expect(gridin.b2b).toBe(false);
@@ -187,6 +187,15 @@ describe('readIceFromText', () => {
   it('refuses a paste with nobody in it', async () => {
     vi.spyOn(ROSTER_STORE, 'parseRoster').mockReturnValue({ resolved: [], unresolved: [{ line: 'x', reason: 'no' }], ambiguous: [], lines_read: 1 });
     await expect(readIceFromText('x', OPTS)).rejects.toThrow(/No players resolved/);
+  });
+});
+
+describe('windowLabel', () => {
+  it('says the window in words, across month and year boundaries', () => {
+    expect(windowLabel('2026-10-05', '2026-10-11')).toBe('Oct 5 – 11');
+    expect(windowLabel('2026-09-29', '2026-10-05')).toBe('Sep 29 – Oct 5');
+    expect(windowLabel('2026-12-29', '2027-01-04')).toBe('Dec 29 – Jan 4');
+    expect(windowLabel('2026-10-05', '2026-10-05')).toBe('Oct 5');
   });
 });
 
