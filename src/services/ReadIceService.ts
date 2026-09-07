@@ -24,6 +24,9 @@ export interface ReadSkater {
   games: boolean[]; b2b: boolean; schedule_value: number; flag: Flag; reason: string;
   ppg: number; projected_pts: number; note: string | null;
 }
+/** One skater's share of games in hand. `games` is the analyst's count; the screen never sums bits. */
+export interface Tally { id: string; name: string; games: number; b2b: boolean; projected_pts: number }
+
 export interface Read {
   contract_version: '0.1';
   analysis_id: string;
@@ -31,7 +34,7 @@ export interface Read {
   window: { start: string; end: string; days: number; labels: string[]; label: string; previous: string; next: string };
   skaters: ReadSkater[];
   calls: { start: string[]; sit: string[]; stream: string[]; ir: string[] };
-  games_in_hand: { you: number; opp: number | null; take: string };
+  games_in_hand: { you: number; opp: number | null; take: string; counted: string; detail: { you: Tally[]; opp: Tally[] | null } };
   verdicts: { ids: string[]; line: string }[];
   take: string;
   source: { analyst: string; data: string[] };
@@ -177,15 +180,21 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
       ? `${sit.name} is the soft spot at ${gp(sit)} game${gp(sit) === 1 ? '' : 's'}. Nobody on the bench beats him, so live with it.`
       : `Lineup's carrying ${lineGames} games. Keep it, and stop tinkering.`;
 
-  const you = skaters.filter((s) => s.slot !== 'IR').reduce((a, s) => a + gp(s), 0);
-  let opp: number | null = null;
+  const tallyOf = (s: ReadSkater): Tally => ({ id: s.id, name: s.name, games: gp(s), b2b: s.b2b, projected_pts: s.projected_pts });
+  const yours = skaters.filter((s) => s.slot !== 'IR').map(tallyOf);
+  const you = yours.reduce((a, t) => a + t.games, 0);
+  let theirs: Tally[] | null = null;
   if (opts.opponent) {
-    opp = opts.opponent.reduce((a, p) => {
+    theirs = opts.opponent.flatMap((p) => {
       const club = toNhlTricode(p.team);
-      if (!club || String(p.slot ?? '').toUpperCase().startsWith('IR')) return a;
-      return a + NHL_SCHEDULE.countGamesInRange(club, start, end);
-    }, 0);
+      if (!club || String(p.slot ?? '').toUpperCase().startsWith('IR')) return [];
+      const games = NHL_SCHEDULE.countGamesInRange(club, start, end);
+      const stats = NHL_STATS.getById(p.player_id)?.stats;
+      const ppg = toPos(p.position) !== 'G' && stats?.games_played ? round((stats.points ?? 0) / stats.games_played, 2) : 0;
+      return [{ id: p.player_id, name: surname(p.name), games, b2b: NHL_SCHEDULE.countBackToBacks(club, start, end) > 0, projected_pts: round(ppg * games, 1) }];
+    });
   }
+  const opp: number | null = theirs ? theirs.reduce((a, t) => a + t.games, 0) : null;
   const edge = opp == null ? null : you - opp;
   const gihTake = opp == null
     ? `${you} games on the board. Paste the other guy's roster and I'll tell you the edge.`
@@ -205,7 +214,7 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
     },
     skaters,
     calls: { start: startIds, sit: sitIds, stream: streamIds, ir: irIds },
-    games_in_hand: { you, opp, take: gihTake },
+    games_in_hand: { you, opp, take: gihTake, counted: 'Everyone not on injured reserve, bench included.', detail: { you: yours, opp: theirs } },
     verdicts,
     take,
     source: {

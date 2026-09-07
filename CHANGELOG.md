@@ -7,6 +7,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`games_in_hand.detail` and `games_in_hand.counted`** — both rosters as the analyst
+  counted them (per skater: games, back-to-back, projected points) and a sentence saying
+  who is counted, so a screen can open the comparison without doing any arithmetic.
 - **`window.label`, `window.previous`, `window.next` on the read** — the window in
   words ("Sep 29 – Oct 5") and the first days of the adjacent windows, so a screen
   can say which week it shows and offer previous/next controls without formatting a
