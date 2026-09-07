@@ -145,6 +145,37 @@
         "take": {
           "type": "string",
           "description": "The one-line edge caption. Analyst's words."
+        },
+        "counted": {
+          "type": "string",
+          "description": "Optional. Who the totals count, in the analyst's words, e.g. \"Everyone not on injured reserve, bench included.\""
+        },
+        "detail": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "you",
+            "opp"
+          ],
+          "description": "Optional. Both rosters as the analyst counted them, for a comparison the viewer opens on demand.",
+          "properties": {
+            "you": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/tally"
+              }
+            },
+            "opp": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/tally"
+              },
+              "description": "Null when no opponent roster was given."
+            }
+          }
         }
       }
     },
@@ -320,6 +351,39 @@
             "null"
           ],
           "description": "Injury or status note, if any."
+        }
+      }
+    },
+    "tally": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "games",
+        "b2b",
+        "projected_pts"
+      ],
+      "description": "One skater's share of games in hand. games is the analyst's count for the window; the screen never sums bits.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "games": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "b2b": {
+          "type": "boolean"
+        },
+        "projected_pts": {
+          "type": "number",
+          "minimum": 0
         }
       }
     }

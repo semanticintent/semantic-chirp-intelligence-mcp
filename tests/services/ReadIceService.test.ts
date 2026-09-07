@@ -120,10 +120,15 @@ describe('readIce', () => {
 
   it('counts games in hand, opponent only when given', async () => {
     const alone = await readIce(ROSTER, OPTS);
-    expect(alone.games_in_hand).toEqual({ you: 46, opp: null, take: "46 games on the board. Paste the other guy's roster and I'll tell you the edge." });
+    expect(alone.games_in_hand).toMatchObject({ you: 46, opp: null, take: "46 games on the board. Paste the other guy's roster and I'll tell you the edge.", counted: 'Everyone not on injured reserve, bench included.' });
+    expect(alone.games_in_hand.detail.opp).toBeNull();
+    expect(alone.games_in_hand.detail.you.map((t) => t.games).reduce((a, b) => a + b, 0)).toBe(46);
+    expect(alone.games_in_hand.detail.you.find((t) => t.id === 'huberdeau')).toBeUndefined(); // IR is not counted
     const opponent = [P('m', 'Auston Matthews', 'TOR', 'C'), P('n', 'William Nylander', 'TOR', 'R'), P('r', 'Morgan Rielly', 'TOR', 'D'), P('x', 'Someone Hurt', 'TOR', 'C', 'IR')];
     const versus = await readIce(ROSTER, { ...OPTS, opponent });
     expect(versus.games_in_hand.opp).toBe(9);
+    expect(versus.games_in_hand.detail.opp).toHaveLength(3); // the IR opponent is left out
+    expect(versus.games_in_hand.detail.opp![0]).toMatchObject({ id: 'm', name: 'Matthews', games: 3, b2b: false });
     expect(versus.games_in_hand.take).toMatch(/^Edge \+37\./);
   });
 
