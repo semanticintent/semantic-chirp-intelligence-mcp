@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **`chirp_draft_pick` described a Yahoo tool.** Its description said it read
+  Yahoo's ADP and Yahoo draft results, and its per-player reasoning printed
+  "no Yahoo ADP available" or "N picks past his ADP". v4 reads no platform: the
+  board is last season's production, and the reasoning now says so — "11th best
+  producer, 6 slots below this pick". The description also says when to use it
+  (the pick in front of you) versus `draft_kit` (the whole board).
+- **`schedule_value` said it read your Yahoo league settings.** It takes the
+  playoff weeks from you; the description, parameter text and the no-window
+  note now say that.
+
+### Removed
+- ~130 lines of unreachable Yahoo JSON parsing in `DraftPickAnalysis`.
+
 ## [4.6.0]
 
 ### Added

@@ -4,13 +4,14 @@
  * Answers one question: with pick N on the clock, who should you take?
  *
  * A public draft board ranks players in the abstract. This ranks them against
- * *your* draft: who is already gone, what your roster is still missing, what
- * your league's categories reward, and what each player's club schedule is
- * worth in the weeks your league plays its playoffs.
+ * *your* draft: who is already gone, what your roster is still missing, and
+ * what each player's club schedule is worth in the weeks your league plays its
+ * playoffs.
  *
- * Value is measured as ADP delta — Yahoo's own average draft position minus
- * the pick actually on the clock — so "value" means the market is wrong here,
- * not "this player is good".
+ * There is no market ADP in v4. The board is last season's production, so a
+ * player's `average_pick` is his production rank and `adp_delta` is how many
+ * slots of production sit above the pick on the clock — "a better player than
+ * this slot", never "the room drafts him earlier".
  *
  * Semantic Identity: ICE - Intent Chirp Engine (Draft)
  * Intent: I tell you who to take, and why the board is wrong
@@ -35,7 +36,7 @@ import { ROSTER_STORE } from '../services/RosterStore.js';
 
 export interface DraftPickArgs {
   readonly pick_number?: number;
-  /** Player names already off the board. Merged with Yahoo's draft results. */
+  /** Players already off the board, pasted in any shape a draft room shows them. */
   readonly already_drafted?: string[];
   /** Positions you still need, e.g. ['RW', 'G']. Inferred from your roster otherwise. */
   readonly roster_needs?: string[];
@@ -173,9 +174,8 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       ? args.roster_needs.map(p => p.toUpperCase())
       : this.inferNeeds(d.rosterPositions);
 
-    // Yahoo's REST draft results can lag a fast live draft, so `already_drafted`
-    // is a first-class second source rather than a fallback: a player is off
-    // the board if either source says so.
+    // A player is off the board if his id resolved from `already_drafted`, or
+    // if an unresolved line still matches his name.
     const available = d.draftPool.filter(
       (p: any) =>
         !d.draftedIds.has(String(p.player_id)) &&
@@ -189,7 +189,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
 
     return {
       pick_number: pickNumber,
-      pick_number_source: args.pick_number ? 'explicit' : 'inferred from draft results',
+      pick_number_source: args.pick_number ? 'explicit' : 'inferred from already_drafted',
       roster_needs: needs,
       pool_size: d.draftPool.length,
       available_count: available.length,
@@ -342,8 +342,8 @@ export class DraftPickAnalysis extends AnalysisTemplate {
 
     // --- components, each 0-1 ---
 
-    // Value: how far past his usual draft slot he has fallen. A player going
-    // 20 picks later than the market takes him is the whole point.
+    // Value: how many slots of production sit above the pick on the clock.
+    // The 20th best producer still there at pick 40 is the whole point.
     const valueComponent = adpDelta === null
       ? 0.5
       : Math.max(0, Math.min(1, (adpDelta + 10) / 40));
@@ -414,13 +414,13 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     const parts: string[] = [`${player.name} (${player.position}, ${player.team})`];
 
     if (adpDelta === null) {
-      parts.push('no Yahoo ADP available');
+      parts.push('no production rank');
     } else if (adpDelta > 0) {
-      parts.push(`${Math.round(adpDelta)} picks past his ADP of ${player.average_pick}`);
+      parts.push(`${this.ordinal(player.average_pick)} best producer, ${Math.round(adpDelta)} slots above this pick`);
     } else if (adpDelta < 0) {
-      parts.push(`${Math.abs(Math.round(adpDelta))} picks ahead of his ADP of ${player.average_pick}`);
+      parts.push(`${this.ordinal(player.average_pick)} best producer, ${Math.abs(Math.round(adpDelta))} slots below this pick`);
     } else {
-      parts.push(`right at his ADP of ${player.average_pick}`);
+      parts.push(`${this.ordinal(player.average_pick)} best producer, right at this pick`);
     }
 
     if (playoffGames !== null && weekCount > 0) {
@@ -442,132 +442,6 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     const minimum = Math.min(...counts.map(c => c.count));
 
     return counts.filter(c => c.count === minimum).map(c => c.pos);
-  }
-
-  // ==========================================
-  // 🎯 Yahoo parsing (defensive)
-  // ==========================================
-
-  /**
-   * Yahoo's fantasy JSON alternates between arrays and count-keyed objects
-   * depending on the resource and, in places, the request. Everything below
-   * accepts either shape and returns empty rather than throwing, so a shape
-   * change degrades one field instead of the whole draft tool.
-   */
-  private keyedEntries(container: any): any[] {
-    if (!container) return [];
-    if (Array.isArray(container)) return container;
-
-    return Object.keys(container)
-      .filter(k => k !== 'count')
-      .map(k => container[k]);
-  }
-
-  private parsePlayerPool(poolPages: any[]): any[] {
-    const players: any[] = [];
-
-    for (const page of poolPages ?? []) {
-      if (!page) continue;
-
-      const container =
-        page?.fantasy_content?.league?.[1]?.players ??
-        page?.fantasy_content?.league?.players;
-
-      for (const entry of this.keyedEntries(container)) {
-        const player = entry?.player;
-        if (!player) continue;
-
-        const identity = Array.isArray(player[0]) ? player[0] : [];
-        const find = (key: string) => identity.find((item: any) => item?.[key])?.[key];
-
-        const name = find('name')?.full;
-        const playerId = find('player_id');
-        if (!name || !playerId) continue;
-
-        // draft_analysis rides on the second element, occasionally nested.
-        const analysis =
-          player[1]?.draft_analysis ??
-          player[1]?.[0]?.draft_analysis ??
-          (Array.isArray(player[1])
-            ? player[1].find((item: any) => item?.draft_analysis)?.draft_analysis
-            : undefined);
-
-        const displayPosition = find('display_position') ?? '';
-
-        players.push({
-          player_id: String(playerId),
-          name,
-          position: displayPosition,
-          positions: String(displayPosition)
-            .split(',')
-            .map((p: string) => p.trim().toUpperCase())
-            .filter(Boolean),
-          team: find('editorial_team_abbr') ?? '',
-          average_pick: this.toNumberOrNull(analysis?.average_pick),
-          average_round: this.toNumberOrNull(analysis?.average_round),
-          percent_drafted: this.toNumberOrNull(analysis?.percent_drafted)
-        });
-      }
-    }
-
-    // Same player can appear across pages; keep one.
-    return Array.from(new Map(players.map(p => [p.player_id, p])).values());
-  }
-
-  private parseDraftResults(payload: any): {
-    available: boolean;
-    count: number;
-    ids: Set<string>;
-  } {
-    const container =
-      payload?.fantasy_content?.league?.[1]?.draft_results ??
-      payload?.fantasy_content?.league?.draft_results;
-
-    const entries = this.keyedEntries(container);
-    if (entries.length === 0) {
-      return { available: false, count: 0, ids: new Set() };
-    }
-
-    const ids = new Set<string>();
-    let count = 0;
-
-    for (const entry of entries) {
-      const result = entry?.draft_result ?? entry;
-      if (!result?.player_key) continue;
-
-      count++;
-      // Draft results carry player_key (`nhl.p.1234`), never a name, so the
-      // board state is matched to the pool by id.
-      const id = String(result.player_key).split('.').pop();
-      if (id) ids.add(id);
-    }
-
-    return { available: count > 0, count, ids };
-  }
-
-  private parseRosterPositions(payload: any): Record<string, number> {
-    const counts: Record<string, number> = {};
-
-    const container =
-      payload?.fantasy_content?.team?.[1]?.roster?.['0']?.players ??
-      payload?.fantasy_content?.team?.[1]?.roster?.players;
-
-    for (const entry of this.keyedEntries(container)) {
-      const player = entry?.player;
-      if (!player) continue;
-
-      const identity = Array.isArray(player[0]) ? player[0] : [];
-      const displayPosition = identity.find((item: any) => item?.display_position)?.display_position;
-
-      for (const pos of String(displayPosition ?? '').split(',')) {
-        const clean = pos.trim().toUpperCase();
-        if (TRACKED_POSITIONS.includes(clean)) {
-          counts[clean] = (counts[clean] ?? 0) + 1;
-        }
-      }
-    }
-
-    return counts;
   }
 
   /**
@@ -602,13 +476,6 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       end: NhlScheduleService.addDays(week1Monday, endWeek * 7 - 1),
       weeks
     };
-  }
-
-
-  private toNumberOrNull(value: any): number | null {
-    if (value === undefined || value === null || value === '' || value === '-') return null;
-    const parsed = parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : null;
   }
 
   /** Case- and punctuation-insensitive name key for matching drafted players. */

@@ -269,3 +269,28 @@ describe('resilience', () => {
     expect(result.analysis_insights.top_candidates.length).toBeGreaterThan(0);
   });
 });
+
+describe('says only what v4 knows', () => {
+  it('never mentions Yahoo or ADP in what it tells the user', async () => {
+    const result: any = await analysis().executeAnalysis(
+      { already_drafted: ['Faller Guy'], playoff_start_week: 22, playoff_end_week: 24 },
+      contract
+    );
+    const said = [
+      result.analysis_insights.pick_number_source,
+      ...result.analysis_insights.top_candidates.map((c: any) => c.reasoning),
+      ...result.recommendations.map((r: any) => r.reasoning),
+      result.chirp_intelligence.analysis_chirp
+    ].join('\n');
+
+    expect(said).not.toMatch(/yahoo|\bADP\b/i);
+    expect(result.analysis_insights.top_candidates[0].reasoning).toMatch(/best producer/);
+  });
+
+  it('describes itself without Yahoo', async () => {
+    const { TOOL_DEFINITIONS } = await import('../../src/tools.js');
+    const def: any = TOOL_DEFINITIONS.find((t: any) => t.name === 'chirp_draft_pick');
+
+    expect(JSON.stringify(def)).not.toMatch(/yahoo/i);
+  });
+});

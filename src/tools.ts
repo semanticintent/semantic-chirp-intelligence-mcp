@@ -1315,7 +1315,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "schedule_value",
-        description: "🗓️ Rate all 32 NHL clubs on what their schedule is worth to a fantasy roster — total games, four-game weeks, light weeks, back-to-backs, and games played during YOUR league's playoff weeks (read from your Yahoo league settings, not guessed). The draft tiebreaker when two players are close.",
+        description: "🗓️ Rate all 32 NHL clubs on what their schedule is worth to a fantasy roster — total games, four-game weeks, light weeks, back-to-backs, and games played during YOUR league's playoff weeks (pass playoff_start_week and playoff_end_week; week 1 is the week of the NHL opener). The draft tiebreaker when two players are close.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1326,11 +1326,11 @@ export const TOOL_DEFINITIONS: Tool[] = [
             },
             playoff_start_week: {
               type: "number",
-              description: "Override the fantasy playoff start week. Defaults to playoff_start_week from your Yahoo league settings."
+              description: "First week of your fantasy playoffs, from your league settings. Supply with playoff_end_week to score each club's playoff window."
             },
             playoff_end_week: {
               type: "number",
-              description: "Override the final fantasy week. Defaults to your league's end_week."
+              description: "Final week of your fantasy playoffs (commonly your league's last week)."
             },
             top_n: {
               type: "number",
@@ -1409,23 +1409,23 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "chirp_draft_pick",
-        description: "❄️ ICE at the draft table — with a pick on the clock, ranks who to take against YOUR draft: who is already gone, what your roster still needs, Yahoo's ADP (so 'value' means the market is wrong here), and each club's schedule during your league's playoff weeks. Pass already_drafted if Yahoo's draft results lag your live draft.",
+        description: "❄️ ICE at the draft table — with a pick on the clock, ranks who to take against YOUR draft: the best producers still available (last season's NHL production, since there is no market ADP), weighted toward the positions your roster still needs and each club's schedule during your league's playoff weeks. Pass already_drafted as picks go by, in whatever shape your draft room shows them; nothing is read from a fantasy platform. Use draft_kit for the whole board before the draft, this for the pick in front of you.",
         inputSchema: {
           type: "object",
           properties: {
             pick_number: {
               type: "number",
-              description: "The pick currently on the clock. Inferred from Yahoo draft results if omitted."
+              description: "The pick currently on the clock. Defaults to one after the players in already_drafted."
             },
             already_drafted: {
               type: "array",
               items: { type: "string" },
-              description: "Player names already off the board. Merged with Yahoo's draft results — use this when Yahoo's API lags a fast live draft."
+              description: "Every player drafted so far, by anyone, one per entry. Pick numbers, clubs and positions around the name are fine; lines that do not resolve to one NHL player are reported back."
             },
             roster_needs: {
               type: "array",
               items: { type: "string" },
-              description: "Positions you still need, e.g. [\"RW\", \"G\"]. Inferred from your roster if omitted."
+              description: "Positions you still need, e.g. [\"RW\", \"G\"]. If omitted, inferred from the roster you set with set_roster (the thinnest positions)."
             },
             max_results: {
               type: "number",
@@ -2018,7 +2018,7 @@ async function dispatchTool(name: string, args: Record<string, unknown> | undefi
           return {
             content: [{ type: "text", text: JSON.stringify({
               error: errorMessage,
-              note: "Draft pick analysis failed - pass already_drafted explicitly if Yahoo draft results are unavailable"
+              note: "Draft pick analysis failed - check the already_drafted lines and retry; it needs only the NHL public API"
             }, null, 2) }],
             isError: true
           };

@@ -6,8 +6,8 @@
  * strand you on two, and — the part no generic site can do — how many games
  * they play during *your league's* playoff weeks.
  *
- * A public schedule grid has to guess when your playoffs are. This reads
- * `playoff_start_week` out of your Yahoo league settings, so the window it
+ * A public schedule grid has to guess when your playoffs are. This takes
+ * `playoff_start_week` and `playoff_end_week` from you, so the window it
  * scores is the one you actually play.
  *
  * Semantic Identity: Schedule Value Rater
@@ -329,9 +329,8 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
       return {
         resolved: false,
         note:
-          'No playoff window resolved. Yahoo league settings did not supply ' +
-          'playoff_start_week / end_week. Pass playoff_start_week and playoff_end_week ' +
-          'explicitly to score your real playoff window; clubs are rated on their ' +
+          'No playoff window resolved. Pass playoff_start_week and playoff_end_week ' +
+          '(your league settings list them; week 1 is the week of the NHL opener) to score your real playoff window; clubs are rated on their ' +
           'regular-season schedule only until then.',
         start: null,
         end: null,
@@ -350,7 +349,7 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
 
     return {
       resolved: true,
-      source: args.playoff_start_week ? 'explicit argument' : 'Yahoo league settings',
+      source: 'explicit argument',
       week_1_anchor: `${week1Monday} (${anchorSource})`,
       playoff_start_week: playoffStartWeek,
       end_week: endWeek,
