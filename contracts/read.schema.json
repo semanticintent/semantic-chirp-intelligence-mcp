@@ -351,6 +351,44 @@
             "null"
           ],
           "description": "Injury or status note, if any."
+        },
+        "nights": {
+          "type": "array",
+          "maxItems": 14,
+          "description": "Optional. One entry per day of the window: null when he does not play, else the opponent and how hard that night is for this player in the analyst's terms (a goalie's opponent attack, a skater's opponent defence; 0 easiest, 100 hardest).",
+          "items": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "opponent",
+                  "home",
+                  "difficulty"
+                ],
+                "properties": {
+                  "opponent": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "home": {
+                    "type": "boolean"
+                  },
+                  "difficulty": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0,
+                    "maximum": 100
+                  }
+                }
+              }
+            ]
+          }
         }
       }
     },

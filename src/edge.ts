@@ -102,7 +102,7 @@ export default {
       return new Response(res.body, { status: res.status, headers: h });
     }
 
-    if (request.method === 'POST' && url.pathname === '/read') {
+    if (request.method === 'POST' && (url.pathname === '/read' || url.pathname === '/board')) {
       const ready = warm().then(() => 'ready' as const);
       const late = new Promise<'late'>((r) => setTimeout(() => r('late'), WARM_WAIT_MS));
       if ((await Promise.race([ready, late])) === 'late') {

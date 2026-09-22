@@ -3,6 +3,7 @@
  * Cloudflare Worker (src/edge.ts) both hand requests here and get back a status and a JSON payload.
  */
 import { readIceFromText } from './services/ReadIceService.js';
+import { buildBoard } from './services/BoardService.js';
 import { NHL_SCHEDULE } from './services/NhlScheduleService.js';
 import { TOOL_DEFINITIONS, isStateless } from './tools.js';
 
@@ -12,7 +13,16 @@ export const READ_SHAPE = 'POST /read { roster_text, look_ahead_days?, opponent_
 
 export async function handleReadRequest(method: string, pathname: string, bodyText: string): Promise<HandlerResult> {
   if (method === 'GET' && pathname === '/health') {
-    return { status: 200, payload: { ok: true, analyst: 'chirp', season: NHL_SCHEDULE.getSeason(), read: 'POST /read { roster_text, look_ahead_days?, opponent_text?, start? }', mcp: { endpoint: '/mcp', tools: TOOL_DEFINITIONS.length, stateless: isStateless() } } };
+    return { status: 200, payload: { ok: true, analyst: 'chirp', season: NHL_SCHEDULE.getSeason(), read: 'POST /read { roster_text, look_ahead_days?, opponent_text?, start? }', board: 'POST /board { drafted_text? }', mcp: { endpoint: '/mcp', tools: TOOL_DEFINITIONS.length, stateless: isStateless() } } };
+  }
+  if (method === 'POST' && pathname === '/board') {
+    let input: any;
+    try { input = JSON.parse(bodyText || '{}'); } catch { return { status: 400, payload: { error: 'Body must be JSON: { drafted_text? }' } }; }
+    try {
+      return { status: 200, payload: await buildBoard({ drafted_text: typeof input.drafted_text === 'string' ? input.drafted_text : undefined }) };
+    } catch (e) {
+      return { status: 503, payload: { error: e instanceof Error ? e.message : String(e) } };
+    }
   }
   if (method === 'POST' && pathname === '/read') {
     let input: any;

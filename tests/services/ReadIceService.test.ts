@@ -40,6 +40,9 @@ beforeEach(() => {
   vi.spyOn(NHL_SCHEDULE, 'load').mockResolvedValue(undefined);
   vi.spyOn(NHL_SCHEDULE, 'isAvailable').mockReturnValue(true);
   vi.spyOn(NHL_SCHEDULE, 'getSeason').mockReturnValue('20262027');
+  vi.spyOn(NHL_SCHEDULE, 'loadStandings').mockResolvedValue(undefined);
+  vi.spyOn(NHL_SCHEDULE, 'getGamesInRange').mockImplementation((abbr, s, e) => inRange(abbr, s, e).map((date) => ({ date, opponent: 'SJS', home: true }) as any));
+  vi.spyOn(NHL_SCHEDULE, 'getTeamStrength').mockReturnValue({ attack: 10, difficulty: 90 } as any);
   vi.spyOn(NHL_SCHEDULE, 'hasGameOn').mockImplementation((abbr, date) => (GAMES[abbr] ?? []).includes(date));
   vi.spyOn(NHL_SCHEDULE, 'countGamesInRange').mockImplementation((abbr, s, e) => inRange(abbr, s, e).length);
   vi.spyOn(NHL_SCHEDULE, 'countBackToBacks').mockImplementation((abbr, s, e) => {
@@ -150,6 +153,19 @@ describe('readIce', () => {
     const read = await readIce(ROSTER, OPTS);
     expect(read.source.analyst).toMatch(/^chirp@\d+\.\d+\.\d+$/);
     expect(read.source.data[0]).toBe('NHL api-web club-schedule-season 20262027');
+  });
+});
+
+describe('readIce nights', () => {
+  it('gives each game night its opponent and a difficulty for this player: attack for a goalie, defence for a skater', async () => {
+    const read = await readIce(ROSTER, OPTS);
+    const wolf = read.skaters.find((s) => s.id === 'wolf')!;
+    expect(wolf.nights.filter(Boolean)).toHaveLength(4);
+    expect(wolf.nights[0]).toEqual({ opponent: 'SJS', home: true, difficulty: 10 });
+    expect(wolf.reason).toBe('4 games, 4 against weak attacks');
+    expect(read.skaters.find((s) => s.id === 'gridin')!.nights[0]).toEqual({ opponent: 'SJS', home: true, difficulty: 90 });
+    expect(read.skaters.find((s) => s.id === 'huberdeau')!.nights.every((n) => n === null)).toBe(true);
+    expect(validate(read), JSON.stringify(validate.errors)).toBe(true);
   });
 });
 

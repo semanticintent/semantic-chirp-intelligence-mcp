@@ -16,6 +16,8 @@ const rpc = (body: unknown, origin = 'https://sepiola.semanticintent.dev') =>
 
 beforeAll(() => {
   vi.spyOn(NHL_SCHEDULE, 'load').mockResolvedValue(undefined);
+  vi.spyOn(NHL_SCHEDULE, 'loadStandings').mockResolvedValue(undefined);
+  vi.spyOn(NHL_SCHEDULE, 'getGamesInRange').mockReturnValue([]);
   vi.spyOn(NHL_SCHEDULE, 'isAvailable').mockReturnValue(true);
   vi.spyOn(NHL_SCHEDULE, 'getSeason').mockReturnValue('20262027');
   vi.spyOn(NHL_SCHEDULE, 'hasGameOn').mockReturnValue(true);
@@ -36,10 +38,10 @@ describe('/mcp', () => {
     expect(body.result.serverInfo.name).toBe('semantic-chirp-intelligence-mcp');
     expect(res.headers.get('access-control-allow-origin')).toBe('https://sepiola.semanticintent.dev');
   });
-  it('lists the 23 tools, each roster tool with roster_text', async () => {
+  it('lists the 24 tools, each roster tool with roster_text', async () => {
     const res = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
     const body = await res.json();
-    expect(body.result.tools).toHaveLength(23);
+    expect(body.result.tools).toHaveLength(24);
     const ice = body.result.tools.find((t: any) => t.name === 'ice');
     expect(ice.inputSchema.properties).toHaveProperty('roster_text');
   });
@@ -61,7 +63,7 @@ describe('/mcp', () => {
   it('health reports the MCP face', async () => {
     const res = await worker.fetch(new Request('https://chirp-mcp.test/health'), env);
     const body = await res.json();
-    expect(body.mcp).toEqual({ endpoint: '/mcp', tools: 23, stateless: true });
+    expect(body.mcp).toEqual({ endpoint: '/mcp', tools: 24, stateless: true });
     setStateless(false);
   });
 });

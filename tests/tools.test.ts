@@ -24,8 +24,8 @@ beforeEach(() => {
 describe('TOOL_DEFINITIONS', () => {
   it('lists 23 uniquely named tools with object schemas', () => {
     const names = TOOL_DEFINITIONS.map((t) => t.name);
-    expect(names).toHaveLength(23);
-    expect(new Set(names).size).toBe(23);
+    expect(names).toHaveLength(24);
+    expect(new Set(names).size).toBe(24);
     for (const t of TOOL_DEFINITIONS) expect(t.inputSchema.type).toBe('object');
   });
   it('lets every roster-dependent tool take the roster in its arguments', () => {

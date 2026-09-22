@@ -23,6 +23,8 @@ export interface ReadSkater {
   id: string; name: string; num: number | null; pos: Pos; slot: Slot; club: string | null;
   games: boolean[]; b2b: boolean; schedule_value: number; flag: Flag; reason: string;
   ppg: number; projected_pts: number; note: string | null;
+  /** Per day of the window: null, or the opponent and how hard that night is for this player (attack for a goalie, defence for a skater). */
+  nights: ({ opponent: string; home: boolean; difficulty: number | null } | null)[];
 }
 /** One skater's share of games in hand. `games` is the analyst's count; the screen never sums bits. */
 export interface Tally { id: string; name: string; games: number; b2b: boolean; projected_pts: number }
@@ -108,7 +110,7 @@ export function assignSlots(players: StoredPlayer[]): Map<string, Slot> {
 
 /** Build the Read for these players. Loads the NHL schedule and stats first; refuses if the schedule is unavailable. */
 export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}): Promise<Read> {
-  await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
+  await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load(), NHL_SCHEDULE.loadStandings()]);
   if (!NHL_SCHEDULE.isAvailable()) {
     throw new Error(`read_ice needs the NHL schedule and it is unavailable: ${NHL_SCHEDULE.getUnavailableReason() ?? 'unknown reason'}`);
   }
@@ -134,11 +136,19 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
     const stats = nhl?.stats;
     const ppg = pos !== 'G' && stats?.games_played ? round((stats.points ?? 0) / stats.games_played, 2) : 0;
     const flag: Flag = onIr ? 'ir' : slot === 'BN' ? (n >= 4 && !b2b ? 'stream' : null) : n <= 2 || b2b ? 'warn' : null;
-    const reason = onIr ? 'on injured reserve' : b2b ? `${n} games, back-to-back` : `${n} game${n === 1 ? '' : 's'} ${span}`;
+    const gamesByDate = new Map((!onIr && club ? NHL_SCHEDULE.getGamesInRange(club, start, end) : []).map((g) => [g.date, g]));
+    const nights = dates.map((d) => {
+      const g = gamesByDate.get(d);
+      if (!g) return null;
+      const st = NHL_SCHEDULE.getTeamStrength(g.opponent);
+      return { opponent: g.opponent, home: g.home, difficulty: st ? (pos === 'G' ? st.attack : st.difficulty) : null };
+    });
+    const softNights = nights.filter((x) => x && x.difficulty !== null && (x.difficulty as number) < 40).length;
+    const reason = onIr ? 'on injured reserve' : pos === 'G' && n > 0 ? `${n} game${n === 1 ? '' : 's'}${b2b ? ', back-to-back' : ''}, ${softNights} against weak attacks` : b2b ? `${n} games, back-to-back` : `${n} game${n === 1 ? '' : 's'} ${span}`;
     return {
       id: p.player_id, name: surname(p.name), num: nhl?.sweater_number ?? null, pos, slot, club, games, b2b,
       schedule_value: onIr ? 0 : scheduleValue(n, b2b), flag, reason, ppg,
-      projected_pts: round(ppg * n, 1), note: onIr ? 'on injured reserve' : null,
+      projected_pts: round(ppg * n, 1), note: onIr ? 'on injured reserve' : null, nights,
     };
   });
 

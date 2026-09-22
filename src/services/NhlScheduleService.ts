@@ -65,6 +65,9 @@ export interface TeamStrength {
   readonly point_pctg: number;
   /** 0 = easiest opponent to score on, 100 = hardest. */
   readonly difficulty: number;
+  readonly goals_for_per_game: number;
+  /** 0 = weakest attack, 100 = most dangerous: how hard this opponent is for a goalie. */
+  readonly attack: number;
 }
 
 interface CacheFile {
@@ -80,6 +83,7 @@ export class NhlScheduleService {
   private loadError: string | null = null;
   private inFlight: Promise<void> | null = null;
   private strengths: Map<NhlTricode, TeamStrength> = new Map();
+  private standingsSeason: string | null = null;
   private strengthsInFlight: Promise<void> | null = null;
   private cache: JsonCache;
 
@@ -377,23 +381,31 @@ export class NhlScheduleService {
           return {
             team: tricode,
             gaPerGame: Number(row?.goalAgainst ?? 0) / gamesPlayed,
+            gfPerGame: Number(row?.goalFor ?? 0) / gamesPlayed,
+            season: row?.seasonId ? String(row.seasonId) : null,
             pointPctg: Number(row?.pointPctg ?? 0)
           };
         })
-        .filter((r): r is { team: NhlTricode; gaPerGame: number; pointPctg: number } => r !== null);
+        .filter((r): r is { team: NhlTricode; gaPerGame: number; gfPerGame: number; season: string | null; pointPctg: number } => r !== null);
 
       if (parsed.length === 0) return;
 
-      // Rank by goals allowed: the stingiest defence is the hardest matchup.
+      this.standingsSeason = parsed[0].season;
+      // Rank by goals allowed: the stingiest defence is the hardest matchup for a skater.
       const ranked = [...parsed].sort((a, b) => a.gaPerGame - b.gaPerGame);
       const lastIndex = Math.max(1, ranked.length - 1);
+      // Rank by goals scored: the most dangerous attack is the hardest night for a goalie.
+      const byAttack = [...parsed].sort((a, b) => b.gfPerGame - a.gfPerGame);
+      const attackOf = new Map(byAttack.map((r, i) => [r.team, Math.round(100 - (i / lastIndex) * 100)]));
 
       ranked.forEach((row, index) => {
         this.strengths.set(row.team, {
           team: row.team,
           goals_against_per_game: Number(row.gaPerGame.toFixed(3)),
           point_pctg: row.pointPctg,
-          difficulty: Math.round(100 - (index / lastIndex) * 100)
+          difficulty: Math.round(100 - (index / lastIndex) * 100),
+          goals_for_per_game: Number(row.gfPerGame.toFixed(3)),
+          attack: attackOf.get(row.team) ?? 50
         });
       });
     } catch (error) {
@@ -407,6 +419,9 @@ export class NhlScheduleService {
   }
 
   /** Defensive profile for a club, or null when standings are unavailable. */
+  /** The season the loaded standings belong to, e.g. "20252026". Before opening night this is last season. */
+  public getStandingsSeason(): string | null { return this.standingsSeason; }
+
   public getTeamStrength(abbr: string): TeamStrength | null {
     const tricode = toNhlTricode(abbr);
     if (!tricode) return null;
