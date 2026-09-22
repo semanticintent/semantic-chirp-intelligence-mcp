@@ -195,7 +195,7 @@ export const TOOL_METADATA: Record<string, any> = {
   },
   chirp_draft_pick: {
     chirp_style: "ice_cold_truth",
-    discovery_tags: ["draft", "pick", "ADP", "value", "roster_build"],
+    discovery_tags: ["draft", "pick", "production_rank", "value", "roster_build"],
     intent_category: "draft_intelligence",
     hockey_context: "draft_day_decisions",
     chirp_potential: "draft_reality",
