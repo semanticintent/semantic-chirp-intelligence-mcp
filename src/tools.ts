@@ -54,6 +54,7 @@ import { ROSTER_STORE } from './services/RosterStore.js';
 import { LEAGUE_DATA, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE } from './services/LeagueDataService.js';
 import { NHL_SCHEDULE, NhlScheduleService } from './services/NhlScheduleService.js';
 import { readIce, readIceFromText } from './services/ReadIceService.js';
+import { goalieStreams } from './services/GoalieStreamService.js';
 
 
 
@@ -1366,6 +1367,18 @@ export const TOOL_DEFINITIONS: Tool[] = [
         }
       },
       {
+        name: "analyze_goalie_streams",
+        description: "🥅 Which goalie to stream this week, from public data: every NHL goalie ranked by games in the window, how dangerous each opponent's attack is, and his share of his team's starts last season, with GAA, save % and a stream score whose formula is stated. Pass roster_text to see your own goalies and exclude them from the candidates. Starters are not announced in public data; the output says so.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            look_ahead_days: { type: "number", description: "Window length in days, 1–14 (default 7)." },
+            start: { type: "string", description: "First day of the window, YYYY-MM-DD. Defaults to today." },
+            top_n: { type: "number", description: "How many candidates to return (default 8, max 25)." }
+          }
+        }
+      },
+      {
         name: "draft_kit",
         description: "📋 A full draft kit — positional tiers, a cheat sheet, and flags you cannot get elsewhere: playoff-window schedule per club, shooting-luck rebound candidates, age-based decline risk, and category specialists. Works two ways: call it plain and it builds the board from last season's NHL production, or paste a ranked list (from any published kit) and it keeps that order while annotating it with schedule and flags. States plainly what it does not include — no projections, no ADP, no line combos, no injuries.",
         inputSchema: {
@@ -1882,6 +1895,16 @@ async function dispatchTool(name: string, args: Record<string, unknown> | undefi
         }, null, 2) }] };
       }
 
+      case "analyze_goalie_streams": {
+        const result = await goalieStreams({
+          look_ahead_days: typeof args?.look_ahead_days === "number" ? (args.look_ahead_days as number) : undefined,
+          today: (args?.start as string | undefined)?.trim() || undefined,
+          top_n: typeof args?.top_n === "number" ? (args.top_n as number) : undefined,
+          roster: ROSTER_STORE.getRoster("roster")?.players,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], structuredContent: result as unknown as Record<string, unknown> };
+      }
+
       case "read_ice": {
         const rosterText = (args?.roster_text as string | undefined)?.trim();
         const lookAhead = typeof args?.look_ahead_days === "number" ? (args.look_ahead_days as number) : undefined;
@@ -2021,7 +2044,7 @@ async function dispatchTool(name: string, args: Record<string, unknown> | undefi
 const ROSTER_TOOLS = new Set([
   'get_team_roster', 'compare_matchup', 'optimize_lineup', 'get_streaming_recommendations', 'get_games_in_hand',
   'get_roster_transaction_recommendations', 'ice', 'analyze_breakout_players', 'analyze_weekend_streams',
-  'chirp_opponent', 'analyze_trade', 'draft_kit', 'chirp_draft_pick',
+  'chirp_opponent', 'analyze_trade', 'draft_kit', 'chirp_draft_pick', 'analyze_goalie_streams',
 ]);
 
 export const PASTED_ROSTER_SCHEMA = {

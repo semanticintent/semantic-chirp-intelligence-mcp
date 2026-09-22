@@ -14,6 +14,8 @@ const server = createHttpServer({ origin: 'http://telestrator.test' });
 
 beforeAll(async () => {
   vi.spyOn(NHL_SCHEDULE, 'load').mockResolvedValue(undefined);
+  vi.spyOn(NHL_SCHEDULE, 'loadStandings').mockResolvedValue(undefined);
+  vi.spyOn(NHL_SCHEDULE, 'getGamesInRange').mockReturnValue([]);
   vi.spyOn(NHL_SCHEDULE, 'isAvailable').mockReturnValue(true);
   vi.spyOn(NHL_SCHEDULE, 'getSeason').mockReturnValue('20262027');
   vi.spyOn(NHL_SCHEDULE, 'hasGameOn').mockImplementation((_abbr, date) => GAME_DAYS.includes(date));

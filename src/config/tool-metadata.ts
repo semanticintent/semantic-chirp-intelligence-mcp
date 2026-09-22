@@ -158,6 +158,17 @@ export const TOOL_METADATA: Record<string, any> = {
     template_version: "1.0.0",
     analysis_type: "schedule_advantage"
   },
+  analyze_goalie_streams: {
+    chirp_style: "strategic_advantage",
+    discovery_tags: ["goalie", "streaming", "schedule", "opponent_attack", "start_share"],
+    intent_category: "weekly_strategy",
+    hockey_context: "schedule_warfare",
+    chirp_potential: "schedule_domination",
+    uses_template_pattern: false,
+    analysis_class: "GoalieStreamService",
+    template_version: "1.0.0",
+    analysis_type: "streaming_strategy"
+  },
   read_ice: {
     chirp_style: "strategic_advantage",
     discovery_tags: ["sepiola", "telestrator", "schedule", "start_sit", "games_in_hand", "drawable_read"],

@@ -4,7 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.5.0]
+## [Unreleased]
+
+### Added
+- **`analyze_goalie_streams`** — the first of the three concept tools built on public
+  data. Every NHL goalie ranked for a window: games, each opponent's attack (0
+  weakest, 100 most dangerous, from standings goals-for), his share of his team's
+  games last season, GAA, save % and a stream score whose formula is in the output.
+  Paste `roster_text` to see your goalies apart from the candidates. It says what it
+  cannot know: starters are not announced in public data, and before opening night
+  opponent strength is last season's final standings. 24 tools.
+- **`skater.nights` on the read** — per day, the opponent, home or away, and how hard
+  that night is for this player (attack for a goalie, defence for a skater). Goalie
+  reasons now count soft nights. Contract re-vendored; the field is optional.
+- Team strength carries `goals_for_per_game` and `attack` beside the defence rating.
+
+
 
 ### Added
 - **`games_in_hand.detail` and `games_in_hand.counted`** — both rosters as the analyst
