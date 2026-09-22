@@ -18,6 +18,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that night is for this player (attack for a goalie, defence for a skater). Goalie
   reasons now count soft nights. Contract re-vendored; the field is optional.
 - Team strength carries `goals_for_per_game` and `attack` beside the defence rating.
+- **`POST /board`** — the draft board a screen can draw (`src/services/BoardService.ts`):
+  `draft_kit`'s tiers per position with NHL ids, one note per prospect, players in
+  `drafted_text` crossed off (unresolved lines reported in `notes`), where each position
+  thins out, and what the board cannot know. Stateless; validates against Sepiola's
+  `contracts/board.schema.json`. `/health` lists it.
 
 
 
