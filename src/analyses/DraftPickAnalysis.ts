@@ -245,6 +245,9 @@ export class DraftPickAnalysis extends AnalysisTemplate {
         `at ${analysisResults.pick_number}${scheduleClause}.`;
     }
 
+    // The take alone, before any advice to the caller — what a screen can show.
+    const take = chirp;
+
     if (!windowResolved) {
       chirp +=
         ' I have not scored your playoff weeks — pass playoff_start_week and ' +
@@ -259,6 +262,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
 
     return {
       ...enhanced,
+      take,
       chirp_intelligence: {
         ...enhanced.chirp_intelligence,
         analysis_chirp: chirp
@@ -298,6 +302,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
         ? `NHL public API (season ${NHL_SCHEDULE.getSeason()})`
         : `UNAVAILABLE - ${NHL_SCHEDULE.getUnavailableReason()}; schedule value excluded from scoring`,
       playoff_window: chirpEnhanced.playoff_window,
+      take: chirpEnhanced.take,
       top_candidates: candidates
     } as any;
 
@@ -384,6 +389,12 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     };
   }
 
+  /** 1 -> "1 slot", -6 -> "6 slots". */
+  private slots(delta: number): string {
+    const n = Math.abs(Math.round(delta));
+    return `${n} slot${n === 1 ? '' : 's'}`;
+  }
+
   /** 1 -> "1st", 2 -> "2nd", 23 -> "23rd". */
   private ordinal(n: number): string {
     const rem100 = n % 100;
@@ -416,9 +427,9 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     if (adpDelta === null) {
       parts.push('no production rank');
     } else if (adpDelta > 0) {
-      parts.push(`${this.ordinal(player.average_pick)} best producer, ${Math.round(adpDelta)} slots above this pick`);
+      parts.push(`${this.ordinal(player.average_pick)} best producer, ${this.slots(adpDelta)} above this pick`);
     } else if (adpDelta < 0) {
-      parts.push(`${this.ordinal(player.average_pick)} best producer, ${Math.abs(Math.round(adpDelta))} slots below this pick`);
+      parts.push(`${this.ordinal(player.average_pick)} best producer, ${this.slots(adpDelta)} below this pick`);
     } else {
       parts.push(`${this.ordinal(player.average_pick)} best producer, right at this pick`);
     }

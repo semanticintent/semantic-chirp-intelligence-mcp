@@ -294,3 +294,23 @@ describe('says only what v4 knows', () => {
     expect(JSON.stringify(def)).not.toMatch(/yahoo/i);
   });
 });
+
+describe('the take', () => {
+  it('is the analyst\'s line without the advice to the caller', async () => {
+    const result: any = await analysis().executeAnalysis({ pick_number: 1 }, contract);
+    const { take } = result.analysis_insights;
+
+    expect(take).toMatch(/Faller Guy/);
+    expect(take).not.toMatch(/playoff_start_week|already_drafted/);
+    expect(result.chirp_intelligence.analysis_chirp.startsWith(take)).toBe(true);
+  });
+});
+
+describe('reasoning', () => {
+  it('says one slot, not one slots', async () => {
+    const result: any = await analysis().executeAnalysis({ pick_number: 1, already_drafted: ['Faller Guy'] }, contract);
+    const onTime = result.analysis_insights.top_candidates.find((c: any) => c.name === 'On Time');
+
+    expect(onTime.reasoning).toContain('2nd best producer, 1 slot below this pick');
+  });
+});

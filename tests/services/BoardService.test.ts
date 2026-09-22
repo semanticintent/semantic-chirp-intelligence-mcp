@@ -48,3 +48,48 @@ describe('buildBoard', () => {
     expect(validate(b), JSON.stringify(validate.errors)).toBe(true);
   });
 });
+
+describe('the pick (D49)', () => {
+  const PICK = { analysis_insights: {
+    pick_number: 3, roster_needs: ['G', 'L'], take: 'Wolf fills the hole you actually have (G). Best available is a luxury; a full lineup is not.',
+    top_candidates: [
+      { player_id: '8481692', name: 'Dustin Wolf', position: 'G', team: 'CGY', reasoning: 'Dustin Wolf (G, CGY) — 9th best producer, 6 slots above this pick — fills a roster hole.' },
+      { player_id: '8470000', name: 'Deep Sleeper', position: 'L', team: 'UTA', reasoning: 'Deep Sleeper (LW, UTA) — 180th best producer, 177 slots below this pick.' },
+    ],
+  } };
+  let calls: any[];
+  beforeEach(() => {
+    calls = [];
+    vi.spyOn(tools, 'callTool').mockImplementation(async (name: string, args: any) => {
+      calls.push([name, args]);
+      return { content: [{ type: 'text', text: JSON.stringify(name === 'chirp_draft_pick' ? PICK : KIT) }] } as any;
+    });
+  });
+
+  it('asks nothing extra without your picks', async () => {
+    const b = await buildBoard({ drafted_text: 'Connor McDavid' });
+    expect(b.pick).toBeUndefined();
+    expect(calls.map((c) => c[0])).toEqual(['draft_kit']);
+  });
+
+  it('carries the analyst\'s pick in its own order, with your picks counted as drafted', async () => {
+    const b = await buildBoard({ drafted_text: 'Bob Nobody', mine_text: 'Connor McDavid', playoff_start_week: 23, playoff_end_week: 25 });
+    const [, args] = calls.find((c) => c[0] === 'chirp_draft_pick');
+    expect(args).toMatchObject({ roster_text: 'Connor McDavid', already_drafted: ['Bob Nobody', 'Connor McDavid'], playoff_start_week: 23, playoff_end_week: 25, max_results: 3 });
+    expect(b.positions.C[0].players[0].taken).toBe(true);
+    expect(b.pick).toEqual({
+      on_clock: 3, needs: ['G', 'LW'], take: PICK.analysis_insights.take,
+      picks: [
+        { id: '8481692', name: 'Wolf', club: 'CGY', pos: 'G', why: '9th best producer, 6 slots above this pick — fills a roster hole.', on_board: true },
+        { id: '8470000', name: 'Sleeper', club: 'UTA', pos: 'LW', why: '180th best producer, 177 slots below this pick.', on_board: false },
+      ],
+    });
+  });
+
+  it.skipIf(!existsSync(SCHEMA))('validates with a pick', async () => {
+    const ajv = new Ajv2020({ allErrors: true, strict: true }); addFormats(ajv);
+    const validate = ajv.compile(JSON.parse(readFileSync(SCHEMA, 'utf8')));
+    const b = await buildBoard({ mine_text: 'Connor McDavid' });
+    expect(validate(b), JSON.stringify(validate.errors)).toBe(true);
+  });
+});
