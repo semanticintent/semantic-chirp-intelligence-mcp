@@ -12,17 +12,29 @@ export const BOARD_POSITIONS = ['C', 'LW', 'RW', 'D', 'G'] as const;
 type Pos = typeof BOARD_POSITIONS[number];
 
 export interface Prospect { id: string; name: string; club: string; pos: Pos; rank: number; age: number | null; ppg: number; flags: string[]; note: string; taken: boolean }
+/** The analyst's pick (D49): chirp_draft_pick against this draft, in its own order. `on_board` says whether the id sits in the columns above. */
+export interface Pick { id: string; name: string; club: string; pos: Pos; why: string; on_board: boolean }
+export interface BoardPick { on_clock: number; needs: Pos[]; take: string; picks: Pick[] }
 export interface Board {
   contract_version: '0.1'; kind: 'board'; generated_at: string;
   positions: Record<Pos, { tier: number; players: Prospect[] }[]>;
   dries_up: Record<Pos, string>;
   taken: number; take: string; not_included: string[];
-  source: { analyst: string; data: string[] }; notes?: string[];
+  source: { analyst: string; data: string[] }; notes?: string[]; pick?: BoardPick;
+}
+
+export interface BoardOptions {
+  drafted_text?: string;
+  /** Your own picks. Given, the analyst also answers who to take next. They count as drafted too. */
+  mine_text?: string;
+  playoff_start_week?: number;
+  playoff_end_week?: number;
+  now?: Date;
 }
 
 const surname = (n: string) => n.trim().split(/\s+/).pop() ?? n;
 
-export async function buildBoard(opts: { drafted_text?: string; now?: Date } = {}): Promise<Board> {
+export async function buildBoard(opts: BoardOptions = {}): Promise<Board> {
   const kit = await callTool('draft_kit', {});
   const text = (kit.content[0] as { text: string }).text;
   const ai = JSON.parse(text)?.analysis_insights;
@@ -31,8 +43,9 @@ export async function buildBoard(opts: { drafted_text?: string; now?: Date } = {
   await NHL_STATS.load();
   const notes: string[] = [];
   const takenIds = new Set<string>();
-  if (opts.drafted_text?.trim()) {
-    const report = ROSTER_STORE.parseRoster(opts.drafted_text);
+  const draftedAll = [opts.drafted_text, opts.mine_text].filter((t) => t?.trim()).join('\n');
+  if (draftedAll.trim()) {
+    const report = ROSTER_STORE.parseRoster(draftedAll);
     for (const p of report.resolved) takenIds.add(p.player_id);
     notes.push(...report.unresolved.map((u) => `Drafted, not resolved: "${u.line}" (${u.reason})`));
     notes.push(...report.ambiguous.map((a) => `Drafted, ambiguous: "${a.line}" could be ${a.candidates.join(', ')}`));
@@ -75,5 +88,39 @@ export async function buildBoard(opts: { drafted_text?: string; now?: Date } = {
     source: { analyst: `chirp@${getVersion()}`, data: [ai.source, ai.schedule_source].filter(Boolean).map(String) },
   };
   if (notes.length) board.notes = notes;
+  if (opts.mine_text?.trim()) board.pick = await pickFor(opts, draftedAll, positions);
   return board;
+}
+
+/** Surname plus the fantasy position the board uses; the NHL says L/R, a candidate may list several. */
+const boardPos = (position: string): Pos => {
+  const first = String(position).split(',')[0].trim().toUpperCase().replace(/^L$/, 'LW').replace(/^R$/, 'RW');
+  return (BOARD_POSITIONS as readonly string[]).includes(first) ? first as Pos : 'C';
+};
+
+async function pickFor(opts: BoardOptions, draftedAll: string, positions: Board['positions']): Promise<BoardPick> {
+  const result = await callTool('chirp_draft_pick', {
+    roster_text: opts.mine_text,
+    already_drafted: draftedAll.split('\n').map((l) => l.trim()).filter(Boolean),
+    playoff_start_week: opts.playoff_start_week,
+    playoff_end_week: opts.playoff_end_week,
+    max_results: 3,
+    enable_chirp: true,
+  });
+  const text = (result.content[0] as { text: string }).text;
+  const ai = JSON.parse(text)?.analysis_insights;
+  if (!ai?.top_candidates) throw new Error(`chirp_draft_pick did not return candidates: ${text.slice(0, 200)}`);
+
+  const onBoard = new Set(Object.values(positions).flatMap((tiers) => tiers.flatMap((t) => t.players.map((p) => p.id))));
+  return {
+    on_clock: Number(ai.pick_number),
+    needs: (ai.roster_needs ?? []).map(boardPos).filter((p: Pos, i: number, all: Pos[]) => all.indexOf(p) === i),
+    take: String(ai.take ?? ''),
+    picks: ai.top_candidates.map((c: any) => ({
+      id: String(c.player_id), name: surname(c.name), club: c.team, pos: boardPos(c.position),
+      // The reasoning opens with "Name (POS, CLUB) — "; the card already shows those.
+      why: String(c.reasoning).split(' — ').slice(1).join(' — ').replace(/^./, (ch) => ch.toUpperCase()),
+      on_board: onBoard.has(String(c.player_id)),
+    })),
+  };
 }

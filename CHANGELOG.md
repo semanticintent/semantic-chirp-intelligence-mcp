@@ -6,7 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **The board answers who to take next.** `POST /board` accepts `mine_text`
+  (your own picks) and, given it, runs `chirp_draft_pick` against the draft so
+  far and adds a `pick` section: the pick on the clock, the positions you still
+  need, the analyst's one line, and its top three with a reason each and
+  whether each sits on the board's columns. Your picks count as drafted.
+  `playoff_start_week` / `playoff_end_week` pass through to the pick. The
+  shape is Sepiola's `contracts/board.schema.json` (`pick`, optional).
+- `chirp_draft_pick` returns `take`: its line without the advice to the caller.
+
 ### Fixed
+- Draft pick reasoning said "1 slots".
 - **`chirp_draft_pick` described a Yahoo tool.** Its description said it read
   Yahoo's ADP and Yahoo draft results, and its per-player reasoning printed
   "no Yahoo ADP available" or "N picks past his ADP". v4 reads no platform: the

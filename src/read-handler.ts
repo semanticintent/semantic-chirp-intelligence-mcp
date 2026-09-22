@@ -13,13 +13,18 @@ export const READ_SHAPE = 'POST /read { roster_text, look_ahead_days?, opponent_
 
 export async function handleReadRequest(method: string, pathname: string, bodyText: string): Promise<HandlerResult> {
   if (method === 'GET' && pathname === '/health') {
-    return { status: 200, payload: { ok: true, analyst: 'chirp', season: NHL_SCHEDULE.getSeason(), read: 'POST /read { roster_text, look_ahead_days?, opponent_text?, start? }', board: 'POST /board { drafted_text? }', mcp: { endpoint: '/mcp', tools: TOOL_DEFINITIONS.length, stateless: isStateless() } } };
+    return { status: 200, payload: { ok: true, analyst: 'chirp', season: NHL_SCHEDULE.getSeason(), read: 'POST /read { roster_text, look_ahead_days?, opponent_text?, start? }', board: 'POST /board { drafted_text?, mine_text?, playoff_start_week?, playoff_end_week? }', mcp: { endpoint: '/mcp', tools: TOOL_DEFINITIONS.length, stateless: isStateless() } } };
   }
   if (method === 'POST' && pathname === '/board') {
     let input: any;
-    try { input = JSON.parse(bodyText || '{}'); } catch { return { status: 400, payload: { error: 'Body must be JSON: { drafted_text? }' } }; }
+    try { input = JSON.parse(bodyText || '{}'); } catch { return { status: 400, payload: { error: 'Body must be JSON: { drafted_text?, mine_text?, playoff_start_week?, playoff_end_week? }' } }; }
     try {
-      return { status: 200, payload: await buildBoard({ drafted_text: typeof input.drafted_text === 'string' ? input.drafted_text : undefined }) };
+      const str = (v: unknown) => typeof v === 'string' ? v : undefined;
+      const num = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined;
+      return { status: 200, payload: await buildBoard({
+        drafted_text: str(input.drafted_text), mine_text: str(input.mine_text),
+        playoff_start_week: num(input.playoff_start_week), playoff_end_week: num(input.playoff_end_week),
+      }) };
     } catch (e) {
       return { status: 503, payload: { error: e instanceof Error ? e.message : String(e) } };
     }
