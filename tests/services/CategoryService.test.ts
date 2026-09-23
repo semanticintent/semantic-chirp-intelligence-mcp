@@ -1,6 +1,6 @@
 /** League categories (D51): read what a league scores, value players for it, say what could not be read. */
 import { describe, it, expect } from 'vitest';
-import { parseCategories, valueForCategories, MIN_GAMES } from '../../src/services/CategoryService.js';
+import { parseCategories, valueForCategories, MIN_GAMES, Z_CAP } from '../../src/services/CategoryService.js';
 
 const WAFFLES = 'G, A, +/-, PIM, PPP, SHP, GWG, SOG, HIT, BLK; W, GAA, SV, SV%, SHO';
 
@@ -62,6 +62,12 @@ describe('valueForCategories', () => {
     const b = valueForCategories(parseCategories('P, HIT'), skaters);
     const v = b.values.get('middle')!;
     expect(v.value).toBeCloseTo(v.z.reduce((a, x) => a + x.z, 0), 2);
+  });
+  it(`caps a rare category at ±${Z_CAP}, so it cannot decide a player alone`, () => {
+    const many = Array.from({ length: 40 }, (_, i) => sk(`p${i}`, 80, { short_handed_points: 0, points: 40 + i }));
+    many.push(sk('ace', 80, { short_handed_points: 12, points: 40 }));
+    const b = valueForCategories(parseCategories('SHP'), many);
+    expect(b.values.get('ace')!.z[0].z).toBe(Z_CAP);
   });
   it('names a category the loaded stats do not carry', () => {
     const b = valueForCategories(parseCategories('P, HIT'), [sk('a', 60, { points: 40 }), sk('b', 60, { points: 20 })]);

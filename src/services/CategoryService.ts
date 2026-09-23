@@ -18,6 +18,8 @@
 import { NHL_STATS, type NhlPlayer, type PlayerStats } from './NhlStatsService.js';
 
 export const MIN_GAMES = 20;
+/** A rare stat (shorthanded points, most players have none) throws huge z-scores; no one category may decide a player. */
+export const Z_CAP = 3;
 
 type Group = 'skater' | 'goalie';
 interface CategoryDef {
@@ -103,7 +105,7 @@ const signed = (z: number) => `${z < 0 ? '−' : '+'}${Math.abs(z).toFixed(1)}`;
 export const METHOD =
   `Per game over last season for skaters, season totals for goalie counting categories; each category measured against ` +
   `every player in the group with ${MIN_GAMES}+ games (a z-score: 0 is league average, +1 is one standard deviation better). ` +
-  `GAA and SV% are weighted by starts. A player's value is the sum across the league's categories, each counting once as in a matchup. No projections.`;
+  `GAA and SV% are weighted by starts, and no category counts beyond ±${Z_CAP}. A player's value is the sum across the league's categories, each counting once as in a matchup. No projections.`;
 
 /** Value every player with enough games for these categories. Pure over NHL_STATS; call after NHL_STATS.load(). */
 export function valueForCategories(parsed: ParsedCategories, players: NhlPlayer[] = NHL_STATS.getAll()): CategoryBoard {
@@ -131,6 +133,7 @@ export function valueForCategories(parsed: ParsedCategories, players: NhlPlayer[
         let z = r === null ? 0 : (r - m) / s;
         if (def.higherIsBetter === false) z = -z;
         if (def.rate) z *= Math.min(1.5, (p.stats!.games_started ?? p.stats!.games_played ?? 0) / avgStarts);
+        z = Math.max(-Z_CAP, Math.min(Z_CAP, z));
         zs.get(p.player_id)!.push({ cat: key, z: Number(z.toFixed(2)) });
       });
     }

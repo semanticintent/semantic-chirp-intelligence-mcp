@@ -12,7 +12,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`G, A, +/-, PPP, SOG, HIT, BLK; W, GAA, SV%, SO`, or the settings page's
   "Goals (G)" form). Each player is measured per category against the league —
   per game for skaters, season totals for goalie counting categories, GAA and
-  SV% weighted by starts, 20-game minimum — and ranked by the sum, each
+  SV% weighted by starts, 20-game minimum, each capped at ±3 so a rare stat
+  cannot decide a player — and ranked by the sum, each
   category counting once as in a matchup. Each prospect carries its category
   line ("A +3.3 · PPP +2.5 · SOG +1.7"); the board carries `scoring` (what it
   ranked for, labels it could not read, the method). Points stay the default.
