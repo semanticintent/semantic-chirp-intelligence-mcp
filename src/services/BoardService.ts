@@ -43,10 +43,11 @@ export async function buildBoard(opts: BoardOptions = {}): Promise<Board> {
   await NHL_STATS.load();
   const notes: string[] = [];
   const takenIds = new Set<string>();
+  const drafted: { player_id: string; name: string; team: string; position: string }[] = [];
   const draftedAll = [opts.drafted_text, opts.mine_text].filter((t) => t?.trim()).join('\n');
   if (draftedAll.trim()) {
     const report = ROSTER_STORE.parseRoster(draftedAll);
-    for (const p of report.resolved) takenIds.add(p.player_id);
+    for (const p of report.resolved) { takenIds.add(p.player_id); drafted.push(p); }
     notes.push(...report.unresolved.map((u) => `Drafted, not resolved: "${u.line}" (${u.reason})`));
     notes.push(...report.ambiguous.map((a) => `Drafted, ambiguous: "${a.line}" could be ${a.candidates.join(', ')}`));
   }
@@ -79,11 +80,18 @@ export async function buildBoard(opts: BoardOptions = {}): Promise<Board> {
     dries[pos] = block.dries_up_after ? `Thins out after ${block.dries_up_after}.` : 'No clear drop-off.';
   }
 
+  // Drafted players the columns do not hold (a short last season, a depth pick) still count, and are named.
+  const onBoard = new Set(Object.values(positions).flatMap((tiers) => tiers.flatMap((t) => t.players.map((p) => p.id))));
+  const below = drafted.filter((p, i, all) => !onBoard.has(p.player_id) && all.findIndex((q) => q.player_id === p.player_id) === i);
+  notes.push(...below.map((p) => `Drafted, below the columns: ${p.name} (${p.position}, ${p.team})`));
+  const off = below.length
+    ? `${taken + below.length} off the board, ${below.length} of them below the columns.`
+    : `${taken} off the board.`;
   const best = available.sort((a, b) => a.rank - b.rank)[0];
   const board: Board = {
     contract_version: '0.1', kind: 'board', generated_at: (opts.now ?? new Date()).toISOString(),
     positions, dries_up: dries, taken,
-    take: best ? `${taken} off the board. Best left: ${best.name} (${best.pos}, ${best.club}), rank ${best.rank}.` : `${taken} off the board. Nobody left on it.`,
+    take: best ? `${off} Best left: ${best.name} (${best.pos}, ${best.club}), rank ${best.rank}.` : `${off} Nobody left on it.`,
     not_included: Array.isArray(ai.not_included) ? ai.not_included : [],
     source: { analyst: `chirp@${getVersion()}`, data: [ai.source, ai.schedule_source].filter(Boolean).map(String) },
   };

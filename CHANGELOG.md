@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **The board's count missed drafted players outside its columns.** A drafted
+  player who resolves but is not in the board's tiers (a short last season, a
+  depth pick) was crossed off nowhere and counted nowhere, so "3 off the
+  board" could follow four names. The take now counts him ("4 off the board,
+  1 of them below the columns.") and the notes name him. `taken` still counts
+  the struck-through cards.
+
 ## [4.7.0]
 
 ### Added
