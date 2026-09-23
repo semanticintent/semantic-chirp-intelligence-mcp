@@ -41,6 +41,16 @@ describe('buildBoard', () => {
     expect(b.dries_up.C).toBe('Thins out after tier 4.');
     expect(b.notes).toEqual(['Drafted, not resolved: "Bob Nobody" (no NHL player found with that name)']);
   });
+  it('counts and names a drafted player the columns do not hold', async () => {
+    vi.spyOn(ROSTER_STORE, 'parseRoster').mockReturnValue({
+      resolved: [{ player_id: '8478402', name: 'Connor McDavid', team: 'EDM', position: 'C' }, { player_id: '8479318', name: 'Auston Matthews', team: 'TOR', position: 'C' }],
+      unresolved: [], ambiguous: [], lines_read: 2,
+    } as any);
+    const b = await buildBoard({ drafted_text: 'Connor McDavid\nAuston Matthews' });
+    expect(b.taken).toBe(1); // struck-through cards only; the screen counts those
+    expect(b.take).toBe('2 off the board, 1 of them below the columns. Best left: Celebrini (C, SJS), rank 4.');
+    expect(b.notes).toEqual(['Drafted, below the columns: Auston Matthews (C, TOR)']);
+  });
   it.skipIf(!existsSync(SCHEMA))('validates against Sepiola\'s board contract', async () => {
     const ajv = new Ajv2020({ allErrors: true, strict: true }); addFormats(ajv);
     const validate = ajv.compile(JSON.parse(readFileSync(SCHEMA, 'utf8')));
