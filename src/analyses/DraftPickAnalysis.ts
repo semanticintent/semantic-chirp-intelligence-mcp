@@ -495,20 +495,15 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       return { resolved: false, start: null, end: null, weeks: [] };
     }
 
-    const week1Monday = NhlScheduleService.weekStart(seasonStart);
-    const weeks: string[] = [];
-    for (let week = startWeek; week <= endWeek; week++) {
-      weeks.push(NhlScheduleService.addDays(week1Monday, (week - 1) * 7));
-    }
-
+    const window = NhlScheduleService.fantasyWindow(seasonStart, startWeek, endWeek);
     return {
       resolved: true,
-      week_1_anchor: `${week1Monday} (NHL season opener)`,
+      week_1_anchor: window.week_1_anchor,
       playoff_start_week: startWeek,
       end_week: endWeek,
-      start: NhlScheduleService.addDays(week1Monday, (startWeek - 1) * 7),
-      end: NhlScheduleService.addDays(week1Monday, endWeek * 7 - 1),
-      weeks
+      start: window.start,
+      end: window.end,
+      weeks: window.weeks
     };
   }
 

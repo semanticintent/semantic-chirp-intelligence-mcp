@@ -439,7 +439,7 @@ export class DraftKitAnalysis extends AnalysisTemplate {
     };
   }
 
-  /** Same anchoring as the other draft tools: week 1 is the NHL opener. */
+  /** Same counting as the other draft tools: NhlScheduleService.fantasyWindow. */
   private resolvePlayoffWindow(args: DraftKitArgs): any {
     const startWeek = Number(args?.playoff_start_week ?? 0);
     const endWeek = Number(args?.playoff_end_week ?? 0);
@@ -449,16 +449,15 @@ export class DraftKitAnalysis extends AnalysisTemplate {
       return { resolved: false, start: null, end: null, weeks: [] };
     }
 
-    const week1Monday = NhlScheduleService.weekStart(seasonStart);
+    const window = NhlScheduleService.fantasyWindow(seasonStart, startWeek, endWeek);
     return {
       resolved: true,
-      week_1_anchor: `${week1Monday} (NHL season opener)`,
+      week_1_anchor: window.week_1_anchor,
       playoff_start_week: startWeek,
       end_week: endWeek,
-      start: NhlScheduleService.addDays(week1Monday, (startWeek - 1) * 7),
-      end: NhlScheduleService.addDays(week1Monday, endWeek * 7 - 1),
-      weeks: Array.from({ length: endWeek - startWeek + 1 }, (_, i) =>
-        NhlScheduleService.addDays(week1Monday, (startWeek - 1 + i) * 7))
+      start: window.start,
+      end: window.end,
+      weeks: window.weeks
     };
   }
 }

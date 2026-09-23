@@ -226,7 +226,7 @@ describe('playoff window', () => {
 
     const window = result.analysis_insights.playoff_window;
     expect(window.resolved).toBe(true);
-    expect(window.start).toBe('2027-02-22');
+    expect(window.start).toBe('2027-03-01'); // week 1 runs Sep 29 – Oct 11 (folded), so week 22 starts Mar 1
     expect(window.weeks).toHaveLength(3);
     expect(result.analysis_insights.top_candidates[0].playoff_games).toBe(11);
   });

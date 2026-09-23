@@ -23,6 +23,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `draft_kit` tiers carry each player's NHL `id`.
 
 ### Fixed
+- **Fantasy playoff weeks were a week early.** Week 1 was counted from the
+  Monday of the opener's week, so when the season opens mid-week (2026-27:
+  Tuesday September 29) every later week started seven days early and
+  playoff-window game counts scored the wrong week. Week 1 now opens with the
+  season and a short opening week is folded into it, as Yahoo counts it:
+  2026-27 weeks 25–27 are March 22 – April 11, matching a real Yahoo league's
+  settings. One rule (`NhlScheduleService.fantasyWindow`) now serves
+  `schedule_value`, `draft_kit` and `chirp_draft_pick`.
 - **Traded players carried only part of their season.** Lines came from each
   club's stats, so a player traded mid-season counted only his games with his
   current club (Quinn Hughes: 48 games and 53 points instead of 74 and 76; 81

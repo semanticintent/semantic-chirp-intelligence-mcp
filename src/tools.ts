@@ -1315,7 +1315,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "schedule_value",
-        description: "🗓️ Rate all 32 NHL clubs on what their schedule is worth to a fantasy roster — total games, four-game weeks, light weeks, back-to-backs, and games played during YOUR league's playoff weeks (pass playoff_start_week and playoff_end_week; week 1 is the week of the NHL opener). The draft tiebreaker when two players are close.",
+        description: "🗓️ Rate all 32 NHL clubs on what their schedule is worth to a fantasy roster — total games, four-game weeks, light weeks, back-to-backs, and games played during YOUR league's playoff weeks (pass playoff_start_week and playoff_end_week; week 1 opens with the NHL season and, when that is mid-week, runs to the second Sunday, as Yahoo counts it). The draft tiebreaker when two players are close.",
         inputSchema: {
           type: "object",
           properties: {

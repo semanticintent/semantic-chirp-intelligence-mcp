@@ -80,7 +80,7 @@ describe('ScheduleValueAnalysis', () => {
     expect(window.resolved).toBe(true);
     expect(window.source).toBe('explicit argument');
     expect(window.week_1_anchor).toContain('NHL season opener');
-    expect(window.start).toBe('2027-02-22'); // week 22 of a 2026-09-28 week 1
+    expect(window.start).toBe('2027-03-01'); // week 22: the Tuesday opener's short week is folded into week 1
     expect(window.weeks).toHaveLength(3);
   });
 
