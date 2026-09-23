@@ -50,7 +50,16 @@ function statsPayload(team: string) {
   };
 }
 
-function stubFetch(opts: { failRosterFor?: string; failStats?: boolean } = {}) {
+/** League-wide whole-season lines: BOS1 was traded in, so his season is longer than his club line. */
+function leaguePayload(report: string) {
+  if (report === 'skater/summary') return { data: [{ playerId: 'BOS1', gamesPlayed: 80, goals: 40, assists: 30, points: 70, plusMinus: 5, penaltyMinutes: 20, shots: 300, ppGoals: 10, shGoals: 1, gameWinningGoals: 6, ppPoints: 25, shPoints: 2, timeOnIcePerGame: 1250 }] };
+  if (report === 'skater/realtime') return { data: [{ playerId: 'BOS1', hits: 90, blockedShots: 30 }] };
+  if (report === 'skater/faceoffwins') return { data: [{ playerId: 'BOS1', totalFaceoffWins: 700 }] };
+  if (report === 'goalie/summary') return { data: [{ playerId: 'BOS4', gamesPlayed: 55, gamesStarted: 54, wins: 28, losses: 20, goalsAgainstAverage: 2.4, savePct: 0.915, shutouts: 4, saves: 1400, goalsAgainst: 130 }] };
+  return null;
+}
+
+function stubFetch(opts: { failRosterFor?: string; failStats?: boolean; failLines?: boolean } = {}) {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     const s = String(url);
     const team = s.split('/').slice(-2)[0].length === 3 ? s.split('/').slice(-2)[0] : s.split('/')[s.split('/').length - 3];
@@ -59,6 +68,12 @@ function stubFetch(opts: { failRosterFor?: string; failStats?: boolean } = {}) {
       const t = s.split('/roster/')[1].split('/')[0];
       if (opts.failRosterFor === t) return { ok: false, status: 500 } as any;
       return { ok: true, json: async () => rosterPayload(t) } as any;
+    }
+    if (s.includes('/stats/rest/en/')) {
+      const report = s.split('/stats/rest/en/')[1].split('?')[0];
+      if (opts.failLines) return { ok: false, status: 404 } as any;
+      const body = leaguePayload(report);
+      return body ? { ok: true, json: async () => body } as any : { ok: false, status: 404 } as any;
     }
     if (s.includes('/club-stats/')) {
       const t = s.split('/club-stats/')[1].split('/')[0];
@@ -137,6 +152,31 @@ describe('loading', () => {
 
     expect(warm.isAvailable()).toBe(true);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('whole-season lines', () => {
+  it('replace a club line with the whole season and add the categories club stats lack', async () => {
+    stubFetch();
+    await service.load('20262027');
+
+    const s = service.getById('BOS1')!.stats!;
+    expect([s.games_played, s.points, s.power_play_points, s.short_handed_points, s.hits, s.blocks, s.faceoff_wins]).toEqual([80, 70, 25, 2, 90, 30, 700]);
+    expect(service.getById('BOS4')!.stats).toMatchObject({ games_started: 54, shutouts: 4, saves: 1400, save_percentage: 0.915 });
+    expect(service.getLinesError()).toBeNull();
+    // a player the league service does not list keeps his club line
+    expect(service.getById('TOR1')!.stats!.points).toBe(53);
+  });
+
+  it('keep the club lines, say why, and cache nothing when the league-wide service fails', async () => {
+    stubFetch({ failLines: true });
+    await service.load('20262027');
+
+    expect(service.isAvailable()).toBe(true);
+    expect(service.getById('BOS1')!.stats!.points).toBe(53);
+    expect(service.getById('BOS1')!.stats!.hits).toBeUndefined();
+    expect(service.getLinesError()).toMatch(/league-wide stats unavailable.*no hits, blocks/);
+    expect(fs.readdirSync(dir).filter((f) => f.endsWith('.json'))).toEqual([]);
   });
 });
 

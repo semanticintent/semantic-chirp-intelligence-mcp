@@ -33,6 +33,7 @@ import { toNhlTricode } from '../domain/nhl-teams.js';
 import { LEAGUE_DATA, LeagueDataService } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
 import { ROSTER_STORE } from '../services/RosterStore.js';
+import { parseCategories, valueForCategories } from '../services/CategoryService.js';
 
 export interface DraftPickArgs {
   readonly pick_number?: number;
@@ -42,6 +43,8 @@ export interface DraftPickArgs {
   readonly roster_needs?: string[];
   readonly max_results?: number;
   readonly pool_size?: number;
+  /** The league's scoring categories; given, "best" means best for them rather than most points. */
+  readonly categories?: string;
   /** Fantasy playoff weeks, so schedule can act as a tiebreaker. */
   readonly playoff_start_week?: number;
   readonly playoff_end_week?: number;
@@ -83,10 +86,21 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     // v4: the board is every NHL player, ranked on last season's production.
     // Yahoo's ADP is gone, so "value" is measured against production rank
     // rather than against where a market drafts a player.
+    const size = Math.min(args.pool_size ?? 250, 400);
+    const cats = String(args.categories ?? '').trim() ? valueForCategories(parseCategories(String(args.categories))) : null;
+    // With categories the pool is re-ranked by category value, so draw it from everyone before cutting to size.
+    const pool = cats
+      ? LEAGUE_DATA.getPlayerPool({ limit: 5000 })
+          .filter((p: any) => cats.values.has(p.player_id))
+          .sort((a: any, b: any) => cats.values.get(b.player_id)!.value - cats.values.get(a.player_id)!.value)
+          .slice(0, size)
+          .map((p: any) => ({ ...p, category_line: cats.values.get(p.player_id)!.line }))
+      : LEAGUE_DATA.getPlayerPool({ limit: size });
     return {
-      pool: LEAGUE_DATA.getPlayerPool({ limit: Math.min(args.pool_size ?? 250, 400) }),
+      pool,
       roster: LEAGUE_DATA.getRoster(),
-      pool_caveat: LeagueDataService.POOL_CAVEAT
+      pool_caveat: LeagueDataService.POOL_CAVEAT,
+      cats
     };
 
   }
@@ -141,7 +155,8 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       average_pick: index + 1,
       average_round: null,
       percent_drafted: null,
-      stats: p.stats ?? null
+      stats: p.stats ?? null,
+      category_line: p.category_line ?? null
     }));
 
     return {
@@ -154,7 +169,9 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       draftedUnmatched: [...draftedReport.unresolved, ...draftedReport.ambiguous],
       rosterPositions,
       playoffWindow: this.resolvePlayoffWindow(args),
-      poolCaveat: rawData.pool_caveat
+      poolCaveat: rawData.pool_caveat,
+      rankLabel: rawData.cats ? 'best for your categories' : 'best producer',
+      scoring: rawData.cats ? { categories: [...rawData.cats.categories.skater, ...rawData.cats.categories.goalie], unread: rawData.cats.categories.unread, missing: rawData.cats.missing } : undefined
     } as any;
 
   }
@@ -183,7 +200,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     );
 
     const candidates: DraftCandidate[] = available
-      .map((p: any) => this.rateCandidate(p, pickNumber, needs, d.playoffWindow))
+      .map((p: any) => this.rateCandidate(p, pickNumber, needs, d.playoffWindow, d.rankLabel))
       .sort((a: DraftCandidate, b: DraftCandidate) => b.draft_score - a.draft_score)
       .slice(0, maxResults);
 
@@ -200,6 +217,8 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       playoff_window: d.playoffWindow,
       pool_caveat: d.poolCaveat,
       schedule_available: NHL_SCHEDULE.isAvailable(),
+      rank_label: d.rankLabel,
+      scoring: d.scoring,
       candidates
     };
   }
@@ -232,7 +251,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       // so the claim is "better player than this slot", not "the room drafts
       // him earlier" — nothing here knows what a room does.
       chirp =
-        `${top.name} is the ${this.ordinal(top.average_pick ?? 0)} best producer left and you are ` +
+        `${top.name} is the ${this.ordinal(top.average_pick ?? 0)} ${analysisResults.rank_label} left and you are ` +
         `picking at ${analysisResults.pick_number}. That is ${Math.round(top.adp_delta)} slots of ` +
         `talent above where you are sitting${scheduleClause}.`;
     } else if (top.fills_need) {
@@ -241,7 +260,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
         `Best available is a luxury; a full lineup is not.`;
     } else {
       chirp =
-        `${top.name} is the pick. No bargain, no drama — just the best producer left ` +
+        `${top.name} is the pick. No bargain, no drama — just the ${analysisResults.rank_label} left ` +
         `at ${analysisResults.pick_number}${scheduleClause}.`;
     }
 
@@ -302,6 +321,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
         ? `NHL public API (season ${NHL_SCHEDULE.getSeason()})`
         : `UNAVAILABLE - ${NHL_SCHEDULE.getUnavailableReason()}; schedule value excluded from scoring`,
       playoff_window: chirpEnhanced.playoff_window,
+      ...(chirpEnhanced.scoring ? { scoring: chirpEnhanced.scoring } : {}),
       take: chirpEnhanced.take,
       top_candidates: candidates
     } as any;
@@ -329,7 +349,8 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     player: any,
     pickNumber: number,
     needs: string[],
-    window: any
+    window: any,
+    rankLabel = 'best producer'
   ): DraftCandidate {
     const averagePick = player.average_pick;
     const adpDelta = averagePick !== null ? pickNumber - averagePick : null;
@@ -385,7 +406,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       fills_need: fillsNeed,
       draft_score: Math.round(score * 100),
       verdict: this.verdictFor(adpDelta),
-      reasoning: this.reasoningFor(player, adpDelta, playoffGames, weekCount, fillsNeed)
+      reasoning: this.reasoningFor(player, adpDelta, playoffGames, weekCount, fillsNeed, rankLabel)
     };
   }
 
@@ -420,19 +441,21 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     adpDelta: number | null,
     playoffGames: number | null,
     weekCount: number,
-    fillsNeed: boolean
+    fillsNeed: boolean,
+    rankLabel = 'best producer'
   ): string {
     const parts: string[] = [`${player.name} (${player.position}, ${player.team})`];
 
     if (adpDelta === null) {
       parts.push('no production rank');
     } else if (adpDelta > 0) {
-      parts.push(`${this.ordinal(player.average_pick)} best producer, ${this.slots(adpDelta)} above this pick`);
+      parts.push(`${this.ordinal(player.average_pick)} ${rankLabel}, ${this.slots(adpDelta)} above this pick`);
     } else if (adpDelta < 0) {
-      parts.push(`${this.ordinal(player.average_pick)} best producer, ${this.slots(adpDelta)} below this pick`);
+      parts.push(`${this.ordinal(player.average_pick)} ${rankLabel}, ${this.slots(adpDelta)} below this pick`);
     } else {
-      parts.push(`${this.ordinal(player.average_pick)} best producer, right at this pick`);
+      parts.push(`${this.ordinal(player.average_pick)} ${rankLabel}, right at this pick`);
     }
+    if (player.category_line) parts.push(player.category_line);
 
     if (playoffGames !== null && weekCount > 0) {
       parts.push(`${playoffGames} games across your ${weekCount} playoff weeks`);

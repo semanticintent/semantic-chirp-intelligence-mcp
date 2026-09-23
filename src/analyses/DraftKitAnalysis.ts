@@ -38,12 +38,15 @@ import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService
 import { NHL_STATS, NhlStatsService, type NhlPlayer } from '../services/NhlStatsService.js';
 import { ROSTER_STORE } from '../services/RosterStore.js';
 import { LEAGUE_DATA } from '../services/LeagueDataService.js';
+import { parseCategories, valueForCategories, MIN_GAMES, type CategoryBoard } from '../services/CategoryService.js';
 
 export interface DraftKitArgs {
   readonly playoff_start_week?: number;
   readonly playoff_end_week?: number;
   /** Paste a ranked list to annotate it instead of generating one. */
   readonly rankings?: string;
+  /** The league's scoring categories, pasted in any common form. Given, the board ranks for them instead of points. */
+  readonly categories?: string;
   readonly positions?: string[];
   readonly tier_size?: number;
   readonly max_per_position?: number;
@@ -64,6 +67,8 @@ interface KitPlayer {
   readonly playoff_games: number | null;
   readonly four_game_weeks: number | null;
   readonly flags: string[];
+  /** "HIT +2.1 · BLK +1.4 · PPP −0.3" when ranked for categories. */
+  readonly category_line: string | null;
 }
 
 /** Positions a kit is organised by, in the order people draft them. */
@@ -97,11 +102,15 @@ export class DraftKitAnalysis extends AnalysisTemplate {
     const pasted = String(args.rankings ?? '').trim();
     const source = pasted ? 'pasted rankings' : 'NHL production';
 
+    const cats = String(args.categories ?? '').trim()
+      ? valueForCategories(parseCategories(String(args.categories)))
+      : null;
+
     const { players, unresolved } = pasted
       ? this.fromPastedRankings(pasted)
-      : { players: this.fromProduction(), unresolved: [] as any[] };
+      : { players: cats ? this.fromCategories(cats) : this.fromProduction(), unresolved: [] as any[] };
 
-    return { kitPlayers: players, unresolved, window, source } as any;
+    return { kitPlayers: players, unresolved, window, source: pasted ? source : cats ? 'your categories' : source, cats } as any;
   }
 
   /**
@@ -128,6 +137,18 @@ export class DraftKitAnalysis extends AnalysisTemplate {
       .sort((a, b) => this.productionValue(b) - this.productionValue(a));
   }
 
+  /**
+   * Rank for the league's categories: players with a category value first, by value; a group the league scores no
+   * category for (no goalie categories, say) follows in production order. Under MIN_GAMES games: left out.
+   */
+  private fromCategories(cats: CategoryBoard): NhlPlayer[] {
+    const valued = NHL_STATS.getAll().filter(p => cats.values.has(p.player_id))
+      .sort((a, b) => cats.values.get(b.player_id)!.value - cats.values.get(a.player_id)!.value);
+    const scoredGroups = new Set([cats.categories.skater.length ? 'skater' : '', cats.categories.goalie.length ? 'goalie' : '']);
+    const rest = this.fromProduction().filter(p => !scoredGroups.has(p.position === 'G' ? 'goalie' : 'skater'));
+    return [...valued, ...rest];
+  }
+
   /** Skaters rank on points, goalies on wins — they are not comparable. */
   private productionValue(p: NhlPlayer): number {
     return p.position === 'G' ? (p.stats?.wins ?? 0) : (p.stats?.points ?? 0);
@@ -147,7 +168,7 @@ export class DraftKitAnalysis extends AnalysisTemplate {
       .map(p => p.toUpperCase());
 
     const annotated: KitPlayer[] = d.kitPlayers.map((p: NhlPlayer, index: number) =>
-      this.annotate(p, index + 1, window)
+      this.annotate(p, index + 1, window, d.cats)
     );
 
     // Tiers are per position, because "when does C dry up" is the question a
@@ -165,8 +186,17 @@ export class DraftKitAnalysis extends AnalysisTemplate {
       };
     }
 
+    const cats: CategoryBoard | null = d.cats;
     return {
       source: d.source,
+      ...(cats ? { scoring: {
+        categories: [...cats.categories.skater, ...cats.categories.goalie],
+        skater: cats.categories.skater, goalie: cats.categories.goalie,
+        unread: cats.categories.unread, missing: cats.missing,
+        too_few_games: cats.too_few_games.size, min_games: MIN_GAMES,
+        method: cats.method,
+      } } : {}),
+      lines_note: NHL_STATS.getLinesError() ?? undefined,
       stats_season: NHL_STATS.getSeasons().stats,
       playoff_window: window,
       unresolved: d.unresolved,
@@ -188,7 +218,7 @@ export class DraftKitAnalysis extends AnalysisTemplate {
     };
   }
 
-  private annotate(p: NhlPlayer, rank: number, window: any): KitPlayer {
+  private annotate(p: NhlPlayer, rank: number, window: any, cats: CategoryBoard | null = null): KitPlayer {
     const s = p.stats;
     const gp = s?.games_played ?? 0;
     const points = s?.points ?? 0;
@@ -210,7 +240,8 @@ export class DraftKitAnalysis extends AnalysisTemplate {
       points_per_game: gp > 0 ? Number((points / gp).toFixed(2)) : 0,
       playoff_games: playoffGames,
       four_game_weeks: profile?.weeks_with_4_plus ?? null,
-      flags: this.flagsFor(p, playoffGames)
+      flags: this.flagsFor(p, playoffGames),
+      category_line: cats?.values.get(p.player_id)?.line ?? null
     };
   }
 
@@ -256,12 +287,14 @@ export class DraftKitAnalysis extends AnalysisTemplate {
         tier: tiers.length + 1,
         players: slice.map(p => ({
           rank: p.rank,
+          id: p.player_id,
           name: p.name,
           team: p.team,
           age: p.age,
           ppg: p.points_per_game,
           playoff_games: p.playoff_games,
-          flags: p.flags
+          flags: p.flags,
+          ...(p.category_line ? { categories: p.category_line } : {})
         }))
       });
     }
@@ -346,7 +379,9 @@ export class DraftKitAnalysis extends AnalysisTemplate {
     parts.push(
       analysisResults.source === 'pasted rankings'
         ? 'Working from your list — the order is theirs, the schedule and flags are mine.'
-        : `Board built from ${analysisResults.stats_season} production.`
+        : analysisResults.source === 'your categories'
+          ? `Board ranked for your categories (${analysisResults.scoring.categories.join(', ')}) on ${analysisResults.stats_season} per-game numbers.`
+          : `Board built from ${analysisResults.stats_season} production.`
     );
 
     if (winners?.length) {
@@ -384,6 +419,8 @@ export class DraftKitAnalysis extends AnalysisTemplate {
       signals: chirpEnhanced.signals,
       cheat_sheet: chirpEnhanced.cheat_sheet,
       not_included: chirpEnhanced.not_included,
+      ...(chirpEnhanced.scoring ? { scoring: chirpEnhanced.scoring } : {}),
+      ...(chirpEnhanced.lines_note ? { lines_note: chirpEnhanced.lines_note } : {}),
       ...(chirpEnhanced.unresolved?.length ? { rankings_not_matched: chirpEnhanced.unresolved } : {})
     } as any;
 

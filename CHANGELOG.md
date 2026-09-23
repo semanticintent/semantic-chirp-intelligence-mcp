@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Rank for your league's categories.** `draft_kit`, `chirp_draft_pick` and
+  `POST /board` take `categories`, pasted as your platform lists them
+  (`G, A, +/-, PPP, SOG, HIT, BLK; W, GAA, SV%, SO`, or the settings page's
+  "Goals (G)" form). Each player is measured per category against the league —
+  per game for skaters, season totals for goalie counting categories, GAA and
+  SV% weighted by starts, 20-game minimum — and ranked by the sum, each
+  category counting once as in a matchup. Each prospect carries its category
+  line ("A +3.3 · PPP +2.5 · SOG +1.7"); the board carries `scoring` (what it
+  ranked for, labels it could not read, the method). Points stay the default.
+- **Every category a league scores:** hits, blocks, power-play points,
+  shorthanded points, faceoff wins and goalie games started, from the NHL's
+  league-wide stats service (four requests).
+- `draft_kit` tiers carry each player's NHL `id`.
+
+### Fixed
+- **Traded players carried only part of their season.** Lines came from each
+  club's stats, so a player traded mid-season counted only his games with his
+  current club (Quinn Hughes: 48 games and 53 points instead of 74 and 76; 81
+  players last season). Lines are now whole seasons. If the league-wide
+  service is down, club lines stand, the gap is reported, and nothing is cached.
+
 ## [4.7.1]
 
 ### Fixed

@@ -30,6 +30,8 @@ function defaultCacheDir(): string {
 }
 
 const NHL_API_BASE = 'https://api-web.nhle.com/v1';
+/** The NHL's league-wide stats service: one row per player for a whole season, across every club he played for. */
+const NHL_STATS_REST = 'https://api.nhle.com/stats/rest/en';
 const GAME_TYPE_REGULAR_SEASON = 2;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -41,7 +43,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
  * exactly like the field is unavailable from the NHL. Including the version in
  * the filename makes a shape change invalidate the cache immediately.
  */
-const CACHE_SCHEMA_VERSION = 3; // 3: sweater_number
+const CACHE_SCHEMA_VERSION = 4; // 3: sweater_number; 4: whole-season lines + hits, blocks, PPP, SHP, FOW, GS
 
 /** A player as the NHL knows them, with their most recent full-season line. */
 export interface NhlPlayer {
@@ -68,6 +70,11 @@ export interface PlayerStats {
   readonly power_play_goals?: number;
   readonly short_handed_goals?: number;
   readonly game_winning_goals?: number;
+  readonly power_play_points?: number;
+  readonly short_handed_points?: number;
+  readonly hits?: number;
+  readonly blocks?: number;
+  readonly faceoff_wins?: number;
   readonly time_on_ice_per_game?: number;   // seconds
   // Goalies
   readonly wins?: number;
@@ -76,6 +83,7 @@ export interface PlayerStats {
   readonly save_percentage?: number;
   readonly shutouts?: number;
   readonly saves?: number;
+  readonly games_started?: number;
 }
 
 /** Outcome of resolving a human-typed name. */
@@ -105,6 +113,8 @@ export class NhlStatsService {
   private cache: JsonCache;
   /** Why a club could not be fetched, by tricode — so 'unavailable' says what actually happened. */
   private readonly failures = new Map<string, string>();
+  /** Why the league-wide lines are missing, or null when every player carries a whole season and every category. */
+  private linesError: string | null = null;
 
   /** Pass a directory (disk cache there), a JsonCache (KV, memory), or nothing for the package-root disk cache. */
   constructor(cache?: JsonCache | string) {
@@ -168,11 +178,80 @@ export class NhlStatsService {
       return;
     }
 
-    const players = results.flat() as NhlPlayer[];
+    // Club lines count only a player's games with that club; the league-wide lines are his whole season and carry
+    // the categories club stats lack (hits, blocks, PPP, SHP, faceoff wins). Without them the club lines still
+    // stand, the gap is reported, and nothing is cached, so the next load tries again.
+    const lines = await this.fetchLeagueLines(statsSeason);
+    const players = (results.flat() as NhlPlayer[]).map((p) => {
+      const line = lines?.get(p.player_id);
+      return line ? { ...p, stats: { ...(p.stats ?? { games_played: 0 }), ...line } } : p;
+    });
     this.index(players);
     this.loaded = true;
-    await this.writeCache(rosterSeason, statsSeason, players);
+    if (lines) await this.writeCache(rosterSeason, statsSeason, players);
   }
+
+  /** Whole-season lines for every skater and goalie, keyed by player id; null (with the reason kept) when unavailable. */
+  private async fetchLeagueLines(statsSeason: string): Promise<Map<string, PlayerStats> | null> {
+    const q = `isAggregate=true&limit=-1&cayenneExp=${encodeURIComponent(`seasonId=${statsSeason} and gameTypeId=${GAME_TYPE_REGULAR_SEASON}`)}`;
+    const get = async (report: string): Promise<any[]> => {
+      const res = await nhlFetch(`${NHL_STATS_REST}/${report}?${q}`);
+      if (!res.ok) throw new Error(`${report}: HTTP ${res.status}`);
+      const body = await res.json() as any;
+      if (!Array.isArray(body?.data)) throw new Error(`${report}: no data`);
+      return body.data;
+    };
+    try {
+      const [summary, realtime, faceoffs, goalies] = await Promise.all(
+        ['skater/summary', 'skater/realtime', 'skater/faceoffwins', 'goalie/summary'].map(get)
+      );
+      const byId = (rows: any[]) => new Map(rows.map((r) => [String(r.playerId), r]));
+      const rt = byId(realtime), fo = byId(faceoffs);
+      const lines = new Map<string, PlayerStats>();
+      for (const s of summary) {
+        const id = String(s.playerId);
+        lines.set(id, {
+          games_played: Number(s.gamesPlayed ?? 0),
+          goals: Number(s.goals ?? 0),
+          assists: Number(s.assists ?? 0),
+          points: Number(s.points ?? 0),
+          plus_minus: Number(s.plusMinus ?? 0),
+          penalty_minutes: Number(s.penaltyMinutes ?? 0),
+          shots: Number(s.shots ?? 0),
+          power_play_goals: Number(s.ppGoals ?? 0),
+          short_handed_goals: Number(s.shGoals ?? 0),
+          game_winning_goals: Number(s.gameWinningGoals ?? 0),
+          power_play_points: Number(s.ppPoints ?? 0),
+          short_handed_points: Number(s.shPoints ?? 0),
+          hits: Number(rt.get(id)?.hits ?? 0),
+          blocks: Number(rt.get(id)?.blockedShots ?? 0),
+          faceoff_wins: Number(fo.get(id)?.totalFaceoffWins ?? 0),
+          time_on_ice_per_game: Number(s.timeOnIcePerGame ?? 0)
+        });
+      }
+      for (const g of goalies) {
+        lines.set(String(g.playerId), {
+          games_played: Number(g.gamesPlayed ?? 0),
+          games_started: Number(g.gamesStarted ?? 0),
+          wins: Number(g.wins ?? 0),
+          losses: Number(g.losses ?? 0),
+          goals_against_average: Number(g.goalsAgainstAverage ?? 0),
+          save_percentage: g.savePct === null || g.savePct === undefined ? undefined : Number(g.savePct),
+          shutouts: Number(g.shutouts ?? 0),
+          saves: Number(g.saves ?? 0),
+          goals_against: Number(g.goalsAgainst ?? 0)
+        } as PlayerStats);
+      }
+      this.linesError = null;
+      return lines;
+    } catch (error) {
+      this.linesError = `NHL league-wide stats unavailable (${error instanceof Error ? error.message : String(error)}); club lines only, no hits, blocks, PPP, SHP or faceoff wins`;
+      return null;
+    }
+  }
+
+  /** Null when every player has a whole-season line with every category; otherwise why not. */
+  public getLinesError(): string | null { return this.linesError; }
 
   private async fetchClub(
     team: NhlTricode,
