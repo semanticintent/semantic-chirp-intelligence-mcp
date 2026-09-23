@@ -330,7 +330,7 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
         resolved: false,
         note:
           'No playoff window resolved. Pass playoff_start_week and playoff_end_week ' +
-          '(your league settings list them; week 1 is the week of the NHL opener) to score your real playoff window; clubs are rated on their ' +
+          '(your league settings list them; week 1 opens with the NHL season and, when that is mid-week, runs to the second Sunday, as Yahoo counts it) to score your real playoff window; clubs are rated on their ' +
           'regular-season schedule only until then.',
         start: null,
         end: null,
@@ -338,24 +338,16 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
       };
     }
 
-    const week1Monday = NhlScheduleService.weekStart(startDate);
-    const start = NhlScheduleService.addDays(week1Monday, (playoffStartWeek - 1) * DAYS_PER_WEEK);
-    const end = NhlScheduleService.addDays(week1Monday, endWeek * DAYS_PER_WEEK - 1);
-
-    const weeks: string[] = [];
-    for (let week = playoffStartWeek; week <= endWeek; week++) {
-      weeks.push(NhlScheduleService.addDays(week1Monday, (week - 1) * DAYS_PER_WEEK));
-    }
-
+    const window = NhlScheduleService.fantasyWindow(startDate, playoffStartWeek, endWeek);
     return {
       resolved: true,
       source: 'explicit argument',
-      week_1_anchor: `${week1Monday} (${anchorSource})`,
+      week_1_anchor: anchorSource === 'NHL season opener' ? window.week_1_anchor : `${startDate} (${anchorSource})`,
       playoff_start_week: playoffStartWeek,
       end_week: endWeek,
-      start,
-      end,
-      weeks
+      start: window.start,
+      end: window.end,
+      weeks: window.weeks
     };
   }
 }

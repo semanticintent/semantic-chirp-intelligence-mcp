@@ -226,7 +226,7 @@ describe('playoff window', () => {
 
     const window = result.analysis_insights.playoff_window;
     expect(window.resolved).toBe(true);
-    expect(window.start).toBe('2027-02-22');
+    expect(window.start).toBe('2027-03-01'); // week 1 runs Sep 29 – Oct 11 (folded), so week 22 starts Mar 1
     expect(window.weeks).toHaveLength(3);
     expect(result.analysis_insights.top_candidates[0].playoff_games).toBe(11);
   });
@@ -312,5 +312,23 @@ describe('reasoning', () => {
     const onTime = result.analysis_insights.top_candidates.find((c: any) => c.name === 'On Time');
 
     expect(onTime.reasoning).toContain('2nd best producer, 1 slot below this pick');
+  });
+});
+
+describe('league categories (D51)', () => {
+  it('ranks the pool for the league\'s categories and says so', async () => {
+    const pool = [
+      { player_id: '1', name: 'Faller Guy', position: 'C', team: 'TOR', stats: { games_played: 80, points: 110, hits: 10 } },
+      { player_id: '2', name: 'Big Hitter', position: 'C', team: 'BOS', stats: { games_played: 80, points: 20, hits: 320 } },
+      { player_id: '3', name: 'Middle Man', position: 'C', team: 'OTT', stats: { games_played: 80, points: 50, hits: 90 } },
+    ];
+    stubServices(pool as any);
+    vi.spyOn(NHL_STATS, 'getAll').mockReturnValue(pool as any);
+    const result: any = await analysis().executeAnalysis({ pick_number: 1, categories: 'HIT' }, contract);
+    const top = result.analysis_insights.top_candidates[0];
+
+    expect(top.name).toBe('Big Hitter');
+    expect(top.reasoning).toMatch(/1st best for your categories.*HIT \+/);
+    expect(result.analysis_insights.scoring.categories).toEqual(['HIT']);
   });
 });

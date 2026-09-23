@@ -330,6 +330,29 @@ export class NhlScheduleService {
   }
 
   /** Add `days` to a YYYY-MM-DD date, returning YYYY-MM-DD. */
+  /**
+   * The first day of fantasy week n, counted the way Yahoo counts it. Week 1 opens with the season; when the opener
+   * is not a Monday, that short opening week is folded into week 1, so week 2 starts on the second Monday after the
+   * opener. (2026-27: the season opens Tuesday September 29; week 1 runs to Sunday October 11, week 27 is April 5.)
+   */
+  public static fantasyWeekStart(opener: string, n: number): string {
+    if (n <= 1) return opener;
+    const monday = NhlScheduleService.weekStart(opener);
+    const folded = monday === opener ? 0 : 1;
+    return NhlScheduleService.addDays(monday, (n - 1 + folded) * 7);
+  }
+
+  /** Fantasy weeks start..end as calendar dates, with the week-1 rule stated. */
+  public static fantasyWindow(opener: string, startWeek: number, endWeek: number) {
+    const weeks = Array.from({ length: endWeek - startWeek + 1 }, (_, i) => NhlScheduleService.fantasyWeekStart(opener, startWeek + i));
+    return {
+      week_1_anchor: `${opener} (NHL season opener; a short opening week is folded into week 1, as Yahoo counts it)`,
+      start: weeks[0],
+      end: NhlScheduleService.addDays(NhlScheduleService.fantasyWeekStart(opener, endWeek + 1), -1),
+      weeks,
+    };
+  }
+
   public static addDays(date: string, days: number): string {
     const d = new Date(`${date}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() + days);

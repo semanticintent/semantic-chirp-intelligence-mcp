@@ -1315,7 +1315,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "schedule_value",
-        description: "🗓️ Rate all 32 NHL clubs on what their schedule is worth to a fantasy roster — total games, four-game weeks, light weeks, back-to-backs, and games played during YOUR league's playoff weeks (pass playoff_start_week and playoff_end_week; week 1 is the week of the NHL opener). The draft tiebreaker when two players are close.",
+        description: "🗓️ Rate all 32 NHL clubs on what their schedule is worth to a fantasy roster — total games, four-game weeks, light weeks, back-to-backs, and games played during YOUR league's playoff weeks (pass playoff_start_week and playoff_end_week; week 1 opens with the NHL season and, when that is mid-week, runs to the second Sunday, as Yahoo counts it). The draft tiebreaker when two players are close.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1392,6 +1392,10 @@ export const TOOL_DEFINITIONS: Tool[] = [
               type: "number",
               description: "Final week of your fantasy playoffs."
             },
+            categories: {
+              type: "string",
+              description: "Your league's scoring categories, pasted as your platform lists them, e.g. \"G, A, +/-, PPP, SOG, HIT, BLK; W, GAA, SV%, SO\". Given, players are ranked for those categories (per-game z-scores over last season, 20-game minimum) instead of points, and each carries a category line. Labels it cannot read are named back."
+            },
             rankings: {
               type: "string",
               description: "Optional. Paste a ranked player list — from NHL.com, Dobber, FantasyPros, anywhere — one per line. Its order becomes the baseline rank and CHIRP annotates it rather than replacing it. Omit to have the board built from NHL production instead."
@@ -1436,6 +1440,10 @@ export const TOOL_DEFINITIONS: Tool[] = [
               type: "number",
               description: "How deep to pull the player pool (default 250, max 400)",
               default: 250
+            },
+            categories: {
+              type: "string",
+              description: "Your league's scoring categories, pasted as your platform lists them, e.g. \"G, A, +/-, PPP, SOG, HIT, BLK; W, GAA, SV%, SO\". Given, players are ranked for those categories (per-game z-scores over last season, 20-game minimum) instead of points, and each carries a category line. Labels it cannot read are named back."
             },
             playoff_start_week: {
               type: "number",
@@ -1965,6 +1973,7 @@ async function dispatchTool(name: string, args: Record<string, unknown> | undefi
               playoff_start_week: args?.playoff_start_week as number | undefined,
               playoff_end_week: args?.playoff_end_week as number | undefined,
               rankings: args?.rankings as string | undefined,
+              categories: args?.categories as string | undefined,
               positions: args?.positions as string[] | undefined,
               tier_size: args?.tier_size as number | undefined,
               max_per_position: args?.max_per_position as number | undefined
@@ -2006,6 +2015,7 @@ async function dispatchTool(name: string, args: Record<string, unknown> | undefi
               roster_needs: args?.roster_needs as string[] | undefined,
               max_results: args?.max_results as number | undefined,
               pool_size: args?.pool_size as number | undefined,
+              categories: args?.categories as string | undefined,
               playoff_start_week: args?.playoff_start_week as number | undefined,
               playoff_end_week: args?.playoff_end_week as number | undefined
             },

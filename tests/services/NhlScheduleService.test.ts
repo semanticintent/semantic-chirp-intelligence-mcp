@@ -225,3 +225,18 @@ describe('NhlScheduleService with an injected cache', () => {
     expect(fs.readdirSync(tmpDir)).toHaveLength(0);
   });
 });
+
+describe('fantasy weeks, counted as Yahoo counts them', () => {
+  // A real 2026-27 Yahoo league: playoffs weeks 25–27 end April 10, 2027; the season opens Tuesday September 29.
+  it('folds a short opening week into week 1', () => {
+    expect(NhlScheduleService.fantasyWeekStart('2026-09-29', 1)).toBe('2026-09-29');
+    expect(NhlScheduleService.fantasyWeekStart('2026-09-29', 2)).toBe('2026-10-12');
+    expect(NhlScheduleService.fantasyWeekStart('2026-09-29', 27)).toBe('2027-04-05');
+    const w = NhlScheduleService.fantasyWindow('2026-09-29', 25, 27);
+    expect(w).toMatchObject({ start: '2027-03-22', end: '2027-04-11', weeks: ['2027-03-22', '2027-03-29', '2027-04-05'] });
+  });
+  it('does not fold when the season opens on a Monday', () => {
+    expect(NhlScheduleService.fantasyWeekStart('2025-10-06', 2)).toBe('2025-10-13');
+  });
+});
+

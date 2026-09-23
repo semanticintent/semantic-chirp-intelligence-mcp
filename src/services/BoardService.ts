@@ -15,18 +15,22 @@ export interface Prospect { id: string; name: string; club: string; pos: Pos; ra
 /** The analyst's pick (D49): chirp_draft_pick against this draft, in its own order. `on_board` says whether the id sits in the columns above. */
 export interface Pick { id: string; name: string; club: string; pos: Pos; why: string; on_board: boolean }
 export interface BoardPick { on_clock: number; needs: Pos[]; take: string; picks: Pick[] }
+/** What the board ranked for (D51), present when the request named the league's categories. */
+export interface BoardScoring { categories: string[]; unread: string[]; missing: string[]; too_few_games: number; method: string }
 export interface Board {
   contract_version: '0.1'; kind: 'board'; generated_at: string;
   positions: Record<Pos, { tier: number; players: Prospect[] }[]>;
   dries_up: Record<Pos, string>;
   taken: number; take: string; not_included: string[];
-  source: { analyst: string; data: string[] }; notes?: string[]; pick?: BoardPick;
+  source: { analyst: string; data: string[] }; notes?: string[]; pick?: BoardPick; scoring?: BoardScoring;
 }
 
 export interface BoardOptions {
   drafted_text?: string;
   /** Your own picks. Given, the analyst also answers who to take next. They count as drafted too. */
   mine_text?: string;
+  /** The league's scoring categories. Given, the board and the pick rank for them instead of points. */
+  categories?: string;
   playoff_start_week?: number;
   playoff_end_week?: number;
   now?: Date;
@@ -35,7 +39,8 @@ export interface BoardOptions {
 const surname = (n: string) => n.trim().split(/\s+/).pop() ?? n;
 
 export async function buildBoard(opts: BoardOptions = {}): Promise<Board> {
-  const kit = await callTool('draft_kit', {});
+  const categories = opts.categories?.trim() || undefined;
+  const kit = await callTool('draft_kit', categories ? { categories } : {});
   const text = (kit.content[0] as { text: string }).text;
   const ai = JSON.parse(text)?.analysis_insights;
   if (!ai?.positions) throw new Error(`draft_kit did not return a board: ${text.slice(0, 200)}`);
@@ -61,14 +66,16 @@ export async function buildBoard(opts: BoardOptions = {}): Promise<Board> {
     positions[pos] = (block.tiers ?? []).map((t: any) => ({
       tier: Number(t.tier),
       players: (t.players ?? []).flatMap((p: any) => {
-        const hit = NHL_STATS.resolve(p.name).player;
+        const hit = p.id ? NHL_STATS.getById(String(p.id)) ?? NHL_STATS.resolve(p.name).player : NHL_STATS.resolve(p.name).player;
         if (!hit) return [];
         const isTaken = takenIds.has(hit.player_id);
         if (isTaken) taken++;
         const prospect: Prospect = {
           id: hit.player_id, name: surname(p.name), club: p.team, pos, rank: Number(p.rank),
           age: typeof p.age === 'number' ? p.age : null, ppg: Number(p.ppg ?? 0), flags: Array.isArray(p.flags) ? p.flags : [],
-          note: pos === 'G'
+          note: p.categories
+            ? `${p.categories}${p.flags?.length ? `; ${p.flags[0]}` : ''}.`
+            : pos === 'G'
             ? `Tier ${t.tier} goalie, rank ${p.rank}${p.flags?.length ? `; ${p.flags[0]}` : ''}.`
             : `${p.ppg} points a game last season${typeof p.age === 'number' ? `, age ${Math.floor(p.age)}` : ''}${p.flags?.length ? `; ${p.flags[0]}` : ''}.`,
           taken: isTaken,
@@ -95,6 +102,15 @@ export async function buildBoard(opts: BoardOptions = {}): Promise<Board> {
     not_included: Array.isArray(ai.not_included) ? ai.not_included : [],
     source: { analyst: `chirp@${getVersion()}`, data: [ai.source, ai.schedule_source].filter(Boolean).map(String) },
   };
+  if (ai.scoring) {
+    board.scoring = {
+      categories: ai.scoring.categories, unread: ai.scoring.unread ?? [], missing: ai.scoring.missing ?? [],
+      too_few_games: Number(ai.scoring.too_few_games ?? 0), method: String(ai.scoring.method ?? ''),
+    };
+    notes.push(...board.scoring.unread.map((u) => `Category not read: "${u}"`));
+    notes.push(...board.scoring.missing.map((m) => `No ${m} numbers in the loaded stats; ranked without it`));
+  }
+  if (ai.lines_note) notes.push(String(ai.lines_note));
   if (notes.length) board.notes = notes;
   if (opts.mine_text?.trim()) board.pick = await pickFor(opts, draftedAll, positions);
   return board;
@@ -112,6 +128,7 @@ async function pickFor(opts: BoardOptions, draftedAll: string, positions: Board[
     already_drafted: draftedAll.split('\n').map((l) => l.trim()).filter(Boolean),
     playoff_start_week: opts.playoff_start_week,
     playoff_end_week: opts.playoff_end_week,
+    categories: opts.categories?.trim() || undefined,
     max_results: 3,
     enable_chirp: true,
   });

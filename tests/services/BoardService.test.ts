@@ -103,3 +103,39 @@ describe('the pick (D49)', () => {
     expect(validate(b), JSON.stringify(validate.errors)).toBe(true);
   });
 });
+
+describe('league categories (D51)', () => {
+  const CAT_KIT = { analysis_insights: {
+    ...KIT.analysis_insights,
+    positions: { ...KIT.analysis_insights.positions, C: { tiers: tier([{ rank: 1, id: '8478402', name: 'Connor McDavid', team: 'EDM', age: 29.7, ppg: 1.68, flags: [], categories: 'A +4.1 · PPP +3.0 · HIT −0.8' }]), dries_up_after: 'tier 4' } },
+    scoring: { categories: ['G', 'HIT', 'W'], skater: ['G', 'HIT'], goalie: ['W'], unread: ['Corsi'], missing: [], too_few_games: 12, min_games: 20, method: 'Per game…' },
+  } };
+  let calls: any[];
+  beforeEach(() => {
+    calls = [];
+    vi.spyOn(tools, 'callTool').mockImplementation(async (name: string, args: any) => {
+      calls.push([name, args]);
+      return { content: [{ type: 'text', text: JSON.stringify(CAT_KIT) }] } as any;
+    });
+    vi.spyOn(NHL_STATS, 'getById').mockImplementation((id: string) => (id === '8478402' ? { player_id: id, name: 'Connor McDavid' } : null) as any);
+  });
+
+  it('asks the kit for the league\'s categories and carries what it ranked for', async () => {
+    const b = await buildBoard({ categories: 'G, HIT; W, Corsi' });
+    expect(calls[0]).toEqual(['draft_kit', { categories: 'G, HIT; W, Corsi' }]);
+    expect(b.positions.C[0].players[0]).toMatchObject({ id: '8478402', note: 'A +4.1 · PPP +3.0 · HIT −0.8.' });
+    expect(b.scoring).toEqual({ categories: ['G', 'HIT', 'W'], unread: ['Corsi'], missing: [], too_few_games: 12, method: 'Per game…' });
+    expect(b.notes).toContain('Category not read: "Corsi"');
+  });
+
+  it('passes the categories to the pick too', async () => {
+    await buildBoard({ categories: 'G, HIT', mine_text: 'Connor McDavid' }).catch(() => null);
+    const pick = calls.find((c) => c[0] === 'chirp_draft_pick');
+    expect(pick?.[1].categories).toBe('G, HIT');
+  });
+
+  it('asks for points when no categories are given', async () => {
+    await buildBoard({});
+    expect(calls[0]).toEqual(['draft_kit', {}]);
+  });
+});
