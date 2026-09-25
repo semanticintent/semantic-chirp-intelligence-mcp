@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.8.2]
+
+### Added
+- **The hosted connector serves its icon.** Claude and its connector directory take a connector's icon from the
+  server's own URL; `chirp-mcp.semanticintent.dev` answered every icon path with a 404, so the connector would have
+  shown a generic placeholder throughout Claude whatever the directory listing carried. The helmeted cormorant is now
+  served as a 192×192 PNG at `/favicon.ico`, `/favicon.png`, `/icon.png` and `/apple-touch-icon.png`, and the root
+  returns a small page declaring it for fetchers that read HTML.
+
+---
+
 ## [4.8.1]
 
 Directory readiness for the hosted connector at `chirp-mcp.semanticintent.dev/mcp`. No change to any analysis.

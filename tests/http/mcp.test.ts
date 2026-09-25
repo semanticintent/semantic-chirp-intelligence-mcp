@@ -97,3 +97,22 @@ describe('/mcp', () => {
     setStateless(false);
   });
 });
+
+describe('icon', () => {
+  it('serves the icon as a PNG at the favicon paths', async () => {
+    for (const path of ['/favicon.ico', '/favicon.png', '/apple-touch-icon.png']) {
+      const res = await worker.fetch(new Request(`https://chirp-mcp.test${path}`), env);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('content-type')).toBe('image/png');
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      // PNG signature
+      expect([...bytes.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    }
+  });
+
+  it('declares the icon from the root page for fetchers that read HTML', async () => {
+    const res = await worker.fetch(new Request('https://chirp-mcp.test/'), env);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('rel="icon"');
+  });
+});
