@@ -22,6 +22,7 @@ import { setStateless } from './tools.js';
 import { setVersion } from './version.js';
 import { corsOrigin } from './cors.js';
 import pkg from '../package.json';
+import { iconBytes } from './icon.js';
 
 export interface Env {
   CACHE?: KvLike;
@@ -73,6 +74,26 @@ export default {
     if ((env.AUTH_MODE ?? 'none') === 'jwt') return json(501, { error: 'AUTH_MODE=jwt is declared but not wired on this analyst yet.' });
 
     const url = new URL(request.url);
+
+    // The icon. Claude and its directory take a connector's icon from the server's own URL, so serve it at the paths
+    // favicon fetchers try, and give the root a tiny page that declares it for fetchers that read HTML.
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      if (['/favicon.ico', '/favicon.png', '/icon.png', '/apple-touch-icon.png'].includes(url.pathname)) {
+        return new Response(request.method === 'HEAD' ? null : iconBytes(), {
+          status: 200,
+          headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' },
+        });
+      }
+      if (url.pathname === '/') {
+        return new Response(
+          '<!doctype html><html><head><meta charset="utf-8"><title>CHIRP — Fantasy Hockey Intelligence</title>' +
+          '<link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">' +
+          '</head><body><p>CHIRP MCP server. Connect to <code>/mcp</code>. Docs: ' +
+          '<a href="https://chirp.semanticintent.dev">chirp.semanticintent.dev</a></p></body></html>',
+          { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } },
+        );
+      }
+    }
 
     // Two budgets, because the two faces are called from very different places.
     //
