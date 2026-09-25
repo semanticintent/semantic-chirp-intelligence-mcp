@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.8.1]
+
+Directory readiness for the hosted connector at `chirp-mcp.semanticintent.dev/mcp`. No change to any analysis.
+
+### Added
+- **Every tool now carries a `title` and a safety hint.** The Claude directory requires both on every tool and flags
+  any that lack them; all 24 lacked both. Twenty tools only read and are marked `readOnlyHint: true`. The four
+  store-backed tools (`set_roster`, `set_opponent_roster`, `set_standings`, `show_stored_data`) overwrite or clear the
+  locally saved roster, so they are marked `readOnlyHint: false, destructiveHint: true`. A tool added without a title
+  now fails at startup rather than shipping unlabelled.
+
+### Changed
+- **The hosted endpoint lists 20 tools, not 24.** On the stateless Worker the four store-backed tools can only refuse,
+  so they are no longer offered there — a user browsing the listing should never see a tool that cannot succeed. The
+  local server still lists all 24. A client that calls one anyway still gets the same refusal with instructions.
+- **`/mcp` has its own rate limit.** Previously one per-address budget of 60 requests/minute covered every POST. That
+  suits Sepiola, whose callers are individual browsers — but hosted MCP clients such as claude.ai call remote
+  connectors from their own servers, so every one of their users can arrive from the same few addresses and would have
+  shared one 60/minute budget. `/mcp` now has a separate 1,500/minute ceiling (`MCP_LIMIT`) meant as an abuse guard, not
+  a per-user quota; the NHL data behind it is cron-cached in KV, so a call costs CPU rather than upstream requests.
+  `/read` and `/board` keep the per-viewer limit. A limited MCP call returns a JSON-RPC error rather than a bare body.
+
+### Removed
+- `findCurrentMatchup`, dead Yahoo-era code with no callers that logged matchup contents.
+
+---
+
 ## [4.8.0]
 
 ### Added

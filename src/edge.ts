@@ -27,8 +27,11 @@ export interface Env {
   CACHE?: KvLike;
   CORS_ORIGIN?: string;
   AUTH_MODE?: 'none' | 'jwt';
-  READ_LIMIT?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  READ_LIMIT?: RateLimiter;
+  MCP_LIMIT?: RateLimiter;
 }
+
+type RateLimiter = { limit(options: { key: string }): Promise<{ success: boolean }> };
 
 let wired = false;
 const WARM_WAIT_MS = 8000;
@@ -69,13 +72,28 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if ((env.AUTH_MODE ?? 'none') === 'jwt') return json(501, { error: 'AUTH_MODE=jwt is declared but not wired on this analyst yet.' });
 
-    if (request.method === 'POST' && env.READ_LIMIT) {
-      const key = request.headers.get('cf-connecting-ip') ?? 'anonymous';
-      const { success } = await env.READ_LIMIT.limit({ key });
-      if (!success) return json(429, { error: 'Easy. Too many reads from this address; try again in a minute.' });
-    }
-
     const url = new URL(request.url);
+
+    // Two budgets, because the two faces are called from very different places.
+    //
+    // /read and /board serve Sepiola in a viewer's browser, so the caller's address is that viewer: a tight per-address
+    // limit is fair there. /mcp is called by MCP clients — and a hosted client such as claude.ai calls remote
+    // connectors from its own servers, so every one of its users can arrive from the same few addresses. A per-address
+    // limit sized for one person would throttle all of them together. The MCP budget is therefore an abuse ceiling,
+    // not a per-user quota; the NHL data behind it is KV-cached by cron, so a call costs CPU, not upstream requests.
+    if (request.method === 'POST') {
+      const limiter = url.pathname === '/mcp' ? env.MCP_LIMIT : env.READ_LIMIT;
+      if (limiter) {
+        const key = request.headers.get('cf-connecting-ip') ?? 'anonymous';
+        const { success } = await limiter.limit({ key });
+        if (!success) {
+          if (url.pathname === '/mcp') {
+            return json(429, { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'The analyst is busy right now. Try again in a minute.' } });
+          }
+          return json(429, { error: 'Easy. Too many reads from this address; try again in a minute.' });
+        }
+      }
+    }
 
     // The analyst's MCP face: stateless Streamable HTTP, one server per request, JSON responses.
     if (url.pathname === '/mcp') {

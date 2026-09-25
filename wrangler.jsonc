@@ -11,7 +11,10 @@
     { "binding": "CACHE", "id": "c709cd50aa0340fb927a4ee935a090c9" }
   ],
   "ratelimits": [
-    { "name": "READ_LIMIT", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } }
+    // Sepiola's /read and /board: one viewer per address.
+    { "name": "READ_LIMIT", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
+    // /mcp: hosted MCP clients share egress addresses across all their users, so this is an abuse ceiling.
+    { "name": "MCP_LIMIT", "namespace_id": "1002", "simple": { "limit": 1500, "period": 60 } }
   ],
   "vars": {
     // Browser origins allowed to call /read. Add the *.chatgpt.site origin when the page is published there.

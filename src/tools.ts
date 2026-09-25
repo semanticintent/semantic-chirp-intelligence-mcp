@@ -100,48 +100,6 @@ const draftKitAnalysis = new DraftKitAnalysis();
 const weekendStreamAnalysis = new WeekendStreamAnalysis();
 
 
-// Helper function to find current matchup by status
-function findCurrentMatchup(matchups: any): any {
-  console.error('[DEBUG] findCurrentMatchup called');
-
-  if (!matchups || matchups.count === '0') {
-    console.error('[DEBUG] No matchups or count is 0');
-    return null;
-  }
-
-  // Find matchup with status === "midevent" (current week)
-  const matchupKeys = Object.keys(matchups).filter(key => key !== 'count');
-  console.error(`[DEBUG] Total matchup keys: ${matchupKeys.length}`, matchupKeys);
-
-  const currentMatchup = matchupKeys.find(key => {
-    const matchupData = matchups[key]?.matchup;
-    // Matchup can be either an object or an array
-    const matchup = Array.isArray(matchupData) ? matchupData[0] : matchupData;
-    const week = matchup?.week;
-    const status = matchup?.status;
-    console.error(`[DEBUG] Checking key "${key}": week=${week}, status="${status}"`);
-    return matchup?.status === 'midevent';
-  });
-
-  console.error(`[DEBUG] Found currentMatchup key: "${currentMatchup}"`);
-
-  // If found, return it; otherwise fallback to last matchup
-  if (currentMatchup) {
-    const matchupData = matchups[currentMatchup].matchup;
-    console.error(`[DEBUG] Returning matchup for key "${currentMatchup}":`, {
-      week: matchupData?.week,
-      status: matchupData?.status
-    });
-    return matchupData;
-  }
-
-  // Fallback: return the last matchup in the list
-  const lastKey = matchupKeys[matchupKeys.length - 1];
-  console.error(`[DEBUG] FALLBACK - Using last key: "${lastKey}"`);
-  if (!lastKey) return null;
-
-  return matchups[lastKey].matchup;
-}
 
 
 // Tool: Get Team Roster
@@ -2079,10 +2037,63 @@ const STATEFUL_TOOLS = new Set(['set_roster', 'set_opponent_roster', 'set_standi
 const STATELESS_REFUSAL =
   'This endpoint keeps no state. Pass roster_text (and opponent_text) with each tool call instead of set_roster / set_opponent_roster.';
 
+/**
+ * Directory annotations: a human-readable title and the safety hint for every tool.
+ *
+ * The Claude directory requires both on every tool and flags any that lack them. Almost everything here only reads —
+ * NHL data plus a roster supplied in the call. The set_* tools overwrite the locally stored roster, and
+ * show_stored_data can clear it, so those are marked as writes that replace earlier data.
+ */
+const TOOL_TITLES: Record<string, string> = {
+  get_team_roster: 'Your roster, with NHL stats and games this week',
+  get_league_standings: 'League standings you pasted',
+  search_players: 'Search NHL players by position',
+  get_player_stats: 'Player stats and upcoming schedule',
+  compare_matchup: 'Compare your roster with your opponent\'s',
+  optimize_lineup: 'Lineup check for tonight',
+  get_streaming_recommendations: 'Schedule-aware pickup candidates',
+  get_games_in_hand: 'Games in hand vs. your opponent',
+  get_roster_transaction_recommendations: 'ICE roster moves',
+  ice: 'ICE — Intent Chirp Engine',
+  governance_dashboard: 'Governance dashboard',
+  analyze_breakout_players: 'Breakout candidates',
+  analyze_weekend_streams: 'Weekend stream classifier',
+  chirp_opponent: 'Scout your opponent',
+  analyze_trade: 'Trade evaluator',
+  set_roster: 'Save your roster',
+  set_opponent_roster: 'Save your opponent\'s roster',
+  set_standings: 'Save league standings',
+  show_stored_data: 'Show or clear saved league data',
+  schedule_value: 'Club schedule value for your playoff weeks',
+  read_ice: 'Read the ice (Sepiola)',
+  analyze_goalie_streams: 'Goalie streaming',
+  draft_kit: 'Draft kit — tiers, cheat sheet, flags',
+  chirp_draft_pick: 'Who to take at your pick',
+};
+
+const WRITE_TOOLS = new Set(['set_roster', 'set_opponent_roster', 'set_standings', 'show_stored_data']);
+
+for (const tool of TOOL_DEFINITIONS) {
+  const title = TOOL_TITLES[tool.name];
+  if (!title) throw new Error(`Tool "${tool.name}" has no directory title — add it to TOOL_TITLES.`);
+  tool.title = title;
+  tool.annotations = WRITE_TOOLS.has(tool.name)
+    ? { ...tool.annotations, title, readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
+    : { ...tool.annotations, title, readOnlyHint: true, openWorldHint: false };
+}
+
 let stateless = false;
 /** The hosted Worker sets this: no disk, so the set_* tools refuse and every call carries its own roster. */
 export function setStateless(value: boolean): void { stateless = value; }
 export function isStateless(): boolean { return stateless; }
+
+/**
+ * The tools this endpoint actually offers. On the hosted, stateless endpoint the store-backed tools can only ever
+ * refuse, so they are not listed there at all — a directory user should never see a tool that cannot succeed.
+ */
+export function listTools(): Tool[] {
+  return stateless ? TOOL_DEFINITIONS.filter(t => !STATEFUL_TOOLS.has(t.name)) : TOOL_DEFINITIONS;
+}
 
 /**
  * The one entry point both transports use. A pasted roster_text / opponent_text in the arguments overrides the stored

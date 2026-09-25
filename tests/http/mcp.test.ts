@@ -38,10 +38,15 @@ describe('/mcp', () => {
     expect(body.result.serverInfo.name).toBe('semantic-chirp-intelligence-mcp');
     expect(res.headers.get('access-control-allow-origin')).toBe('https://sepiola.semanticintent.dev');
   });
-  it('lists the 24 tools, each roster tool with roster_text', async () => {
+  it('lists the 20 tools that can succeed here, each roster tool with roster_text', async () => {
     const res = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
     const body = await res.json();
-    expect(body.result.tools).toHaveLength(24);
+    // The four store-backed tools can only refuse on a stateless host, so they are not offered.
+    expect(body.result.tools).toHaveLength(20);
+    const names = body.result.tools.map((t: any) => t.name);
+    for (const hidden of ['set_roster', 'set_opponent_roster', 'set_standings', 'show_stored_data']) {
+      expect(names).not.toContain(hidden);
+    }
     const ice = body.result.tools.find((t: any) => t.name === 'ice');
     expect(ice.inputSchema.properties).toHaveProperty('roster_text');
   });
@@ -60,10 +65,35 @@ describe('/mcp', () => {
     expect(body.result.isError).toBe(true);
     expect(body.result.content[0].text).toMatch(/keeps no state/);
   });
+  it('gives every listed tool a title and a read-only hint, as the directory requires', async () => {
+    const res = await rpc({ jsonrpc: '2.0', id: 5, method: 'tools/list' });
+    const body = await res.json();
+    for (const tool of body.result.tools) {
+      expect(tool.title, tool.name).toBeTruthy();
+      expect(tool.annotations?.readOnlyHint, tool.name).toBe(true);
+    }
+  });
+  it('limits /mcp on its own budget, separate from the page', async () => {
+    const seen: string[] = [];
+    const deny = { limit: vi.fn(async () => { seen.push('mcp'); return { success: false }; }) };
+    const allow = { limit: vi.fn(async () => { seen.push('read'); return { success: true }; }) };
+    const limited = { ...env, MCP_LIMIT: deny, READ_LIMIT: allow };
+
+    const res = await worker.fetch(new Request('https://chirp-mcp.test/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'cf-connecting-ip': '203.0.113.9' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'tools/list' }),
+    }), limited);
+
+    expect(res.status).toBe(429);
+    expect((await res.json()).error.message).toMatch(/busy/);
+    expect(seen).toEqual(['mcp']);            // the page's per-viewer budget was never touched
+    expect(deny.limit).toHaveBeenCalledWith({ key: '203.0.113.9' });
+  });
   it('health reports the MCP face', async () => {
     const res = await worker.fetch(new Request('https://chirp-mcp.test/health'), env);
     const body = await res.json();
-    expect(body.mcp).toEqual({ endpoint: '/mcp', tools: 24, stateless: true });
+    expect(body.mcp).toEqual({ endpoint: '/mcp', tools: 20, stateless: true });
     setStateless(false);
   });
 });

@@ -5,7 +5,7 @@
 import { readIceFromText } from './services/ReadIceService.js';
 import { buildBoard } from './services/BoardService.js';
 import { NHL_SCHEDULE } from './services/NhlScheduleService.js';
-import { TOOL_DEFINITIONS, isStateless } from './tools.js';
+import { listTools, isStateless } from './tools.js';
 
 export interface HandlerResult { status: number; payload: unknown }
 
@@ -13,7 +13,7 @@ export const READ_SHAPE = 'POST /read { roster_text, look_ahead_days?, opponent_
 
 export async function handleReadRequest(method: string, pathname: string, bodyText: string): Promise<HandlerResult> {
   if (method === 'GET' && pathname === '/health') {
-    return { status: 200, payload: { ok: true, analyst: 'chirp', season: NHL_SCHEDULE.getSeason(), read: 'POST /read { roster_text, look_ahead_days?, opponent_text?, start? }', board: 'POST /board { drafted_text?, mine_text?, categories?, playoff_start_week?, playoff_end_week? }', mcp: { endpoint: '/mcp', tools: TOOL_DEFINITIONS.length, stateless: isStateless() } } };
+    return { status: 200, payload: { ok: true, analyst: 'chirp', season: NHL_SCHEDULE.getSeason(), read: 'POST /read { roster_text, look_ahead_days?, opponent_text?, start? }', board: 'POST /board { drafted_text?, mine_text?, categories?, playoff_start_week?, playoff_end_week? }', mcp: { endpoint: '/mcp', tools: listTools().length, stateless: isStateless() } } };
   }
   if (method === 'POST' && pathname === '/board') {
     let input: any;

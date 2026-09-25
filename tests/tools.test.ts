@@ -79,3 +79,33 @@ describe('RosterStore.runWith', () => {
     expect(await Promise.all([a, b])).toEqual(['A', 'B']);
   });
 });
+
+describe('directory annotations', () => {
+  it('gives every tool a title and exactly the right safety hint', async () => {
+    const { TOOL_DEFINITIONS } = await import('../src/tools.js');
+    const writes = new Set(['set_roster', 'set_opponent_roster', 'set_standings', 'show_stored_data']);
+    expect(TOOL_DEFINITIONS.length).toBeGreaterThan(0);
+    for (const tool of TOOL_DEFINITIONS) {
+      expect(tool.title, tool.name).toBeTruthy();
+      if (writes.has(tool.name)) {
+        expect(tool.annotations?.readOnlyHint, tool.name).toBe(false);
+        expect(tool.annotations?.destructiveHint, tool.name).toBe(true);
+      } else {
+        expect(tool.annotations?.readOnlyHint, tool.name).toBe(true);
+      }
+    }
+  });
+
+  it('lists every tool locally, but not the store-backed ones when stateless', async () => {
+    const { listTools, setStateless, TOOL_DEFINITIONS } = await import('../src/tools.js');
+    setStateless(false);
+    expect(listTools()).toHaveLength(TOOL_DEFINITIONS.length);
+    setStateless(true);
+    try {
+      expect(listTools().map(t => t.name)).not.toContain('set_roster');
+      expect(listTools()).toHaveLength(TOOL_DEFINITIONS.length - 4);
+    } finally {
+      setStateless(false);
+    }
+  });
+});
