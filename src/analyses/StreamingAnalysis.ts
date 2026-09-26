@@ -19,8 +19,7 @@ import {
 } from '../domain/types.js';
 import { LEAGUE_DATA, LeagueDataService, NO_ROSTER_MESSAGE } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
-import { savePercentile, streamScore } from '../services/GoalieStreamService.js';
-import { GOALIE_STARTER_GP } from '../domain/goalie-rank.js';
+import { goalieScore, starterSavePcts } from '../services/GoalieStreamService.js';
 
 /** Candidates from any one club, so a single heavy schedule cannot fill the list. */
 const MAX_PER_CLUB = 2;
@@ -97,9 +96,9 @@ export class StreamingAnalysis extends AnalysisTemplate {
     const maxRecommendations = args.max_recommendations || 5;
 
     const streamingRecommendations: StreamingPlayerAnalysis[] = [];
-    const starterSvs = NHL_STATS.getAll()
-      .filter(p => p.position === 'G' && (p.stats?.games_played ?? 0) >= GOALIE_STARTER_GP && typeof p.stats?.save_percentage === 'number')
-      .map(p => p.stats!.save_percentage as number);
+    const starterSvs = starterSavePcts();
+    const start = NhlScheduleService.today();
+    const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
 
     // Analyze each available player
     for (const player of data.availablePlayers || []) {
@@ -138,7 +137,7 @@ export class StreamingAnalysis extends AnalysisTemplate {
         expected_games: expected,
         // Goalies are ordered on analyze_goalie_streams' score — expected starts, opposing attack, save % — so the two
         // tools name the same goalie. Leaving the opposition out put Shesterkin (BOS, TBL) ahead of its pick.
-        goalie_score: isG ? streamScore(expected, this.avgAttack(player, lookAheadDays), savePercentile(starterSvs, st?.save_percentage ?? null)) : null,
+        goalie_score: isG && NHL_SCHEDULE.isAvailable() ? goalieScore(player, start, end, starterSvs).score : null,
         recent_performance: this.describePerformance(player),
         pickup_priority: pickupPriority,
         reasoning
@@ -286,17 +285,6 @@ export class StreamingAnalysis extends AnalysisTemplate {
     const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
 
     return NHL_SCHEDULE.countGamesInRange(player.team, start, end);
-  }
-
-  /** Average attack (0–100) of the clubs this goalie's team faces in the window; null when standings are unknown. */
-  private avgAttack(player: Player, lookAheadDays: number): number | null {
-    if (!NHL_SCHEDULE.isAvailable()) return null;
-    const start = NhlScheduleService.today();
-    const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
-    const known = NHL_SCHEDULE.getGamesInRange(player.team, start, end)
-      .map(g => NHL_SCHEDULE.getTeamStrength(g.opponent)?.attack)
-      .filter((a): a is number => typeof a === 'number');
-    return known.length ? Math.round(known.reduce((x, y) => x + y, 0) / known.length) : null;
   }
 
   /** Whether recommendations in this run were backed by the real schedule. */

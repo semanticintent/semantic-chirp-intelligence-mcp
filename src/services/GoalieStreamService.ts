@@ -36,12 +36,37 @@ export function streamScore(expectedStarts: number, avgAttack: number | null, sa
   return Math.round((Math.min(expectedStarts, 4) / 4) * 55 + (100 - (avgAttack ?? 50)) * 0.25 + (savePctile ?? 50) * 0.2);
 }
 
-/** Percentile of a save percentage among goalies who started enough games for theirs to mean something. */
-export function savePercentile(starterSvs: number[], sv: number | null): number | null {
-  if (sv === null || !starterSvs.length) return null;
+/**
+ * Percentile of a save percentage among goalies who started enough games for theirs to mean something. A goalie below
+ * that workload gets none (and counts as 50): a five-game .930 was ranked at the 100th percentile.
+ */
+export function savePercentile(starterSvs: number[], sv: number | null, gamesPlayed: number = GOALIE_STARTER_GP): number | null {
+  if (sv === null || !starterSvs.length || gamesPlayed < GOALIE_STARTER_GP) return null;
   const below = starterSvs.filter((x) => x < sv).length;
   const equal = starterSvs.filter((x) => x === sv).length;
   return Math.round(((below + equal / 2) / starterSvs.length) * 100);
+}
+
+/** Save percentages of the league's starters, the reference for savePercentile. */
+export function starterSavePcts(): number[] {
+  return NHL_STATS.getAll()
+    .filter((p) => p.position === 'G' && Number(p.stats?.games_played ?? 0) >= GOALIE_STARTER_GP && typeof p.stats?.save_percentage === 'number')
+    .map((p) => p.stats!.save_percentage as number);
+}
+
+/**
+ * One goalie's stream outlook for a window — the single score every tool that suggests a goalie uses
+ * (analyze_goalie_streams, get_streaming_recommendations, ice). Three tools with three goalie orders disagreed.
+ */
+export function goalieScore(g: { team: string; stats?: any }, start: string, end: string, starterSvs = starterSavePcts()) {
+  const nights = NHL_SCHEDULE.getGamesInRange(g.team, start, end);
+  const attacks = nights.map((n) => NHL_SCHEDULE.getTeamStrength(n.opponent)?.attack).filter((a): a is number => typeof a === 'number');
+  const avg = attacks.length ? Math.round(attacks.reduce((a, b) => a + b, 0) / attacks.length) : null;
+  const gp = Number(g.stats?.games_played ?? 0);
+  const share = round(Math.min(1, gp / SEASON_GAMES), 2);
+  const expected = round(nights.length * share, 1);
+  const pctile = savePercentile(starterSvs, g.stats?.save_percentage ?? null, gp);
+  return { games: nights.length, share, expected, avg_attack: avg, save_pct_percentile: pctile, score: streamScore(expected, avg, pctile) };
 }
 
 export async function goalieStreams(opts: { look_ahead_days?: number; today?: string; roster?: StoredPlayer[]; top_n?: number } = {}) {
@@ -55,27 +80,21 @@ export async function goalieStreams(opts: { look_ahead_days?: number; today?: st
   const end = NhlScheduleService.addDays(start, days - 1);
 
   const pool = NHL_STATS.getAll().filter((p) => p.position === 'G');
-  const starterSvs = pool
-    .filter((p) => Number(p.stats?.games_played ?? 0) >= GOALIE_STARTER_GP && typeof p.stats?.save_percentage === 'number')
-    .map((p) => p.stats!.save_percentage as number);
+  const starterSvs = starterSavePcts();
 
   const outlook = (g: { player_id: string; name: string; team: string; stats?: any }): GoalieOutlook => {
     const nights: GoalieNight[] = NHL_SCHEDULE.getGamesInRange(g.team, start, end).map((game) => ({
       date: game.date, opponent: game.opponent, home: game.home, attack: NHL_SCHEDULE.getTeamStrength(game.opponent)?.attack ?? null,
     }));
-    const known = nights.filter((n) => n.attack !== null).map((n) => n.attack as number);
-    const avg = known.length ? Math.round(known.reduce((a, b) => a + b, 0) / known.length) : null;
     const soft = nights.filter((n) => n.attack !== null && (n.attack as number) < SOFT).length;
-    const gp = Number(g.stats?.games_played ?? 0);
-    const share = round(Math.min(1, gp / SEASON_GAMES), 2);
-    const expected = round(nights.length * share, 1);
+    const { share, expected, avg_attack: avg, save_pct_percentile, score } = goalieScore(g, start, end, starterSvs);
     const pct = Math.round(share * 100);
     return {
       id: g.player_id, name: surname(g.name), club: g.team, games: nights.length, nights, soft_nights: soft,
       avg_opponent_attack: avg, start_share: share, expected_starts: expected,
       gaa: g.stats?.goals_against_average ?? null, save_pct: g.stats?.save_percentage ?? null, wins: Number(g.stats?.wins ?? 0),
-      save_pct_percentile: savePercentile(starterSvs, g.stats?.save_percentage ?? null),
-      stream_score: streamScore(expected, avg, savePercentile(starterSvs, g.stats?.save_percentage ?? null)),
+      save_pct_percentile,
+      stream_score: score,
       reason: nights.length === 0 ? 'No games in this window.'
         : `${nights.length} game${nights.length === 1 ? '' : 's'}, ${soft} against weak attacks; started ${pct}% of ${g.team}'s games last season`,
     };
@@ -104,13 +123,15 @@ export async function goalieStreams(opts: { look_ahead_days?: number; today?: st
       : 'No goalie has games in this window.',
     method: {
       stream_score: 'expected starts against four × 55, plus (100 − average opponent attack) × 0.25, plus save % percentile × 0.2; expected starts = games in window × last season\'s start share',
-      save_pct_percentile: `last season's save % ranked against goalies with ${GOALIE_STARTER_GP}+ games: 0 worst, 100 best; unknown counts as 50`,
+      save_pct_percentile: `last season's save % ranked against goalies with ${GOALIE_STARTER_GP}+ games: 0 worst, 100 best; a goalie with fewer games, or no save %, gets none and counts as 50`,
       attack: 'opponent goals for per game, ranked across the league: 0 weakest attack, 100 most dangerous',
       soft_night: `an opponent attack below ${SOFT}`,
     },
     limits: [
       'Starting goalies are not announced in public data. Start share is last season\'s, a proxy for who plays, not a lineup.',
-      'League availability is unknowable from public data: candidates are every goalie not on the roster you pasted.',
+      LEAGUE_DATA.assumedRosteredCount()
+        ? `League availability is unknowable from public data: candidates are goalies not on the roster you pasted and outside the top ${LEAGUE_DATA.assumedRosteredCount()} on the draft board (assume_rostered).`
+        : 'League availability is unknowable from public data: candidates are every goalie not on the roster you pasted.',
       ...(lastSeasonTable ? ['Opponent strength is last season\'s final standings until the new season has games.'] : []),
     ],
     source: {

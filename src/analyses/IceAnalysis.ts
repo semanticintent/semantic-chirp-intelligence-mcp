@@ -19,7 +19,7 @@ import type {
   AnalysisInsights
 } from '../domain/types.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
-import { rankGoalies } from '../domain/goalie-rank.js';
+import { goalieScore, starterSavePcts } from '../services/GoalieStreamService.js';
 import { LEAGUE_DATA, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
 import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
@@ -161,8 +161,7 @@ export class IceAnalysis extends AnalysisTemplate {
         action: "pickup",  // Aligned with RecommendationAction type
         pickup,
         drop: this.findBestDropCandidate(data, position.position),
-        reasoning: `Strengthen ${position.position} - ${position.weakness_reason}. ${pickup.name} (${pickup.team}) plays ` +
-          `${pickup.games_in_window} time${pickup.games_in_window === 1 ? '' : 's'} in the window — check he is available in your league.`
+        reasoning: `Strengthen ${position.position} - ${position.weakness_reason}. ${IceAnalysis.playsLine(pickup)} — check he is available in your league.`
       });
     }
 
@@ -183,8 +182,8 @@ export class IceAnalysis extends AnalysisTemplate {
           priority: "MEDIUM",
           action: "volume_play",
           pickup,
-          reasoning: `Opponent has ${Math.abs(gamesDiff)} more games in the window. ${pickup.name} (${pickup.team}) ` +
-            `plays ${pickup.games_in_window} times — check he is available in your league.`
+          reasoning: `Opponent has ${Math.abs(gamesDiff)} more games in the window. ${IceAnalysis.playsLine(pickup)} — ` +
+            'check he is available in your league.'
         });
       }
     }
@@ -453,18 +452,30 @@ export class IceAnalysis extends AnalysisTemplate {
    * 2026-27 has clubs on 0, 1 or 2 games — so it returned nothing whenever it was needed early in a season. "Most
    * games in this window" is the relative fact that actually closes a gap.
    */
+  /** "X (TEAM) plays 3 times in the window", with expected starts for a goalie — his club's games are not all his. */
+  static playsLine(p: any): string {
+    const times = `${p.games_in_window} time${p.games_in_window === 1 ? '' : 's'}`;
+    return p.goalie
+      ? `${p.name} (${p.team}): his club plays ${times} in the window, ≈${p.expected_starts} expected starts (stream score ${p.stream_score})`
+      : `${p.name} (${p.team}) plays ${times} in the window`;
+  }
+
   /** Skaters on neither roster, with their club's games in the window. */
   private candidatePool(lookAheadDays: number): any[] {
     if (!NHL_SCHEDULE.isAvailable()) return [];
     const start = NhlScheduleService.today();
     const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
     const all = LEAGUE_DATA.getPlayerPool({ limit: 5000 });
-    const shape = (p: any, value: number) => ({ player_id: p.player_id, name: p.name, team: p.team, position: p.position,
-      games_in_window: NHL_SCHEDULE.countGamesInRange(p.team, start, end), points: value });
-    // Goalies are ordered by the shared goalie ranking (value falls with rank) and only offered when G is asked for or
-    // weak: ICE listed G as a weak position and then suggested no goalie, because this pool held skaters only.
-    const goalies = rankGoalies(all.filter(p => p.position === 'G')).map((p, i) => ({ ...shape(p, -i), goalie: true }));
-    return [...all.filter(p => p.position !== 'G').slice(0, 400).map(p => shape(p, (p as any).stats?.points ?? 0)), ...goalies];
+    const shape = (p: any) => ({ player_id: p.player_id, name: p.name, team: p.team, position: p.position,
+      games_in_window: NHL_SCHEDULE.countGamesInRange(p.team, start, end) });
+    // Goalies carry the same stream score analyze_goalie_streams uses (expected starts, opposing attack, save %) and
+    // are only offered when G is asked for or weak. They used to carry a negative "points" standing in for a rank.
+    const svs = starterSavePcts();
+    const goalies = all.filter(p => p.position === 'G').map(p => {
+      const g = goalieScore(p, start, end, svs);
+      return { ...shape(p), goalie: true, expected_starts: g.expected, stream_score: g.score };
+    });
+    return [...all.filter(p => p.position !== 'G').slice(0, 400).map(p => ({ ...shape(p), points: (p as any).stats?.points ?? 0 })), ...goalies];
   }
 
   /**
@@ -476,7 +487,13 @@ export class IceAnalysis extends AnalysisTemplate {
       (positions.length
         ? String(p.position).split(',').some((x: string) => positions.includes(x.trim().toUpperCase()))
         : !p.goalie));
-    // Skater points and goalie rank are different scales; a mixed request takes each group's best in turn.
+    // Goalies: best stream score, one per club — two goalies from one club split its starts.
+    if (positions.length === 1 && positions[0] === 'G') {
+      const clubs = new Set<string>();
+      return eligible.sort((a, b) => b.stream_score - a.stream_score)
+        .filter(g => !clubs.has(g.team) && clubs.add(g.team)).slice(0, n);
+    }
+    // Skater points and goalie scores are different scales; a mixed request takes each group's best in turn.
     if (positions.includes('G') && positions.some(x => x !== 'G')) {
       const g = IceAnalysis.bestFor(pool, ['G'], n, exclude), sk = IceAnalysis.bestFor(pool, positions.filter(x => x !== 'G'), n, exclude);
       return sk.flatMap((x, i) => (g[i] ? [x, g[i]] : [x])).concat(g.slice(sk.length)).slice(0, n);

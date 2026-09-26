@@ -473,3 +473,45 @@ describe('fifth review', () => {
     expect(text).not.toMatch(/"fit_reason": ""/);
   });
 });
+
+describe('sixth review', () => {
+  it('ice suggests goalies on the shared stream score: no negative points, one per club', async () => {
+    const { body } = await run('get_roster_transaction_recommendations', {
+      roster_text: 'Young Defender', opponent_text: 'Old Star\nRate Goalie', target_positions: ['G'],
+    });
+    const picks = body.recommendations.filter((r: any) => r.pickup).map((r: any) => r.pickup);
+    expect(picks.length).toBeGreaterThan(0);
+    expect(picks.every((p: any) => p.position === 'G' && p.points === undefined)).toBe(true);
+    expect(new Set(picks.map((p: any) => p.team)).size).toBe(picks.length);
+    for (const r of body.recommendations.filter((r: any) => r.pickup)) expect(r.reasoning).toMatch(/expected starts/);
+  });
+
+  it('a goalie with a tiny sample gets no save % percentile', async () => {
+    const { savePercentile } = await import('../src/services/GoalieStreamService.js');
+    expect(savePercentile([0.9, 0.91, 0.92], 0.95, 5)).toBeNull();
+    expect(savePercentile([0.9, 0.91, 0.92], 0.95, 40)).toBe(100);
+  });
+
+  it('goalie stream limits say when assume_rostered narrowed the candidates', async () => {
+    const { body } = await run('analyze_goalie_streams', { assume_rostered: 6 });
+    expect(body.limits.join(' ')).toMatch(/assume_rostered/);
+  });
+
+  it('a stated need does not override value at the top of the draft', async () => {
+    const { body } = await run('chirp_draft_pick', { pick_number: 2, roster_needs: ['G'], max_results: 6 });
+    expect(body.recommendations[0].reasoning).not.toMatch(/\(G,/);
+  });
+
+  it('a reach is never the top call', async () => {
+    for (const pick_number of [1, 5, 12, 30]) {
+      const { body } = await run('chirp_draft_pick', { pick_number, roster_needs: ['G'], max_results: 8 });
+      const top = body.analysis_insights.top_candidates[0];
+      if (top) expect(top.verdict).not.toBe('REACH');
+    }
+  });
+
+  it('schedule_value honours enable_chirp: false', async () => {
+    const { body } = await run('schedule_value', { teams: ['SEA', 'COL'], enable_chirp: false });
+    expect(body.chirp_intelligence?.analysis_chirp).toBeUndefined();
+  });
+});

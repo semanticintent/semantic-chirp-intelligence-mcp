@@ -217,5 +217,24 @@ await probe('fifth review', async () => {
   check('get_team_roster slots say LW/RW', !/"selected_position": "(L|R)"/.test(roster));
 });
 
+await probe('sixth review', async () => {
+  const [ice, gs] = await Promise.all([
+    tool('get_roster_transaction_recommendations', { roster_text: 'Cale Makar', opponent_text: ROSTER, assume_rostered: 150, target_positions: ['G'] }),
+    tool('analyze_goalie_streams', { roster_text: ROSTER, assume_rostered: 150 }),
+  ]);
+  const picks = ice.body.recommendations.filter(r => r.pickup).map(r => r.pickup);
+  check('ice goalie picks: no negative points, one per club, same leader as goalie streams',
+    picks.length > 0 && picks.every(p => p.points === undefined) && new Set(picks.map(p => p.team)).size === picks.length &&
+    picks[0].player_id === gs.body.candidates[0]?.id, picks.map(p => `${p.name} ${p.team}`).join(', '));
+  check('goalie streams: no percentile for small samples; limits mention assume_rostered',
+    gs.body.candidates.every(c => c.save_pct_percentile === null || c.start_share * 82 >= 20) && /assume_rostered/.test(gs.body.limits.join(' ')));
+
+  const p3 = (await tool('chirp_draft_pick', { pick_number: 3, roster_needs: ['G'], max_results: 6 })).body;
+  check('a G need does not beat elite skaters at pick 3', !/\(G,/.test(p3.recommendations[0].reasoning), p3.recommendations[0].reasoning);
+
+  const sv = (await tool('schedule_value', { teams: ['SJS', 'TOR'], enable_chirp: false })).body;
+  check('schedule_value honours enable_chirp: false', !sv.chirp_intelligence?.analysis_chirp);
+});
+
 console.log(failures === 0 ? '\n✅ All correctness checks passed.\n' : `\n❌ ${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);
