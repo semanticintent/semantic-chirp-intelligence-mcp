@@ -762,7 +762,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "search_players",
-        description: "Search for available players (free agents) by position. Returns top available players.",
+        description: "Search NHL players by position, ranked on last season: skaters by points, goalies on wins, save % and GAA together. A search across all positions lists skaters and goalies separately. League availability is private and not shown.",
         inputSchema: {
           type: "object",
           properties: {
@@ -780,13 +780,13 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "get_player_stats",
-        description: "Get detailed statistics for a specific player using their player ID",
+        description: "Last season's NHL statistics and upcoming schedule for one player. Pass a name as you would type it (\"Makar\", \"Cale Makar COL\") or an NHL player ID; an ambiguous name returns the candidates.",
         inputSchema: {
           type: "object",
           properties: {
             player_id: {
               type: "string",
-              description: "Player ID (just the number, e.g., '6381')",
+              description: "Player name (e.g. 'Cale Makar') or NHL player ID",
             },
           },
           required: ["player_id"],
@@ -794,7 +794,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "compare_matchup",
-        description: "Get detailed category-by-category comparison with your current opponent",
+        description: "Category-by-category comparison of your roster against your opponent's — last season's NHL totals as a proxy for strength, plus each side's real games this week. Pass both rosters as roster_text and opponent_text.",
         inputSchema: {
           type: "object",
           properties: {},
@@ -802,7 +802,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "optimize_lineup",
-        description: "Get AI-powered recommendations for optimal lineup based on player health and positions",
+        description: "Lineup check from your roster: injured players in active slots, bench players who should be active, and empty or mismatched slots.",
         inputSchema: {
           type: "object",
           properties: {},
@@ -810,7 +810,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "get_streaming_recommendations",
-        description: "Schedule-aware pickup candidates: NHL players not on the rosters you provided, ranked by games in the look-ahead window and then last season's production. League ownership is private and cannot be seen here, so check each player's availability in your league before adding.",
+        description: "Schedule-aware pickup candidates: NHL players not on the rosters you provided, ranked by games in the look-ahead window and then last season's production, at most two per club. Goalies rank on the same stream score as analyze_goalie_streams (expected starts, opposing attack, save %). League ownership is private, so check availability before adding — or pass assume_rostered to leave out the top of the board.",
         inputSchema: {
           type: "object",
           properties: {
@@ -835,7 +835,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "get_games_in_hand",
-        description: "Get games in hand analysis with optional chirp intelligence - shows remaining games for you vs opponent to identify schedule advantages",
+        description: "Games left in the window for you and your opponent, from the NHL schedule. Ahead: hold and keep every slot filled. Behind: stream players from the clubs that play most. Pass both rosters as roster_text and opponent_text.",
         inputSchema: {
           type: "object",
           properties: {
@@ -914,7 +914,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "analyze_weekend_streams",
-        description: "🏒❄️ Weekend Stream Classifier - Distinguish desperation streams (bye-week fillers, <1 week value) from genuine opportunities (sustainable roles, >2 week upside). Uses binary decision tree and upside scoring (0-100). Chirp style: desperate_or_legit",
+        description: "🏒❄️ Weekend Stream Classifier — sorts pickup candidates for a date range into genuine (two or more games, real minutes and real production), monitor, and desperation (a small role or little production, bought for games alone), with a stated 0–100 upside score and the facts behind it. Players with no games in the window are left out. Pass assume_rostered to skip the top of the board.",
         inputSchema: {
           type: "object",
           properties: {
@@ -960,7 +960,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "chirp_opponent",
-        description: "Scout your current matchup opponent's roster and generate savage trash talk based on their weaknesses — injuries, IR mismanagement, bench-heavy lineups. Pure ChirpIQX energy.",
+        description: "Scout your opponent's roster for the week: who doesn't play at all, who plays only once or twice, and who is parked on IR — with trash talk to match. Pass their roster as opponent_text.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1099,7 +1099,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "analyze_goalie_streams",
-        description: "🥅 Which goalie to stream this week, from public data: every NHL goalie ranked by games in the window, how dangerous each opponent's attack is, and his share of his team's starts last season, with GAA, save % and a stream score whose formula is stated. Pass roster_text to see your own goalies and exclude them from the candidates. Starters are not announced in public data; the output says so.",
+        description: "🥅 Which goalie to stream this week, from public data: every NHL goalie ranked on a stream score whose formula is stated — expected starts (games in the window × last season's start share), how dangerous each opponent's attack is, and save % against the league's starters — with GAA, wins and the nights he plays. Pass roster_text to see your own goalies and exclude them from the candidates, and assume_rostered to skip goalies high on the draft board. Starters are not announced in public data; the output says so.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1144,7 +1144,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "chirp_draft_pick",
-        description: "❄️ ICE at the draft table — with a pick on the clock, ranks who to take against YOUR draft: the best producers still available (last season's NHL production, since there is no market ADP), weighted toward the positions your roster still needs and each club's schedule during your league's playoff weeks. Pass already_drafted as picks go by, in whatever shape your draft room shows them; nothing is read from a fantasy platform. Use draft_kit for the whole board before the draft, this for the pick in front of you.",
+        description: "❄️ ICE at the draft table — with a pick on the clock, ranks who to take against YOUR draft: the best producers still available (last season's NHL production, since there is no market ADP), weighted toward the positions your roster still needs (a weight that grows over the first three rounds, so elite players come first) and each club's schedule during your league's playoff weeks. Pass already_drafted as picks go by, in whatever shape your draft room shows them; nothing is read from a fantasy platform. Use draft_kit for the whole board before the draft, this for the pick in front of you.",
         inputSchema: {
           type: "object",
           properties: {

@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.10.2] — tool descriptions
+
+The descriptions are what a client — and the Claude directory — shows for each tool. Several had drifted from what the
+tools do. No behaviour changes.
+
+### Fixed
+- `analyze_goalie_streams` said goalies are "ranked by games in the window"; they are ranked on the stated stream score
+  (expected starts, opposing attack, save %). It now says so, and mentions `assume_rostered`.
+- `search_players` promised "available players (free agents)"; it searches every NHL player, ranked on last season.
+- `get_player_stats` said it needs a player ID; it has taken names since v4, and its parameter hint now says so.
+- `analyze_weekend_streams` described ">2 week upside" and a "binary decision tree"; it now states what genuine,
+  monitor and desperation actually mean.
+- `get_streaming_recommendations`, `get_games_in_hand`, `compare_matchup`, `optimize_lineup`, `chirp_opponent` and
+  `chirp_draft_pick` now describe what they compute — the goalie score, hold vs. stream, the games-this-week term,
+  the actual lineup checks, the idle / light / IR groups, and the need weight that grows over the first three rounds.
+
 ## [4.10.1] — sixth review
 
 A sixth test of every hosted tool through Claude, against 4.10.0. `assume_rostered` worked on all six tools and every
