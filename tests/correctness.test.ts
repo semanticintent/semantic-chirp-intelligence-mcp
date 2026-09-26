@@ -546,3 +546,22 @@ describe('seventh review', () => {
     expect(candidateLine({ name: 'Kirill Kaprizov', team: 'MIN', position: 'L' })).toBe('Kirill Kaprizov (MIN LW)');
   });
 });
+
+describe('directory policy', () => {
+  // The directory requires tool descriptions to carry no instructions about other tools and no hidden or encoded text.
+  const texts = (t: any) => [t.description, ...Object.values<any>(t.inputSchema.properties ?? {}).map(p => p.description ?? '')];
+  const names = TOOL_DEFINITIONS.map(t => t.name).filter(n => n !== 'ice'); // "read the ice" is English, not the tool
+
+  it('no tool description names another tool', () => {
+    for (const t of TOOL_DEFINITIONS) for (const d of texts(t)) {
+      const other = names.filter(n => n !== t.name && new RegExp(`\\b${n}\\b`).test(d));
+      expect(other, `${t.name}: ${d.slice(0, 80)}`).toEqual([]);
+    }
+  });
+
+  it('no tool description carries invisible or control characters', () => {
+    for (const t of TOOL_DEFINITIONS) for (const d of texts(t)) {
+      expect(d, t.name).not.toMatch(/[\u0000-\u001F​-‏‪-‮⁠-⁤﻿­]/);
+    }
+  });
+});
