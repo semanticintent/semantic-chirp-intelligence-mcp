@@ -227,7 +227,7 @@ await probe('sixth review', async () => {
     picks.length > 0 && picks.every(p => p.points === undefined) && new Set(picks.map(p => p.team)).size === picks.length &&
     picks[0].player_id === gs.body.candidates[0]?.id, picks.map(p => `${p.name} ${p.team}`).join(', '));
   check('goalie streams: no percentile for small samples; limits mention assume_rostered',
-    gs.body.candidates.every(c => c.save_pct_percentile === null || c.start_share * 82 >= 20) && /assume_rostered/.test(gs.body.limits.join(' ')));
+    gs.body.candidates.every(c => c.save_pct_percentile === null || Math.round(c.start_share * 82) >= 20) && /assume_rostered/.test(gs.body.limits.join(' ')));
 
   const p3 = (await tool('chirp_draft_pick', { pick_number: 3, roster_needs: ['G'], max_results: 6 })).body;
   check('a G need does not beat elite skaters at pick 3', !/\(G,/.test(p3.recommendations[0].reasoning), p3.recommendations[0].reasoning);
