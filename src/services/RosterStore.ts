@@ -71,6 +71,10 @@ const POSITION_TOKENS = new Set(['c', 'lw', 'rw', 'd', 'g']);
 export type TransientRosters = Partial<Record<'roster' | 'opponent', StoredRoster>>;
 const transient = new AsyncLocalStorage<TransientRosters>();
 
+/** Column names a standings header can be made of. */
+const HEADER_WORDS = new Set(['rank', 'rk', '#', 'team', 'teams', 'name', 'manager', 'record', 'w', 'l', 't', 'otl', 'ot',
+  'pts', 'points', 'pct', 'gb', 'streak', 'moves', 'trades', 'waiver', 'pf', 'pa', 'fpts']);
+
 export class RosterStore {
   /** Run fn with these rosters standing in for the stored ones. Scoped to the async call; concurrent calls do not see each other. */
   public static runWith<T>(rosters: TransientRosters, fn: () => Promise<T>): Promise<T> {
@@ -238,7 +242,10 @@ export class RosterStore {
         .replace(/\s{2,}/g, ' ')
         .trim();
 
-      if (!teamName || /^(rank|team|record|pts|points)$/i.test(teamName)) continue;
+      // A header row — "Team W-L-T", "Rank | Team | Record | Pts" — is every token a column name. Only whole-line
+      // single words were skipped, so "Team W-L-T" became a team.
+      const tokens = teamName.split(/[\s|,\t]+/).filter(Boolean);
+      if (!teamName || tokens.every(t => t.split(/[-/]/).every(part => HEADER_WORDS.has(part.toLowerCase())))) continue;
 
       rows.push({
         ...(rankMatch ? { rank: Number(rankMatch[1]) } : {}),
@@ -248,6 +255,8 @@ export class RosterStore {
       });
     }
 
+    // Standings are pasted in order, so with no numbers at all the order is the rank.
+    if (rows.length && rows.every(r => r.rank === undefined)) return rows.map((r, i) => ({ ...r, rank: i + 1 }));
     return rows;
   }
 

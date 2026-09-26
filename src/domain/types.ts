@@ -368,6 +368,7 @@ export type RecommendationAction =
   | 'move_to_ir'
   | 'bench_upgrade'
   | 'volume_play'
+  | 'hold'
   | 'lineup_change';
 
 /**

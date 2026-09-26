@@ -176,7 +176,8 @@ async function searchPlayers(position?: string, count: number = 25) {
     player_id: p.player_id,
     name: p.name,
     team: p.team,
-    position: p.position,
+    // Every other tool says LW/RW; this one returned the NHL's L/R.
+    position: ({ L: 'LW', R: 'RW' } as Record<string, string>)[p.position] ?? p.position,
     on_your_roster: owned.has(p.player_id),
     season_stats: p.stats ?? null,
   });

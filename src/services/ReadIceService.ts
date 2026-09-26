@@ -173,7 +173,11 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
     ids: [s.id],
     line: s.slot === 'IR' ? "He's in the box. Nothing to run back."
       : gp(s) >= 3 ? `${gp(s)} games. That's the whole argument.`
-      : `${gp(s)} game${gp(s) === 1 ? '' : 's'}. That's the whole problem.`,
+      : gp(s) === 0 ? 'No games. Nothing to replay.'
+      // "That's the whole problem" is for the player being sat; it used to close every light week, starts included.
+      : sitIds.includes(s.id) ? `${gp(s)} game${gp(s) === 1 ? '' : 's'}. That's the whole problem.`
+      : startIds.includes(s.id) ? `${gp(s)} game${gp(s) === 1 ? '' : 's'}. Enough to start him.`
+      : `${gp(s)} game${gp(s) === 1 ? '' : 's'}. Light, but nobody better is waiting.`,
   }));
   const pair = (a: ReadSkater, b: ReadSkater) => {
     const d = gp(a) - gp(b);

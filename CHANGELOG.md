@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.9.3] — fourth review
+
+A fourth test of every hosted tool through Claude, against 4.9.2. All ten 4.9.2 fixes held; this fixes what it found
+next.
+
+### Fixed
+- **`chirp_draft_pick` never suggested a goalie**, even with `roster_needs: ["G"]`. Its board was one list sorted on
+  points for skaters and wins for goalies, so no goalie reached the candidates. The board is now skaters by points with
+  goalies — in the shared goalie order `draft_kit` and `search_players` use — one every six slots (about two goalies to
+  ten or twelve skaters), and a goalie's slot is described as "on the board", not "best producer".
+- **`schedule_value` could put a club it recommends targeting in `worst_schedules`**, and its chirp called that club
+  "the one you draft around". Favoured clubs never appear among the worst; when every club asked about is favoured the
+  chirp says so. "1 weeks" is now "1 week".
+- **`analyze_weekend_streams` called 142 of 200 players "genuine"** after 4.9.2's rescale, including one-game weekends,
+  with "Genuine: Speculative opportunity" as the reason and a fixed placeholder as the drop. Genuine now needs two or
+  more games in the window, a real role and real production (each 50+ of 100) at low risk; desperation is a small role
+  or little production. Reasons are the facts (games, minutes, shots, power-play goals). A drop is named only from the
+  roster you pasted, and only a player producing under 70% of the candidate's rate. The chirp no longer calls streams
+  "season savers" and says the best of them are probably rostered.
+- **`get_roster_transaction_recommendations` ignored `target_positions`** (asked for RW, returned a C and a D) and its
+  own weak positions. Its weak-position fixes read a list empty since v4; both paths now draw from one pool of players
+  on neither roster, filtered to the positions you asked for, else your weak ones.
+- **`get_streaming_recommendations` ranked goalies on club games alone**, putting an .877 goalie near the top. Goalies
+  are now ordered on `analyze_goalie_streams`' score — expected starts (club games × last season's start share) and
+  save % percentile — and the reasoning shows both.
+- **`get_games_in_hand` labelled advice inconsistently with `ice`**: behind is now `volume_play` (add games), ahead is
+  `hold` (keep what you have).
+- **Pasted standings with a header row** ("Team W-L-T") no longer turn the header into a team, and rows pasted without
+  numbers are ranked in the order given.
+- **`search_players` said "L" / "R"**; it now says LW / RW like every other tool.
+- **`read_ice` ended every light week with "That's the whole problem."**, including players it tells you to start. That
+  line is now only for a player it sits.
+
+### Changed
+- `npm run correctness` checks `ice` when behind by pasting a one-player roster against the five-player test roster,
+  instead of skipping it before the season.
+
 ## [4.9.2] — third review
 
 A third test of every hosted tool through Claude, against 4.9.1. The 4.9.1 fixes to `ice`'s sign, `schedule_value` and
