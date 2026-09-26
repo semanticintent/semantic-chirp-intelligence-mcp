@@ -168,12 +168,17 @@ export class ChirpIntelligence {
       return `${chirpStyle.prefix} ${injured} injured players dragging down your roster. Champions handle their IR like pros. ${chirpStyle.suffix}`;
     }
 
-    return `${personality.phrases[0]} your team composition looks solid.`;
+    return injured > 0
+      ? `${injured} player${injured === 1 ? ' is' : 's are'} flagged injured. Move them to IR if your league has the slots.`
+      : 'Nobody on your roster is flagged injured.';
   }
 
   private static generateScheduleChirp(data: any, chirpStyle: any, personality: any): string {
-    const advantage = data.advantage;
-    const diff = Math.abs(data.games_in_hand_difference || 0);
+    // get_games_in_hand sends a signed number (yours − theirs); older callers sent 'you' / 'opponent' with a separate
+    // difference. Reading only the strings meant every branch below was skipped for the number.
+    const signed = typeof data.advantage === 'number' ? data.advantage : null;
+    const advantage = signed === null ? data.advantage : signed > 0 ? 'you' : signed < 0 ? 'opponent' : 'even';
+    const diff = Math.abs(signed ?? data.games_in_hand_difference ?? 0);
 
     if (advantage === "opponent" && chirpStyle.tone === "brutal_truth") {
       return `${chirpStyle.prefix} your opponent has ${diff} more games than you and you're just sitting there? Time to drop the mittens and get aggressive! ${chirpStyle.suffix}`;
@@ -187,7 +192,12 @@ export class ChirpIntelligence {
       return `${chirpStyle.prefix} capitalize on your ${diff}-game advantage ${chirpStyle.suffix}`;
     }
 
-    return `${personality.phrases[0]} the schedule advantage situation.`;
+    // Fallbacks are whole sentences: splicing a personality phrase onto a noun phrase read "Elite players the schedule
+    // advantage situation."
+    const games = (n: number) => `${n} more game${n === 1 ? '' : 's'}`;
+    if (advantage === 'you' && diff > 0) return `You have ${games(diff)} than your opponent. Keep every slot filled.`;
+    if (advantage === 'opponent' && diff > 0) return `Your opponent has ${games(diff)} than you. Stream the busiest clubs to close it.`;
+    return 'Even on games. It comes down to who plays better.';
   }
 
   private static generateOptimizationChirp(data: any, chirpStyle: any, personality: any): string {
@@ -206,7 +216,9 @@ export class ChirpIntelligence {
       return `${chirpStyle.prefix} execute these ${recommendations} optimizations ${chirpStyle.suffix}`;
     }
 
-    return `${personality.phrases[0]} ${recommendations} optimization opportunities to consider.`;
+    return recommendations === 0
+      ? 'No lineup changes needed.'
+      : `${recommendations} lineup change${recommendations === 1 ? '' : 's'} worth making, listed above.`;
   }
 
   private static generateWeeklyPerformanceChirp(data: any, chirpStyle: any, personality: any): string {
@@ -221,7 +233,7 @@ export class ChirpIntelligence {
       return `${chirpStyle.prefix} they've got more games - every stat matters now! ${chirpStyle.suffix}`;
     }
 
-    return `${personality.phrases[0]} your weekly matchup positioning.`;
+    return `You have ${yourGames} game${yourGames === 1 ? '' : 's'} left; your opponent has ${oppGames}.`;
   }
 
   private static generatePickupStrategyChirp(data: any, chirpStyle: any, personality: any): string {
@@ -229,14 +241,18 @@ export class ChirpIntelligence {
     const hotTeam = data.market_intelligence?.top_trending_team || "unknown";
 
     if (targets > 10 && chirpStyle.tone === "championship_enforcer") {
-      return `${chirpStyle.prefix} ${targets} targets identified. Focus on ${hotTeam} players for maximum impact. ${chirpStyle.suffix}`;
+      const focus = hotTeam !== 'unknown' ? ` Focus on ${hotTeam} players for maximum impact.` : '';
+      return `${chirpStyle.prefix} ${targets} targets identified.${focus} ${chirpStyle.suffix}`;
     }
 
     if (targets > 10 && chirpStyle.tone === "brutal_truth") {
-      return `${chirpStyle.prefix} ${targets} players better than what you've got - are you here to compete or participate? ${chirpStyle.suffix}`;
+      return `${chirpStyle.prefix} ${targets} streaming candidates sitting there - are you here to compete or participate? ${chirpStyle.suffix}`;
     }
 
-    return `${personality.phrases[0]} ${targets} streaming opportunities on the wire.`;
+    // Ownership is league-private, so these are candidates to check, not players known to be on the wire.
+    return targets === 0
+      ? 'No streaming candidates in that window.'
+      : `${targets} streaming candidate${targets === 1 ? '' : 's'} listed above. Check they're free in your league.`;
   }
 
   /**

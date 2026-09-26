@@ -218,12 +218,31 @@ export class IceAnalysis extends AnalysisTemplate {
     semanticContract: SemanticChirpContract,
     data: FantasyData
   ): Promise<any> {
-    // Use ChirpIntelligence service to enhance results
-    return ChirpIntelligence.enhance(
-      this.toolName,
-      analysisResults,
-      semanticContract
-    );
+    const enhanced = ChirpIntelligence.enhance(this.toolName, analysisResults, semanticContract);
+    if (!enhanced?.chirp_intelligence) return enhanced;
+
+    // Say what is actually happening. The generic line read "Your lineup is solid" while the roster trailed by six
+    // games, because it only counted recommendations.
+    const edge = analysisResults.schedule_edge;
+    const recs = analysisResults.recommendations ?? [];
+    const volume = recs.filter((r: any) => r.action === 'volume_play');
+    const parts: string[] = [];
+    if (edge?.reading) parts.push(edge.reading);
+    if (edge?.advantage < 0) {
+      parts.push(volume.length
+        ? `Close it with volume: ${volume.map((r: any) => `${r.pickup.name} (${r.pickup.team}, ${r.pickup.games_in_window} games)`).join(' or ')}.`
+        : 'No club plays more than once in this window, so there is no volume to add — set your best lineup and win the rates.');
+    } else if (edge?.advantage > 0) {
+      parts.push('Keep a full lineup in every night and let the extra games do the work.');
+    }
+    const other = recs.length - volume.length;
+    if (other > 0) parts.push(`${other} other ${other === 1 ? 'move' : 'moves'} listed below.`);
+    if (!parts.length) parts.push(recs.length ? `${recs.length} moves listed below.` : 'Nothing needs changing right now.');
+
+    return {
+      ...enhanced,
+      chirp_intelligence: { ...enhanced.chirp_intelligence, analysis_chirp: parts.join(' ') }
+    };
   }
 
   /**
@@ -420,18 +439,27 @@ export class IceAnalysis extends AnalysisTemplate {
     };
   }
 
-  /** Players on neither roster whose clubs play at least three times in the window, best producers first. */
+  /**
+   * Players on neither roster whose clubs play the most games in the window, best producers first.
+   *
+   * This used an absolute cutoff of three games, which no club can reach in a short week — the opening week of
+   * 2026-27 has clubs on 0, 1 or 2 games — so it returned nothing whenever it was needed early in a season. "Most
+   * games in this window" is the relative fact that actually closes a gap.
+   */
   private volumeCandidates(lookAheadDays: number): any[] {
     if (!NHL_SCHEDULE.isAvailable()) return [];
     const start = NhlScheduleService.today();
     const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
-    return LEAGUE_DATA.getPlayerPool({ limit: 300 })
+    const pool = LEAGUE_DATA.getPlayerPool({ limit: 300 })
       .filter(p => p.position !== 'G')
       .map(p => ({ player_id: p.player_id, name: p.name, team: p.team, position: p.position,
         games_in_window: NHL_SCHEDULE.countGamesInRange(p.team, start, end),
-        points: (p as any).stats?.points ?? 0 }))
-      .filter(p => p.games_in_window >= 3)
-      .sort((a, b) => b.games_in_window - a.games_in_window || b.points - a.points)
+        points: (p as any).stats?.points ?? 0 }));
+    const most = Math.max(0, ...pool.map(p => p.games_in_window));
+    if (most === 0) return [];
+    return pool
+      .filter(p => p.games_in_window === most)
+      .sort((a, b) => b.points - a.points)
       .slice(0, 5);
   }
 

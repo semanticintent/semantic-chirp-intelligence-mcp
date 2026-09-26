@@ -200,7 +200,7 @@ CHIRP STYLE: desperate_or_legit
     const positionNeeds: string[] = [];
 
     // Check roster for injuries
-    if (roster.players) {
+    if (roster?.players) {
       for (const player of roster.players) {
         if (player.status && player.status !== '' && player.status !== 'Healthy') {
           injuredPlayers.push(`${player.name} (${player.team})`);
@@ -285,8 +285,9 @@ CHIRP STYLE: desperate_or_legit
 
     // Filter and sort by upside score
     const minScore = args.min_upside_score || 0;
+    // A weekend stream with no games in the weekend is not a stream.
     const sorted = scoredStreams
-      .filter(s => s.upside_score >= minScore)
+      .filter(s => s.weekend_games > 0 && s.upside_score >= minScore)
       .sort((a, b) => b.upside_score - a.upside_score);
 
     // Separate by classification
@@ -343,8 +344,8 @@ CHIRP STYLE: desperate_or_legit
 
     // Layer 7: Upside Score Calculation
     const upsideScore = this.calculateUpsideScore(
-      metrics.projected_fpg,
-      metrics.opportunity_toi,
+      metrics.production_score,
+      metrics.usage_score,
       scheduleAnalysis.ease_score,
       risk.total_risk
     );
@@ -385,19 +386,22 @@ CHIRP STYLE: desperate_or_legit
 
   /**
    * Layer 7: Calculate upside score (0-100)
-   * Formula: (0.30 × Proj FP/G × 10) + (0.30 × Opp TOI) + (0.20 × Schedule Ease) - (0.20 × Risk %)
+   * Formula: 0.35 × production + 0.20 × usage + 0.35 × schedule ease + 0.10 × (100 − risk), each input 0–100.
+   *
+   * It used to multiply points per game by 10 and add raw minutes, which topped out near 25 — so the 55 and 60 bars
+   * for "genuine" could never be reached and every result was "monitor" or "desperation".
    */
   private calculateUpsideScore(
-    projectedFpg: number,
-    oppToi: number,
+    production: number,
+    usage: number,
     scheduleEase: number,
     risk: number
   ): number {
     const score =
-      0.30 * (projectedFpg * 10) +
-      0.30 * oppToi +
-      0.20 * scheduleEase -
-      0.20 * risk;
+      0.35 * production +
+      0.20 * usage +
+      0.35 * scheduleEase +
+      0.10 * (100 - risk);
 
     return Math.max(0, Math.min(100, score));
   }
@@ -417,7 +421,7 @@ CHIRP STYLE: desperate_or_legit
     }
 
     // Desperation: No role lock + Low score
-    if (metrics.opportunity_toi < 12 && upsideScore < 45) {
+    if (metrics.usage_score < 20 && upsideScore < 45) {
       return 'desperation';
     }
 
@@ -427,7 +431,7 @@ CHIRP STYLE: desperate_or_legit
     }
 
     // Genuine: Strong role lock + Good projection
-    if (metrics.opportunity_toi >= 16 && upsideScore >= 55) {
+    if (metrics.usage_score >= 60 && upsideScore >= 55) {
       return 'genuine';
     }
 
@@ -479,6 +483,7 @@ CHIRP STYLE: desperate_or_legit
       // "opportunity" score carrying a TOI label, which is why it disagreed with the player's own stat line.
       opportunity_toi: seasonGames > 0 ? Number(((season?.time_on_ice_per_game ?? 0) / 60).toFixed(1)) : 0,
       shots_per_game: seasonGames > 0 ? Number(((season?.shots ?? 0) / seasonGames).toFixed(2)) : 0,
+      ...this.componentScores(player, season, seasonGames, seasonPpg),
       power_play_goals: season?.power_play_goals ?? 0
     };
   }
@@ -491,6 +496,29 @@ CHIRP STYLE: desperate_or_legit
 
 
 
+
+  /**
+   * Production and usage on 0–100, by position group — the same scales analyze_breakout_players uses. Goalies are read
+   * on save percentage and share of starts, since they have no points or skater ice time.
+   */
+  private componentScores(player: Player, season: any, gp: number, ppg: number): { production_score: number; usage_score: number } {
+    const clamp = (n: number) => Math.round(Math.max(0, Math.min(100, n)));
+    if (gp === 0) return { production_score: 0, usage_score: 0 };
+    const positions = String(player.position).split(',');
+    if (positions.includes('G')) {
+      const sv = season?.save_percentage;
+      return {
+        production_score: typeof sv === 'number' ? clamp(((sv - 0.88) / 0.05) * 100) : 0,
+        usage_score: clamp((gp / 55) * 100),
+      };
+    }
+    const isD = positions.includes('D');
+    const toi = (season?.time_on_ice_per_game ?? 0) / 60;
+    return {
+      production_score: clamp((ppg / (isD ? 0.8 : 1.1)) * 100),
+      usage_score: clamp(((toi - (isD ? 16 : 11)) / (isD ? 8 : 9)) * 100),
+    };
+  }
 
   /**
    * Layer 1: Analyze schedule ease
@@ -550,7 +578,7 @@ CHIRP STYLE: desperate_or_legit
     }
 
     // Low opportunity = higher risk
-    if (metrics.opportunity_toi < 12) {
+    if (metrics.usage_score < 20) {
       totalRisk += 25;
     }
 
@@ -565,7 +593,7 @@ CHIRP STYLE: desperate_or_legit
       total_risk: Math.max(0, Math.min(100, totalRisk)),
       factors: {
         injury: player.status ? true : false,
-        low_toi: metrics.opportunity_toi < 12,
+        low_toi: metrics.usage_score < 20,
         back_to_back: schedule.has_back_to_back
       }
     };
@@ -596,7 +624,7 @@ CHIRP STYLE: desperate_or_legit
     classification: 'desperation' | 'genuine' | 'monitor',
     metrics: any
   ): '<1 week' | '1-2 weeks' | '>2 weeks' {
-    if (classification === 'genuine' && metrics.opportunity_toi >= 16) {
+    if (classification === 'genuine' && metrics.usage_score >= 60) {
       return '>2 weeks';
     }
     if (classification === 'monitor') {
@@ -719,12 +747,15 @@ CHIRP STYLE: desperate_or_legit
       semanticContract
     );
 
-    // Override with custom chirps
-    if (enhanced.chirp_intelligence) {
-      enhanced.chirp_intelligence.analysis_chirp = chirpMessages.main;
-      enhanced.chirp_intelligence.ice_cold_truth = chirpMessages.truth;
-      enhanced.chirp_intelligence.style = 'desperate_or_legit';
-    }
+    // Override with custom chirps. enhance() returns no chirp layer for this tool, so the override used to be skipped
+    // and every run reported the disabled-chirp default ("analysis complete - desperation vs genuine classified").
+    enhanced.chirp_intelligence = {
+      ...this.getDefaultChirp(),
+      ...(enhanced.chirp_intelligence ?? {}),
+      analysis_chirp: chirpMessages.main,
+      ice_cold_truth: chirpMessages.truth,
+      style: 'desperate_or_legit',
+    };
 
     return enhanced;
   }
@@ -733,12 +764,15 @@ CHIRP STYLE: desperate_or_legit
    * Generate custom chirps for weekend streams
    */
   private generateWeekendChirps(results: any): any {
-    const { top_genuine, top_desperation, roster_gaps } = results;
+    const { top_genuine, top_desperation, top_monitor, roster_gaps } = results;
 
     let mainChirp = '';
     let truth = '';
 
-    if (top_genuine.length === 0 && top_desperation.length > 5) {
+    if (top_genuine.length + top_desperation.length + (top_monitor?.length ?? 0) === 0) {
+      mainChirp = 'No NHL games in that window, so there is nothing to stream.';
+      truth = 'Pick a window with games in it — date_range takes a start and end date.';
+    } else if (top_genuine.length === 0 && top_desperation.length > 5) {
       mainChirp = "🆘 That's not a waiver wire, that's a cry for help. Pure desperation plays everywhere.";
       truth = "Weekend streaming desperation detected. You're filling holes, not building wins.";
     } else if (top_genuine.length >= 3) {
@@ -748,8 +782,11 @@ CHIRP STYLE: desperate_or_legit
       mainChirp = "⚠️ Multiple roster gaps detected. You're in triage mode - prioritize high-floor plays.";
       truth = "Desperation mode activated. Take the best available, worry about upside later.";
     } else {
-      mainChirp = "📊 Mixed bag this weekend. Some genuine plays, some desperation. Choose wisely.";
-      truth = "Monitor territory - hot hands with risky matchups. Tread carefully.";
+      const n = top_genuine.length;
+      mainChirp = n > 0
+        ? `📊 ${n} genuine play${n === 1 ? '' : 's'} this weekend, the rest are monitor territory. Choose wisely.`
+        : '📊 No genuine plays this weekend — only monitor territory. Stream for games, not upside.';
+      truth = "Check each one is actually free in your league before you move.";
     }
 
     return { main: mainChirp, truth };

@@ -170,7 +170,7 @@ export class DraftKitAnalysis extends AnalysisTemplate {
     const d = data as any;
     const window = d.window;
     const tierSize = Math.max(3, args.tier_size ?? 6);
-    const maxPerPosition = Math.max(5, args.max_per_position ?? 24);
+    const maxPerPosition = Math.max(1, Math.floor(args.max_per_position ?? 24)); // honour small values; it used to floor at 5
 
     const wanted = (args.positions?.length ? args.positions : KIT_POSITIONS)
       .map(p => p.toUpperCase());

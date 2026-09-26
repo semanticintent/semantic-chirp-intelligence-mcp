@@ -159,8 +159,14 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
   const lineGames = active.reduce((a, s) => a + gp(s), 0);
   const startIds = ranked.filter((s) => s.schedule_value >= 50).slice(0, 2).map((s) => s.id);
   const weakest = ranked.length > 2 ? ranked[ranked.length - 1] : undefined;
-  const sitIds = lineGames > 0 && weakest && weakest.schedule_value < 50 ? [weakest.id] : [];
   const streamIds = skaters.filter((s) => s.flag === 'stream').sort((a, b) => b.schedule_value - a.schedule_value || b.projected_pts - a.projected_pts).map((s) => s.id);
+  // The soft spot is the weakest active schedule. It becomes a sit call only when someone on the bench would beat him —
+  // otherwise the Read told you to sit a player while its own take said nobody on the bench was better.
+  const soft = lineGames > 0 && weakest && weakest.schedule_value < 50 ? weakest : undefined;
+  const replacement = soft
+    ? streamIds.map((id) => byId.get(id)).find((b) => b && b.id !== soft.id && b.schedule_value > soft.schedule_value)
+    : undefined;
+  const sitIds = soft && replacement ? [soft.id] : [];
   const irIds = skaters.filter((s) => s.slot === 'IR').map((s) => s.id);
 
   const verdicts: Read['verdicts'] = skaters.map((s) => ({
@@ -181,13 +187,12 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
     }
   }
 
-  const bestStream = streamIds[0] ? byId.get(streamIds[0]) : undefined;
   const take = lineGames === 0
     ? `Nobody in your lineup plays ${span}. Either the season hasn't started or you've pasted the wrong team.`
-    : sit && bestStream
-    ? `Your bench has ${bestStream.name} at ${gp(bestStream)} games and your lineup is carrying ${sit.name} at ${gp(sit)}. Fix it before puck drop.`
-    : sit
-      ? `${sit.name} is the soft spot at ${gp(sit)} game${gp(sit) === 1 ? '' : 's'}. Nobody on the bench beats him, so live with it.`
+    : sit && replacement
+    ? `Your bench has ${replacement.name} at ${gp(replacement)} games and your lineup is carrying ${sit.name} at ${gp(sit)}. Fix it before puck drop.`
+    : soft
+      ? `${soft.name} is the soft spot at ${gp(soft)} game${gp(soft) === 1 ? '' : 's'}. Nobody on the bench beats him, so live with it.`
       : `Lineup's carrying ${lineGames} games. Keep it, and stop tinkering.`;
 
   const tallyOf = (s: ReadSkater): Tally => ({ id: s.id, name: s.name, games: gp(s), b2b: s.b2b, projected_pts: s.projected_pts });
@@ -208,8 +213,9 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
   const edge = opp == null ? null : you - opp;
   const gihTake = opp == null
     ? `${you} games on the board. Paste the other guy's roster and I'll tell you the edge.`
-    : edge! > 0 ? `Edge +${edge}. Volume wins ${span}; stream into it.`
-    : edge! < 0 ? `Edge ${edge}. They out-schedule you ${span}. Quality over quantity.`
+    // Ahead: protect the edge. Behind: add volume. The two lines were the wrong way round.
+    : edge! > 0 ? `Edge +${edge}. You out-schedule them ${span}; keep every slot filled and let it work.`
+    : edge! < 0 ? `Edge ${edge}. They out-schedule you ${span}; stream the busiest clubs to close it.`
     : 'Dead even. Win it on the ice, not the calendar.';
 
   const read: Read = {

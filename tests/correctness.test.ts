@@ -263,3 +263,83 @@ describe('second review', () => {
     expect(body.chirp).not.toMatch(/^\d+ more/);
   });
 });
+
+describe('third review', () => {
+  const SPLICED = /(Elite players|The data shows|Analysis indicates|Stats don't lie|You've got this|Championship teams|Winners do this|Buddy,|That's like|Even my grandmother|Championship strategy|Next level thinking) (the|your|\d)/;
+
+  it('ICE names real volume pickups when you are behind on games', async () => {
+    // A short window where no club plays three: the old absolute three-game bar named nobody here.
+    const SHORT: Record<string, number> = { COL: 2, SEA: 2, TBL: 1, SJS: 1, BOS: 1, CAR: 1 };
+    vi.spyOn(NHL_SCHEDULE, 'countGamesInRange').mockImplementation((team: string) => SHORT[team] ?? 0);
+    vi.spyOn(NHL_SCHEDULE, 'getGamesInRange').mockImplementation((team: string) =>
+      Array.from({ length: SHORT[team] ?? 0 }, (_, i) => ({ date: `2026-10-1${i}`, opponent: 'VAN', home: true })) as any);
+    const { body, text } = await run('ice', { roster_text: 'Young Defender', opponent_text: 'Old Star\nRate Goalie' });
+    expect(body.analysis_insights.schedule_edge.advantage).toBeLessThan(0);
+    expect(text).toMatch(/Young Shooter/);
+  });
+
+  it('games in hand says protect when ahead and stream when behind', async () => {
+    const ahead = (await run('get_games_in_hand', { roster_text: MY_ROSTER, opponent_text: 'Young Winger' })).text;
+    const behind = (await run('get_games_in_hand', { roster_text: 'Young Defender', opponent_text: 'Old Star\nRate Goalie' })).text;
+    expect(ahead).toMatch(/keep a full lineup|Keep every slot filled/i);
+    expect(ahead).not.toMatch(/stream players whose clubs play more/i);
+    expect(behind).toMatch(/stream/i);
+  });
+
+  it('read_ice only calls a sit when someone on the bench beats him', async () => {
+    // Young Winger (SJS) plays once and is the soft spot. With no bench, nobody replaces him: this used to list him
+    // under sit while the take said "Nobody on the bench beats him, so live with it."
+    const window = { start: '2026-10-10', look_ahead_days: 7 };
+    const nights = (team: string) => Array.from({ length: GAMES[team] ?? 0 }, (_, i) => `2026-10-1${i}`);
+    vi.spyOn(NHL_SCHEDULE, 'hasGameOn').mockImplementation((team: string, date: string) => nights(team).includes(date));
+    const alone = (await run('read_ice', { roster_text: 'Old Star\nOlder Star\nYoung Winger', ...window })).body;
+    expect(alone.take).toMatch(/Nobody on the bench beats him/);
+    expect(alone.calls.sit).toEqual([]);
+    // Put a four-game SEA skater on the bench and the sit call is earned.
+    const benched = (await run('read_ice', { roster_text: 'Old Star\nOlder Star\nYoung Winger\nYoung Shooter BN', ...window })).body;
+    expect(benched.calls.sit).toEqual(['kid2']);
+    expect(benched.take).toMatch(/Young Shooter|Shooter/);
+  });
+
+  it('no chirp splices a personality phrase onto a fragment', async () => {
+    for (const personality_mode of ['analytical', 'championship_coach', 'roast_master', 'motivational']) {
+      for (const [name, args] of [
+        ['get_games_in_hand', { roster_text: MY_ROSTER, opponent_text: 'Young Winger' }],
+        ['get_streaming_recommendations', { roster_text: MY_ROSTER }],
+        ['optimize_lineup', { roster_text: MY_ROSTER }],
+      ] as const) {
+        const { text } = await run(name, { ...args, personality_mode });
+        expect(text, `${name} / ${personality_mode}`).not.toMatch(SPLICED);
+      }
+    }
+  });
+
+  it('says which pasted names were left out', async () => {
+    const { body } = await run('get_streaming_recommendations', { roster_text: 'Old Star\nNobody Real' });
+    expect(body.roster_not_matched.join(' ')).toMatch(/Nobody Real/);
+  });
+
+  it('draft_kit honours a small max_per_position', async () => {
+    const { body } = await run('draft_kit', { max_per_position: 2 });
+    for (const [pos, group] of Object.entries<any>(body.analysis_insights.positions)) {
+      const n = group.tiers.reduce((sum: number, t: any) => sum + t.players.length, 0);
+      expect(n, pos).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('goalie stream score accounts for save percentage', async () => {
+    const { body } = await run('analyze_goalie_streams', {});
+    expect(body.method.stream_score).toMatch(/save %/);
+    const rate = body.candidates.find((c: any) => c.name === 'Goalie' && c.club === 'COL');
+    const team = body.candidates.find((c: any) => c.club === 'CAR');
+    expect(rate.save_pct_percentile).toBeGreaterThan(team.save_pct_percentile);
+  });
+
+  it('weekend streams run without a roster and can find a genuine play', async () => {
+    const { body } = await run('analyze_weekend_streams', { date_range: { start: '2026-10-09', end: '2026-10-11' } });
+    expect(body.error).toBeUndefined();
+    expect(body.metadata.classification_breakdown.genuine_count).toBeGreaterThan(0);
+    expect(body.chirp_intelligence.analysis_chirp).not.toMatch(/analysis complete/);
+    for (const s of body.analysis_insights.streaming_targets) expect(s.weekend_games).toBeGreaterThan(0);
+  });
+});

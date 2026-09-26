@@ -110,21 +110,23 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
     const advantage = yourGamesRemaining - opponentGamesRemaining;
 
     // Generate strategic recommendation based on advantage
+    // Behind on games: add volume. Ahead: protect it. This had the two the wrong way round — telling a team six games
+    // ahead to "stream aggressively" and a team six behind to choose "quality over quantity".
     let strategicRecommendation: string;
     if (advantage > 5) {
-      strategicRecommendation = "MASSIVE ADVANTAGE: Maximize starts to dominate volume categories";
+      strategicRecommendation = "MASSIVE ADVANTAGE: Your volume edge is already built — start everyone who plays and don't chase streams";
     } else if (advantage > 2) {
-      strategicRecommendation = "SIGNIFICANT ADVANTAGE: Stream aggressively to capitalize";
+      strategicRecommendation = "SIGNIFICANT ADVANTAGE: Protect it — keep a full lineup every night; streams add little you don't already have";
     } else if (advantage > 0) {
-      strategicRecommendation = "SLIGHT ADVANTAGE: Focus on quality streaming targets";
+      strategicRecommendation = "SLIGHT ADVANTAGE: Hold steady — fill every open slot, stream only if an active player sits";
     } else if (advantage === 0) {
-      strategicRecommendation = "EVEN MATCHUP: Focus on roster optimization over volume";
+      strategicRecommendation = "EVEN MATCHUP: One extra game can decide it — stream into an empty slot if a club plays more this window";
     } else if (advantage > -3) {
-      strategicRecommendation = "SLIGHT DISADVANTAGE: Prioritize high-quality starts";
+      strategicRecommendation = "SLIGHT DISADVANTAGE: Add a game or two — stream a player whose club plays more in the window";
     } else if (advantage > -6) {
-      strategicRecommendation = "SIGNIFICANT DISADVANTAGE: Focus on efficiency, avoid streaming busts";
+      strategicRecommendation = "SIGNIFICANT DISADVANTAGE: Stream to close the gap — rotate open slots through the busiest clubs";
     } else {
-      strategicRecommendation = "MASSIVE DISADVANTAGE: Quality over quantity - pick your spots carefully";
+      strategicRecommendation = "MASSIVE DISADVANTAGE: Volume won't fully close this — stream the busiest clubs, and lean on rate categories";
     }
 
     return {
@@ -176,13 +178,13 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
       recommendations.push({
         priority: "HIGH",
         action: "volume_play",
-        reasoning: `You have ${analysis.advantage} more games than opponent - stream aggressively`
+        reasoning: `You have ${analysis.advantage} more games than your opponent — keep a full lineup and let the volume work`
       });
     } else if (analysis.advantage < -2) {
       recommendations.push({
         priority: "HIGH",
         action: "bench_upgrade",
-        reasoning: `Opponent has ${Math.abs(analysis.advantage)} more games - focus on quality over quantity`
+        reasoning: `Your opponent has ${Math.abs(analysis.advantage)} more games — stream players whose clubs play more to close the gap`
       });
     } else {
       recommendations.push({
