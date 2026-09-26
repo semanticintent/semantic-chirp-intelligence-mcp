@@ -19,6 +19,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { AsyncLocalStorage } from 'async_hooks';
 import { NHL_STATS, type NhlPlayer, type Resolution } from './NhlStatsService.js';
+import { candidateLine } from '../domain/positions.js';
 
 function defaultDataDir(): string {
   try { return path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.chirp-data'); }
@@ -138,7 +139,7 @@ export class RosterStore {
       } else if (resolution?.ambiguous) {
         ambiguous.push({
           line,
-          candidates: resolution.ambiguous.map(p => `${p.name} (${p.team} ${p.position})`)
+          candidates: resolution.ambiguous.map(candidateLine)
         });
       } else if (resolution) {
         unresolved.push({ line, reason: resolution.reason ?? 'no match' });

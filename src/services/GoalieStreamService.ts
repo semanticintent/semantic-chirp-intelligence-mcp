@@ -107,6 +107,8 @@ export async function goalieStreams(opts: { look_ahead_days?: number; today?: st
   const candidates = pool.filter((p) => !mineIds.has(p.player_id) && !assumed.has(p.player_id)).map(outlook)
     .filter((o) => o.games > 0 && o.start_share > 0)
     .sort((a, b) => b.stream_score - a.stream_score || b.expected_starts - a.expected_starts)
+    // One per club: two goalies from one club share its games, so listing both double-counts the same starts.
+    .filter(((clubs) => (o: GoalieOutlook) => !clubs.has(o.club) && !!clubs.add(o.club))(new Set<string>()))
     .slice(0, Math.max(1, Math.min(25, opts.top_n ?? 8)));
 
   const best = candidates[0];
@@ -126,6 +128,7 @@ export async function goalieStreams(opts: { look_ahead_days?: number; today?: st
       save_pct_percentile: `last season's save % ranked against goalies with ${GOALIE_STARTER_GP}+ games: 0 worst, 100 best; a goalie with fewer games, or no save %, gets none and counts as 50`,
       attack: 'opponent goals for per game, ranked across the league: 0 weakest attack, 100 most dangerous',
       soft_night: `an opponent attack below ${SOFT}`,
+      one_per_club: 'only the best-scoring goalie from each club is listed — two from one club would share its starts',
     },
     limits: [
       'Starting goalies are not announced in public data. Start share is last season\'s, a proxy for who plays, not a lineup.',

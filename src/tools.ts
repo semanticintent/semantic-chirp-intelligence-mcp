@@ -56,6 +56,7 @@ import { LEAGUE_DATA, LeagueDataService, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE 
 import { NHL_SCHEDULE, NhlScheduleService } from './services/NhlScheduleService.js';
 import { readIce, readIceFromText } from './services/ReadIceService.js';
 import { goalieStreams } from './services/GoalieStreamService.js';
+import { candidateLine, fantasyPosition } from './domain/positions.js';
 
 
 
@@ -177,7 +178,7 @@ async function searchPlayers(position?: string, count: number = 25) {
     name: p.name,
     team: p.team,
     // Every other tool says LW/RW; this one returned the NHL's L/R.
-    position: ({ L: 'LW', R: 'RW' } as Record<string, string>)[p.position] ?? p.position,
+    position: fantasyPosition(p.position),
     on_your_roster: owned.has(p.player_id),
     season_stats: p.stats ?? null,
   });
@@ -203,7 +204,7 @@ async function searchPlayers(position?: string, count: number = 25) {
       : 'Skaters by points' + (wanted ? '.' : '; goalies listed separately on a blend of wins, SV% and GAA.'),
     note: 'Ranked by last season production across all NHL players. Whether a player ' +
           'is available in your league is league-private and not knowable here — ' +
-          'on_your_roster reflects only the roster you pasted.',
+          (LEAGUE_DATA.getRoster() ? 'on_your_roster marks players on the roster you gave.' : 'Pass roster_text to mark your own players.'),
     data_source: `NHL public API (stats ${NHL_STATS.getSeasons().stats})`
   };
 }
@@ -221,7 +222,7 @@ async function getPlayerStats(playerId: string) {
     return {
       error: `Could not resolve "${playerId}" to a single NHL player`,
       reason: r.reason,
-      ...(r.ambiguous ? { candidates: r.ambiguous.map((p: any) => `${p.name} (${p.team} ${p.position})`) } : {})
+      ...(r.ambiguous ? { candidates: r.ambiguous.map(candidateLine) } : {})
     };
   }
 
@@ -647,7 +648,7 @@ async function analyzeTradeImpact(giving: string[], receiving: string[], chirpIn
       team: r.player?.team ?? '?',
       position: r.player?.position ?? '?',
       stats: r.player?.stats ?? null,
-      ...(r.ambiguous ? { candidates: r.ambiguous.map(p => `${p.name} (${p.team} ${p.position})`) } : {}),
+      ...(r.ambiguous ? { candidates: r.ambiguous.map(candidateLine) } : {}),
       ...(r.player ? {} : { reason: r.reason })
     };
   });
@@ -762,7 +763,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "search_players",
-        description: "Search NHL players by position, ranked on last season: skaters by points, goalies on wins, save % and GAA together. A search across all positions lists skaters and goalies separately. League availability is private and not shown.",
+        description: "Search NHL players by position, ranked on last season: skaters by points, goalies on wins, save % and GAA together. A search across all positions lists skaters and goalies separately. Pass roster_text to mark your own players; league availability is private and not shown.",
         inputSchema: {
           type: "object",
           properties: {
@@ -780,7 +781,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "get_player_stats",
-        description: "Last season's NHL statistics and upcoming schedule for one player. Pass a name as you would type it (\"Makar\", \"Cale Makar COL\") or an NHL player ID; an ambiguous name returns the candidates.",
+        description: "Last season's NHL statistics and upcoming schedule for one player. Pass a name as you would type it (\"Cale Makar\", \"Makar COL\") or an NHL player ID; an ambiguous name returns the candidates.",
         inputSchema: {
           type: "object",
           properties: {
@@ -923,11 +924,11 @@ export const TOOL_DEFINITIONS: Tool[] = [
               properties: {
                 start: {
                   type: "string",
-                  description: "Weekend start date (YYYY-MM-DD, e.g., '2025-10-11')"
+                  description: "Weekend start date (YYYY-MM-DD, e.g., '2026-10-16')"
                 },
                 end: {
                   type: "string",
-                  description: "Weekend end date (YYYY-MM-DD, e.g., '2025-10-13')"
+                  description: "Weekend end date (YYYY-MM-DD, e.g., '2026-10-18')"
                 }
               },
               required: ["start", "end"],
@@ -941,11 +942,11 @@ export const TOOL_DEFINITIONS: Tool[] = [
             team_needs: {
               type: "array",
               items: { type: "string" },
-              description: "Your roster needs: ['bye_fill', 'injury_cover', 'G_volume', 'C_depth']. Helps classification"
+              description: "Your roster needs, e.g. ['C_depth', 'G_volume', 'bye_fill', 'injury_cover']. A position need marks candidates at that position as filling it (said in the reason), and a need-driven pick with a low score is classed desperation; 'bye_fill' and 'injury_cover' count as roster gaps."
             },
             min_upside_score: {
               type: "number",
-              description: "Minimum upside score (0-100) to include. Higher = more genuine opportunities",
+              description: "Minimum upside score (0-100) to include. A higher bar returns fewer candidates; it does not change their class.",
               default: 0
             },
             max_results: {
@@ -1791,7 +1792,7 @@ async function dispatchTool(name: string, args: Record<string, unknown> | undefi
 
 /** Tools whose analyses read the stored roster; each also accepts the roster pasted into the call. */
 const ROSTER_TOOLS = new Set([
-  'get_team_roster', 'compare_matchup', 'optimize_lineup', 'get_streaming_recommendations', 'get_games_in_hand',
+  'get_team_roster', 'search_players', 'compare_matchup', 'optimize_lineup', 'get_streaming_recommendations', 'get_games_in_hand',
   'get_roster_transaction_recommendations', 'ice', 'analyze_breakout_players', 'analyze_weekend_streams',
   'chirp_opponent', 'analyze_trade', 'draft_kit', 'chirp_draft_pick', 'analyze_goalie_streams',
 ]);

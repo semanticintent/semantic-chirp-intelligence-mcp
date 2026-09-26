@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.10.3] — seventh review
+
+A seventh test through Claude, against 4.10.2. The new descriptions matched the tools; this fixes the leftovers.
+
+### Fixed
+- **`ice` / `get_roster_transaction_recommendations` filled a pickup list from one club** — four PHI skaters. Pickups
+  are now capped across the whole list at two skaters and one goalie per club, as streaming already was.
+- **Goalie lists named two goalies from one club**, whose expected starts then added up to more than the club's games.
+  `analyze_goalie_streams` and goalie results in `get_streaming_recommendations` list only the best goalie per club,
+  and the method says so.
+- **`search_players`** returned `on_your_roster` while its schema offered no roster. It now takes `roster_text` (the
+  server already honoured it), and the note says how to mark your players.
+- **Candidate lines for ambiguous names said `COL L`**; they say LW / RW everywhere now, from one shared helper.
+- **Schema text:** `get_player_stats`' example is an unambiguous "Cale Makar"; `analyze_weekend_streams` date examples
+  are 2026, `team_needs` says what it actually does, and `min_upside_score` no longer claims a higher bar gives "more
+  genuine opportunities" — it returns fewer candidates.
+
 ## [4.10.2] — tool descriptions
 
 The descriptions are what a client — and the Claude directory — shows for each tool. Several had drifted from what the
