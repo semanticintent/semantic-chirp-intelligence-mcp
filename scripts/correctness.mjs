@@ -236,5 +236,20 @@ await probe('sixth review', async () => {
   check('schedule_value honours enable_chirp: false', !sv.chirp_intelligence?.analysis_chirp);
 });
 
+await probe('seventh review', async () => {
+  const tx = (await tool('get_roster_transaction_recommendations', { roster_text: 'Cale Makar', opponent_text: ROSTER, assume_rostered: 150 })).body;
+  const picks = tx.recommendations.filter(r => r.pickup).map(r => r.pickup);
+  const tally = new Map();
+  for (const p of picks) { const k = (p.position === 'G' ? 'G:' : '') + p.team; tally.set(k, (tally.get(k) ?? 0) + 1); }
+  check('ice caps pickups at two skaters and one goalie per club',
+    [...tally].every(([k, n]) => n <= (k.startsWith('G:') ? 1 : 2)), picks.map(p => `${p.name} ${p.team}`).join(', '));
+
+  const gs = (await tool('analyze_goalie_streams', { top_n: 25 })).body;
+  check('goalie streams list one goalie per club', new Set(gs.candidates.map(c => c.club)).size === gs.candidates.length);
+
+  const ps = (await tool('get_player_stats', { player_id: 'Kaprizov' })).text;
+  check('candidate and player lines never say L / R', !/\([A-Z]{3} [LR]\)/.test(ps));
+});
+
 console.log(failures === 0 ? '\n✅ All correctness checks passed.\n' : `\n❌ ${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

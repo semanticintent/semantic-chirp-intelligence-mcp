@@ -515,3 +515,34 @@ describe('sixth review', () => {
     expect(body.chirp_intelligence?.analysis_chirp).toBeUndefined();
   });
 });
+
+describe('seventh review', () => {
+  it('ice never takes more than two skaters or one goalie from a club', async () => {
+    const { body } = await run('get_roster_transaction_recommendations', { roster_text: 'Young Defender', opponent_text: 'Old Star\nRate Goalie' });
+    const picks = body.recommendations.filter((r: any) => r.pickup).map((r: any) => r.pickup);
+    const count = (key: (p: any) => string) => picks.reduce((m: Map<string, number>, p: any) => m.set(key(p), (m.get(key(p)) ?? 0) + 1), new Map());
+    for (const [, n] of count((p: any) => (p.position === 'G' ? 'G:' : '') + p.team)) expect(n).toBeLessThanOrEqual(2);
+    for (const [k, n] of count((p: any) => (p.position === 'G' ? 'G:' : '') + p.team)) if (k.startsWith('G:')) expect(n).toBe(1);
+  });
+
+  it('goalie streams list one goalie per club', async () => {
+    vi.spyOn(NHL_STATS, 'getAll').mockReturnValue([...LEAGUE,
+      mk('g4', 'Backup Goalie', 'COL', 'G', '1997-01-01', { games_played: 30, wins: 15, save_percentage: 0.915, goals_against_average: 2.4 }),
+    ] as any);
+    const { body } = await run('analyze_goalie_streams', { top_n: 10 });
+    const clubs = body.candidates.map((c: any) => c.club);
+    expect(new Set(clubs).size).toBe(clubs.length);
+  });
+
+  it('search_players marks your pasted roster', async () => {
+    const { body } = await run('search_players', { count: 5, roster_text: 'Old Star' });
+    expect(body.players.find((p: any) => p.name === 'Old Star').on_your_roster).toBe(true);
+    expect(body.note).not.toMatch(/Pass roster_text/);
+  });
+
+  it('candidate lines say LW / RW', async () => {
+    const { candidateLine } = await import('../src/domain/positions.js');
+    expect(candidateLine({ name: 'Cale Makar', team: 'COL', position: 'D' })).toBe('Cale Makar (COL D)');
+    expect(candidateLine({ name: 'Kirill Kaprizov', team: 'MIN', position: 'L' })).toBe('Kirill Kaprizov (MIN LW)');
+  });
+});

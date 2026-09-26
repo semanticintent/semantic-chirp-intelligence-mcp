@@ -53,6 +53,9 @@ interface RosterAnalysis {
 /**
  * ICE Analysis - The ultimate roster optimization engine
  */
+/** Pickup candidates from any one club, as in get_streaming_recommendations. */
+const MAX_PER_CLUB = 2;
+
 export class IceAnalysis extends AnalysisTemplate {
   constructor() {
     super("get_roster_transaction_recommendations", "ice_roster");
@@ -151,11 +154,12 @@ export class IceAnalysis extends AnalysisTemplate {
     const pool: any[] = extendedData.candidatePool ?? [];
     const targets = (args.target_positions ?? []).map(p => p.toUpperCase());
     const recommended = new Set<string>();
+    const clubsUsed = new Map<string, number>();
     for (const position of weakPositions) {
       if (targets.length && !targets.includes(position.position)) continue;
-      const pickup = IceAnalysis.bestFor(pool, [position.position], 1, recommended)[0];
+      const pickup = IceAnalysis.bestFor(pool, [position.position], 1, recommended, clubsUsed)[0];
       if (!pickup) continue;
-      recommended.add(pickup.player_id);
+      IceAnalysis.record([pickup], clubsUsed, recommended);
       recommendations.push({
         priority: "HIGH",
         action: "pickup",  // Aligned with RecommendationAction type
@@ -175,8 +179,9 @@ export class IceAnalysis extends AnalysisTemplate {
       // window, best producers first — at the positions you asked for, else your weak ones, else any.
       const weak = weakPositions.map((w: any) => w.position);
       const wanted = targets.length ? targets : weak;
-      let volume = IceAnalysis.bestFor(pool, wanted, 2, recommended);
-      if (!volume.length && !targets.length) volume = IceAnalysis.bestFor(pool, [], 2, recommended);
+      let volume = IceAnalysis.bestFor(pool, wanted, 2, recommended, clubsUsed);
+      if (!volume.length && !targets.length) volume = IceAnalysis.bestFor(pool, [], 2, recommended, clubsUsed);
+      IceAnalysis.record(volume, clubsUsed, recommended);
       for (const pickup of volume) {
         recommendations.push({
           priority: "MEDIUM",
@@ -482,24 +487,48 @@ export class IceAnalysis extends AnalysisTemplate {
    * The best producers at these positions (any, if none given) among the clubs that play most in the window. "Most" is
    * relative to the window: an absolute three-game bar named nobody in a short week.
    */
-  static bestFor(pool: any[], positions: string[], n: number, exclude: Set<string> = new Set()): any[] {
+  static bestFor(pool: any[], positions: string[], n: number, exclude: Set<string> = new Set(),
+    used: Map<string, number> = new Map()): any[] {
     const eligible = pool.filter(p => !exclude.has(p.player_id) && p.games_in_window > 0 &&
       (positions.length
         ? String(p.position).split(',').some((x: string) => positions.includes(x.trim().toUpperCase()))
         : !p.goalie));
-    // Goalies: best stream score, one per club — two goalies from one club split its starts.
-    if (positions.length === 1 && positions[0] === 'G') {
-      const clubs = new Set<string>();
-      return eligible.sort((a, b) => b.stream_score - a.stream_score)
-        .filter(g => !clubs.has(g.team) && clubs.add(g.team)).slice(0, n);
-    }
     // Skater points and goalie scores are different scales; a mixed request takes each group's best in turn.
     if (positions.includes('G') && positions.some(x => x !== 'G')) {
-      const g = IceAnalysis.bestFor(pool, ['G'], n, exclude), sk = IceAnalysis.bestFor(pool, positions.filter(x => x !== 'G'), n, exclude);
+      const g = IceAnalysis.bestFor(pool, ['G'], n, exclude, used);
+      const sk = IceAnalysis.bestFor(pool, positions.filter(x => x !== 'G'), n, exclude, used);
       return sk.flatMap((x, i) => (g[i] ? [x, g[i]] : [x])).concat(g.slice(sk.length)).slice(0, n);
     }
-    const most = Math.max(0, ...eligible.map(p => p.games_in_window));
-    return eligible.filter(p => p.games_in_window === most).sort((a, b) => b.points - a.points).slice(0, n);
+    const ordered = positions.length === 1 && positions[0] === 'G'
+      ? eligible.sort((a, b) => b.stream_score - a.stream_score)
+      : (() => {
+        const most = Math.max(0, ...eligible.map(p => p.games_in_window));
+        return eligible.filter(p => p.games_in_window === most).sort((a, b) => b.points - a.points);
+      })();
+    // Club caps across the whole list: two skaters per club, one goalie (two goalies from one club split its starts).
+    // Four PHI skaters used to fill a volume list.
+    const local = new Map(used);
+    const out: any[] = [];
+    for (const p of ordered) {
+      if (out.length >= n) break;
+      const key = IceAnalysis.clubKey(p);
+      if ((local.get(key) ?? 0) >= (p.goalie ? 1 : MAX_PER_CLUB)) continue;
+      local.set(key, (local.get(key) ?? 0) + 1);
+      out.push(p);
+    }
+    return out;
+  }
+
+  private static clubKey(p: any): string {
+    return p.goalie ? `G:${p.team}` : p.team;
+  }
+
+  /** Record chosen pickups against the club caps and the no-repeat set. */
+  static record(picks: any[], used: Map<string, number>, recommended: Set<string>): void {
+    for (const p of picks) {
+      recommended.add(p.player_id);
+      used.set(IceAnalysis.clubKey(p), (used.get(IceAnalysis.clubKey(p)) ?? 0) + 1);
+    }
   }
 
   /**

@@ -158,9 +158,11 @@ export class StreamingAnalysis extends AnalysisTemplate {
     // including 0.28 P/gm skaters, ahead of better producers whose clubs play once fewer.
     const perClub = new Map<string, number>();
     const spread = streamingRecommendations.filter(r => {
-      const n = perClub.get(r.player.team) ?? 0;
-      if (n >= MAX_PER_CLUB) return false;
-      perClub.set(r.player.team, n + 1);
+      // Goalies are capped at one per club, since two from one club share its starts.
+      const key = r.player.position === 'G' ? `G:${r.player.team}` : r.player.team;
+      const n = perClub.get(key) ?? 0;
+      if (n >= (r.player.position === 'G' ? 1 : MAX_PER_CLUB)) return false;
+      perClub.set(key, n + 1);
       return true;
     });
     return spread.slice(0, maxRecommendations);
