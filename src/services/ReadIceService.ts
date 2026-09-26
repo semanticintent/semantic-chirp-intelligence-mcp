@@ -231,7 +231,7 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
       analyst: `chirp@${getVersion()}`,
       data: [
         `NHL api-web club-schedule-season ${NHL_SCHEDULE.getSeason() ?? 'unknown season'}`,
-        NHL_STATS.isAvailable() ? `NHL club stats ${NhlStatsService.currentSeason()}` : 'NHL club stats unavailable; ppg and projected_pts are 0',
+        NHL_STATS.isAvailable() ? `NHL club stats ${NHL_STATS.getSeasons().stats ?? 'unknown season'}` : 'NHL club stats unavailable; ppg and projected_pts are 0',
         'schedule_value: games in the window against four, less twenty for a back-to-back',
       ],
     },

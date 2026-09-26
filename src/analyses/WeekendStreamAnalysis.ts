@@ -123,7 +123,7 @@ UPSIDE FORMULA:
 
 CHIRP STYLE: desperate_or_legit
   "That's not a stream, that's a cry for help" 🆘
-  "PP1 lock? Now we're talking genuine upside" 🔥
+  "Twenty minutes a night and three games this weekend? Now we're talking" 🔥
     `;
   }
 
@@ -475,9 +475,11 @@ CHIRP STYLE: desperate_or_legit
       season_ppg: Number(seasonPpg.toFixed(3)),
       games_sampled: { season: seasonGames, recent: recentGames },
       projected_fpg: Number(projected_fpg.toFixed(3)),
-      opportunity_toi: this.estimateOpportunity(player, season, null),
-      pp_role: this.derivePowerPlayRole(season, null, seasonGames, recentGames),
-      line_position: projectedBase >= 0.5 ? 'Top-6' : 'Bottom-6'
+      // Real ice time from the NHL's club stats (published in seconds per game). This used to be a synthetic 0–25
+      // "opportunity" score carrying a TOI label, which is why it disagreed with the player's own stat line.
+      opportunity_toi: seasonGames > 0 ? Number(((season?.time_on_ice_per_game ?? 0) / 60).toFixed(1)) : 0,
+      shots_per_game: seasonGames > 0 ? Number(((season?.shots ?? 0) / seasonGames).toFixed(2)) : 0,
+      power_play_goals: season?.power_play_goals ?? 0
     };
   }
 
@@ -488,39 +490,7 @@ CHIRP STYLE: desperate_or_legit
    */
 
 
-  /**
-   * Opportunity signal on the 0-25 scale the upside formula expects.
-   *
-   * Yahoo does not expose time on ice in standard league stat lines, so this
-   * derives opportunity from observable production volume (shots per game) and
-   * power-play involvement rather than inventing a minutes figure.
-   */
-  private estimateOpportunity(player: Player, season: any, _recent: any): number {
-    const games = season?.games_played ?? 0;
-    if (games === 0) return 0;
 
-    const shotsPerGame = (season?.shots ?? 0) / games;
-    const ppPointsPerGame = (season?.power_play_goals ?? 0) / games;
-
-    // Shot volume scaled to ~0-15, power-play involvement worth up to ~10.
-    const shotComponent = Math.min(15, shotsPerGame * 5);
-    const ppComponent = Math.min(10, ppPointsPerGame * 40);
-
-    return Number((shotComponent + ppComponent).toFixed(1));
-  }
-
-  /** Power-play role inferred from actual power-play production. */
-  private derivePowerPlayRole(season: any, _recent: any, seasonGames: number, recentGames: number): string {
-    const games = seasonGames || recentGames;
-    if (games === 0) return 'Unknown';
-
-    const ppp = season?.power_play_goals ?? 0;
-    const perGame = ppp / games;
-
-    if (perGame >= 0.35) return 'PP1';
-    if (perGame >= 0.12) return 'PP2';
-    return 'None';
-  }
 
   /**
    * Layer 1: Analyze schedule ease
@@ -589,18 +559,14 @@ CHIRP STYLE: desperate_or_legit
       totalRisk += 15;
     }
 
-    // Low ownership = unproven = risk
-    const ownership = player.percent_owned || 0;
-    if (ownership < 10) totalRisk += 15;
-    if (ownership > 30) totalRisk -= 10; // Higher ownership = proven
+    // Ownership is league-private and unknown here, so it carries no risk either way.
 
     return {
       total_risk: Math.max(0, Math.min(100, totalRisk)),
       factors: {
         injury: player.status ? true : false,
         low_toi: metrics.opportunity_toi < 12,
-        back_to_back: schedule.has_back_to_back,
-        low_ownership: ownership < 10
+        back_to_back: schedule.has_back_to_back
       }
     };
   }
@@ -643,13 +609,16 @@ CHIRP STYLE: desperate_or_legit
    * Identify catalyst for stream opportunity
    */
   private identifyCatalyst(player: Player, metrics: any, schedule: WeekendSchedule): string {
-    if (metrics.pp_role === 'PP1') return 'PP1 role lock - power play opportunity';
-    if (metrics.line_position === 'Top-6') return 'Top-6 linemate upgrade';
-    if (schedule.game_count >= 3) return `${schedule.game_count} games this weekend`;
-    if (schedule.has_back_to_back) return 'Back-to-back games - volume play';
-    if (metrics.recent_ppg > 0.7) return 'Hot streak - riding momentum';
-    return 'Schedule-based streaming opportunity';
+    // Facts only: games, ice time, shot volume. No inferred line or power-play role — neither is published.
+    const parts: string[] = [];
+    if (schedule.game_count > 0) parts.push(`${schedule.game_count} game${schedule.game_count === 1 ? '' : 's'} in the window`);
+    if (schedule.has_back_to_back) parts.push('includes a back-to-back');
+    if (metrics.opportunity_toi > 0) parts.push(`${metrics.opportunity_toi} min/gm`);
+    if (metrics.shots_per_game > 0) parts.push(`${metrics.shots_per_game} shots/gm`);
+    if (metrics.power_play_goals > 0) parts.push(`${metrics.power_play_goals} PP goals last season`);
+    return parts.join(', ') || 'no games in the window';
   }
+
 
   /**
    * Layer 6: Analyze fit to roster gaps
@@ -773,7 +742,7 @@ CHIRP STYLE: desperate_or_legit
       mainChirp = "🆘 That's not a waiver wire, that's a cry for help. Pure desperation plays everywhere.";
       truth = "Weekend streaming desperation detected. You're filling holes, not building wins.";
     } else if (top_genuine.length >= 3) {
-      mainChirp = `🔥 Found ${top_genuine.length} genuine opportunities. PP1 locks, top-6 roles, sustainable upside. This is how you dominate.`;
+      mainChirp = `🔥 Found ${top_genuine.length} genuine opportunities. Real ice time, real volume, games in the window. This is how you dominate.`;
       truth = "These aren't streams, they're season savers. Act fast.";
     } else if (roster_gaps.gaps_count > 3) {
       mainChirp = "⚠️ Multiple roster gaps detected. You're in triage mode - prioritize high-floor plays.";

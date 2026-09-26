@@ -100,6 +100,7 @@ export class LeagueDataService {
         selected_position: '',
         status: '',
         stats: p.stats,
+        birth_date: p.birth_date,
         // Kept for analyses written against Yahoo's ownership figure. There is
         // no public equivalent, so it is explicitly null rather than a guess.
         percent_owned: null

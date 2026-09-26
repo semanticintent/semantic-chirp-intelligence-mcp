@@ -43,7 +43,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
  * exactly like the field is unavailable from the NHL. Including the version in
  * the filename makes a shape change invalidate the cache immediately.
  */
-const CACHE_SCHEMA_VERSION = 4; // 3: sweater_number; 4: whole-season lines + hits, blocks, PPP, SHP, FOW, GS
+const CACHE_SCHEMA_VERSION = 5; // 3: sweater_number; 4: whole-season lines + hits, blocks, PPP, SHP, FOW, GS; 5: minutes_per_game
 
 /** A player as the NHL knows them, with their most recent full-season line. */
 export interface NhlPlayer {
@@ -75,7 +75,9 @@ export interface PlayerStats {
   readonly hits?: number;
   readonly blocks?: number;
   readonly faceoff_wins?: number;
-  readonly time_on_ice_per_game?: number;   // seconds
+  readonly time_on_ice_per_game?: number;   // seconds, as the NHL publishes it
+  /** The same figure in minutes, for reading — raw seconds with no unit were being shown as-is. */
+  readonly minutes_per_game?: number;
   // Goalies
   readonly wins?: number;
   readonly losses?: number;
@@ -226,7 +228,8 @@ export class NhlStatsService {
           hits: Number(rt.get(id)?.hits ?? 0),
           blocks: Number(rt.get(id)?.blockedShots ?? 0),
           faceoff_wins: Number(fo.get(id)?.totalFaceoffWins ?? 0),
-          time_on_ice_per_game: Number(s.timeOnIcePerGame ?? 0)
+          time_on_ice_per_game: Number(s.timeOnIcePerGame ?? 0),
+          minutes_per_game: Math.round((Number(s.timeOnIcePerGame ?? 0) / 60) * 10) / 10
         });
       }
       for (const g of goalies) {
@@ -313,7 +316,8 @@ export class NhlStatsService {
       power_play_goals: Number(s.powerPlayGoals ?? 0),
       short_handed_goals: Number(s.shorthandedGoals ?? 0),
       game_winning_goals: Number(s.gameWinningGoals ?? 0),
-      time_on_ice_per_game: Number(s.avgTimeOnIcePerGame ?? 0)
+      time_on_ice_per_game: Number(s.avgTimeOnIcePerGame ?? 0),
+      minutes_per_game: Math.round((Number(s.avgTimeOnIcePerGame ?? 0) / 60) * 10) / 10
     };
   }
 
