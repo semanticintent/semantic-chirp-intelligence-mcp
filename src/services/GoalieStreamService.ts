@@ -36,7 +36,7 @@ export function streamScore(expectedStarts: number, avgAttack: number | null, sa
 }
 
 /** Percentile of a save percentage among goalies who started enough games for theirs to mean something. */
-function savePercentile(starterSvs: number[], sv: number | null): number | null {
+export function savePercentile(starterSvs: number[], sv: number | null): number | null {
   if (sv === null || !starterSvs.length) return null;
   const below = starterSvs.filter((x) => x < sv).length;
   const equal = starterSvs.filter((x) => x === sv).length;

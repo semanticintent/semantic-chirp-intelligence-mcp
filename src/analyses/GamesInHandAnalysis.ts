@@ -177,13 +177,14 @@ export class GamesInHandAnalysis extends AnalysisTemplate {
     if (analysis.advantage > 2) {
       recommendations.push({
         priority: "HIGH",
-        action: "volume_play",
+        // Same labels as ice: volume_play means add games, hold means keep what you have.
+        action: "hold",
         reasoning: `You have ${analysis.advantage} more games than your opponent — keep a full lineup and let the volume work`
       });
     } else if (analysis.advantage < -2) {
       recommendations.push({
         priority: "HIGH",
-        action: "bench_upgrade",
+        action: "volume_play",
         reasoning: `Your opponent has ${Math.abs(analysis.advantage)} more games — stream players whose clubs play more to close the gap`
       });
     } else {

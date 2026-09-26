@@ -358,11 +358,12 @@ CHIRP STYLE: desperate_or_legit
       upsideScore,
       contextDriven,
       metrics,
-      risk.total_risk
+      risk.total_risk,
+      schedule.game_count
     );
 
     // Layer 6: Fit Optimization
-    const fitAnalysis = this.analyzeFit(player, gaps, classification);
+    const fitAnalysis = this.analyzeFit(player, gaps, classification, (data.roster as any)?.players ?? []);
 
     return {
       ...player,
@@ -413,29 +414,21 @@ CHIRP STYLE: desperate_or_legit
     upsideScore: number,
     contextDriven: boolean,
     metrics: any,
-    risk: number
+    risk: number,
+    games: number
   ): 'desperation' | 'genuine' | 'monitor' {
-    // Desperation: Context-driven + Low floor + High risk
-    if (contextDriven && upsideScore < 40) {
+    // Desperation: a small role or little production — you are buying games, nothing else.
+    if (metrics.usage_score < 20 || metrics.production_score < 25 || (contextDriven && upsideScore < 40)) {
       return 'desperation';
     }
 
-    // Desperation: No role lock + Low score
-    if (metrics.usage_score < 20 && upsideScore < 45) {
-      return 'desperation';
-    }
-
-    // Genuine: High upside + Independent catalysts + Low risk
-    if (upsideScore >= 60 && !contextDriven && risk < 40) {
+    // Genuine: more than one game in the window, and both a real role and real production, at low risk. A single score
+    // bar let 142 of 200 players through once the score was put on a 0–100 scale, including one-game weekends.
+    if (games >= 2 && metrics.usage_score >= 50 && metrics.production_score >= 50 && risk < 40) {
       return 'genuine';
     }
 
-    // Genuine: Strong role lock + Good projection
-    if (metrics.usage_score >= 60 && upsideScore >= 55) {
-      return 'genuine';
-    }
-
-    // Monitor: Everything in between (50/50 territory)
+    // Monitor: Everything in between
     return 'monitor';
   }
 
@@ -654,7 +647,8 @@ CHIRP STYLE: desperate_or_legit
   private analyzeFit(
     player: Player,
     gaps: RosterGaps,
-    classification: 'desperation' | 'genuine' | 'monitor'
+    classification: 'desperation' | 'genuine' | 'monitor',
+    rosterPlayers: any[] = []
   ): any {
     let fitReason = '';
     let dropSuggestion: string | undefined;
@@ -663,17 +657,25 @@ CHIRP STYLE: desperate_or_legit
     const playerPositions = player.position.split(',');
     const matchesNeed = playerPositions.some(pos => gaps.position_needs.includes(pos));
 
+    // Fit is stated only when there is one. "Speculative opportunity" used to follow "Genuine:" for every player.
     if (matchesNeed) {
-      fitReason = `Fills ${gaps.position_needs.join('/')} need`;
+      fitReason = `fills your ${gaps.position_needs.join('/')} need`;
     } else if (gaps.gaps_count > 0) {
-      fitReason = 'General roster depth add';
-    } else {
-      fitReason = 'Speculative opportunity';
+      fitReason = 'covers a roster gap';
     }
 
-    // Suggest drop for genuine opportunities
-    if (classification === 'genuine') {
-      dropSuggestion = 'Drop lowest-scoring player in position';
+    // A named drop, from the roster you pasted: your lowest producer who shares a position. It used to be the same
+    // fixed sentence for every player.
+    if (classification === 'genuine' && rosterPlayers.length) {
+      const ppgOf = (p: any) => {
+        const st = NHL_STATS.getById(p.player_id)?.stats ?? p.stats;
+        return st?.games_played ? ((st.goals ?? 0) + (st.assists ?? 0)) / st.games_played : 0;
+      };
+      // Only a clear downgrade: a weekend stream is no reason to drop a player producing near the candidate's rate.
+      const sameSpot = rosterPlayers.filter(r =>
+        String(r.position).split(',').some((pos: string) => playerPositions.includes(pos.trim())) && ppgOf(r) < 0.7 * ppgOf(player));
+      const weakest = sameSpot.sort((a, b) => ppgOf(a) - ppgOf(b))[0];
+      if (weakest) dropSuggestion = `${weakest.name} (${ppgOf(weakest).toFixed(2)} P/gm last season)`;
     }
 
     return {
@@ -776,8 +778,8 @@ CHIRP STYLE: desperate_or_legit
       mainChirp = "🆘 That's not a waiver wire, that's a cry for help. Pure desperation plays everywhere.";
       truth = "Weekend streaming desperation detected. You're filling holes, not building wins.";
     } else if (top_genuine.length >= 3) {
-      mainChirp = `🔥 Found ${top_genuine.length} genuine opportunities. Real ice time, real volume, games in the window. This is how you dominate.`;
-      truth = "These aren't streams, they're season savers. Act fast.";
+      mainChirp = `🔥 ${top_genuine.length} genuine plays: two or more games, real minutes, real production.`;
+      truth = "League ownership is private — the best of these are probably rostered. Check who's actually free.";
     } else if (roster_gaps.gaps_count > 3) {
       mainChirp = "⚠️ Multiple roster gaps detected. You're in triage mode - prioritize high-floor plays.";
       truth = "Desperation mode activated. Take the best available, worry about upside later.";
@@ -807,7 +809,7 @@ CHIRP STYLE: desperate_or_legit
         priority: 'HIGH',
         action: 'pickup',
         player: stream,
-        reasoning: `Genuine: ${stream.fit_reason} (Score: ${stream.upside_score})`
+        reasoning: `Genuine: ${[stream.catalyst, stream.fit_reason].filter(Boolean).join('; ')} (score ${stream.upside_score})`
       });
     }
 
@@ -817,7 +819,7 @@ CHIRP STYLE: desperate_or_legit
         priority: 'MEDIUM',
         action: 'watch' as any,  // 'monitor' as watch action
         player: stream,
-        reasoning: `Monitor: ${stream.fit_reason} (Score: ${stream.upside_score})`
+        reasoning: `Monitor: ${[stream.catalyst, stream.fit_reason].filter(Boolean).join('; ')} (score ${stream.upside_score})`
       });
     }
 

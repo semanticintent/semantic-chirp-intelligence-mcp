@@ -130,24 +130,33 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
     }
 
     const best = analysisResults.teams[0];
-    const worst = analysisResults.teams[analysisResults.teams.length - 1];
+    // The worst is the lowest club that is not itself favoured: with two strong clubs the lower one was called "the one
+    // you draft around" while its own recommendation said target it.
+    const worst = [...analysisResults.teams].reverse().find((t: TeamScheduleValue) => t !== best && t.stance !== 'favour');
+    const weeks = (n: number, what: string) => `${n} ${what}${n === 1 ? '' : 's'}`;
 
     const windowResolved = analysisResults.playoff_window?.resolved === true;
 
     let chirp: string;
-    if (!best || !worst) {
+    if (!best) {
       chirp = 'Nothing to rate.';
+    } else if (!worst) {
+      chirp = windowResolved
+        ? `Every club you asked about is a schedule worth having; ${best.team} leads (${best.playoff_games} games in your playoff window).`
+        : `Every club you asked about has a playable regular season; ${best.team} leads (${weeks(best.weeks_with_4_plus, 'four-game week')}). ` +
+          `I could not read your playoff weeks, and that is the half that decides titles — ` +
+          `pass playoff_start_week and playoff_end_week and ask again.`;
     } else if (windowResolved) {
       chirp =
         `${best.team} is the schedule you want (${best.playoff_games} games in your playoff window, ` +
-        `${best.weeks_with_4_plus} four-game weeks). ${worst.team} is the one you draft around ` +
-        `(${worst.playoff_games} playoff-window games, ${worst.weeks_with_2_or_fewer} weeks stuck on two or fewer). ` +
+        `${weeks(best.weeks_with_4_plus, 'four-game week')}). ${worst.team} is the one you draft around ` +
+        `(${worst.playoff_games} playoff-window games, ${weeks(worst.weeks_with_2_or_fewer, 'week')} stuck on two or fewer). ` +
         `Same player, different sweater, different season.`;
     } else {
       chirp =
         `On regular season alone, ${best.team} gives you the most playable weeks ` +
-        `(${best.weeks_with_4_plus} four-game weeks) and ${worst.team} the fewest ` +
-        `(${worst.weeks_with_2_or_fewer} weeks stuck on two or fewer). ` +
+        `(${weeks(best.weeks_with_4_plus, 'four-game week')}) and ${worst.team} the fewest ` +
+        `(${weeks(worst.weeks_with_2_or_fewer, 'week')} stuck on two or fewer). ` +
         `I could not read your playoff weeks, and that is the half that decides titles — ` +
         `pass playoff_start_week and playoff_end_week and ask again.`;
     }
@@ -170,12 +179,13 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
     // clubs, the same three used to appear in both lists.
     const bestCount = Math.min(8, Math.ceil(teams.length / 2));
     const topN = teams.slice(0, bestCount);
-    const bottom = teams.slice(bestCount).slice(-5);
+    // A favoured club never appears among the worst, whatever its place in a short list.
+    const bottom = teams.slice(bestCount).filter(t => t.stance !== 'favour').slice(-5);
 
     // A recommendation follows the club's own verdict, not its place in the list: a club whose verdict says "break the
     // tie the other way" used to be recommended as a HIGH-priority target because it happened to sort near the top.
     const describe = (t: TeamScheduleValue) =>
-      `${t.team}: ${t.playoff_games} games in your playoff window, ${t.weeks_with_4_plus} four-game weeks, ` +
+      `${t.team}: ${t.playoff_games} games in your playoff window, ${t.weeks_with_4_plus} four-game week${t.weeks_with_4_plus === 1 ? '' : 's'}, ` +
       `${t.total_games} total. ${t.verdict}`;
     const favoured = teams.filter(t => t.stance === 'favour');
     const avoided = teams.filter(t => t.stance === 'avoid');

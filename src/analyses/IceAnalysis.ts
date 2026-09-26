@@ -72,7 +72,7 @@ export class IceAnalysis extends AnalysisTemplate {
     return {
       roster,
       gamesInHand: this.calculateGamesInHand(lookAheadDays),
-      volumeCandidates: this.volumeCandidates(lookAheadDays),
+      candidatePool: this.candidatePool(lookAheadDays),
       streaming: this.streamingContext(),
       lookAheadDays
     };
@@ -144,23 +144,25 @@ export class IceAnalysis extends AnalysisTemplate {
     // 2. HIGH: Position weakness fixes
     const weakPositions = this.identifyWeakPositions(data, rosterAnalysis);
 
+    // Pickups come from one pool — players on neither roster, with their club's games in the window — filtered to the
+    // positions you asked for, else to your weak ones. The weak-position fix read a streaming list that has been empty
+    // since v4, and the volume play ignored target_positions: asked for RW, it returned a C and a D.
+    const pool: any[] = extendedData.candidatePool ?? [];
+    const targets = (args.target_positions ?? []).map(p => p.toUpperCase());
+    const recommended = new Set<string>();
     for (const position of weakPositions) {
-      const bestAvailable = extendedData.streaming?.streaming_targets
-        ?.filter((p: any) => args.target_positions ? args.target_positions.includes(position.position) : true)
-        .filter((p: any) => p.position.includes(position.position))
-        .slice(0, 3) || [];
-
-      if (bestAvailable.length > 0) {
-        const dropCandidate = this.findBestDropCandidate(data, position.position);
-
-        recommendations.push({
-          priority: "HIGH",
-          action: "pickup",  // Aligned with RecommendationAction type
-          pickup: bestAvailable[0],
-          drop: dropCandidate,
-          reasoning: `Strengthen ${position.position} - ${position.weakness_reason}`
-        });
-      }
+      if (targets.length && !targets.includes(position.position)) continue;
+      const pickup = IceAnalysis.bestFor(pool, [position.position], 1, recommended)[0];
+      if (!pickup) continue;
+      recommended.add(pickup.player_id);
+      recommendations.push({
+        priority: "HIGH",
+        action: "pickup",  // Aligned with RecommendationAction type
+        pickup,
+        drop: this.findBestDropCandidate(data, position.position),
+        reasoning: `Strengthen ${position.position} - ${position.weakness_reason}. ${pickup.name} (${pickup.team}) plays ` +
+          `${pickup.games_in_window} time${pickup.games_in_window === 1 ? '' : 's'} in the window — check he is available in your league.`
+      });
     }
 
     // 3. MEDIUM: Schedule edge.
@@ -169,9 +171,13 @@ export class IceAnalysis extends AnalysisTemplate {
     const gih = extendedData.gamesInHand ?? {};
     const gamesDiff: number = gih.games_in_hand_difference || 0;
     if (gih.opponent_remaining !== null && gih.opponent_remaining !== undefined && gamesDiff < 0) {
-      // Behind on volume: name real candidates — players not on either roster whose clubs play at least three times
-      // in the window, best producers first. These used to come from a streaming list that has been empty since v4.
-      for (const pickup of (extendedData.volumeCandidates ?? []).slice(0, 2)) {
+      // Behind on volume: name real candidates — players not on either roster from the clubs that play most in the
+      // window, best producers first — at the positions you asked for, else your weak ones, else any.
+      const weak = weakPositions.map((w: any) => w.position);
+      const wanted = targets.length ? targets : weak;
+      let volume = IceAnalysis.bestFor(pool, wanted, 2, recommended);
+      if (!volume.length && !targets.length) volume = IceAnalysis.bestFor(pool, [], 2, recommended);
+      for (const pickup of volume) {
         recommendations.push({
           priority: "MEDIUM",
           action: "volume_play",
@@ -446,21 +452,27 @@ export class IceAnalysis extends AnalysisTemplate {
    * 2026-27 has clubs on 0, 1 or 2 games — so it returned nothing whenever it was needed early in a season. "Most
    * games in this window" is the relative fact that actually closes a gap.
    */
-  private volumeCandidates(lookAheadDays: number): any[] {
+  /** Skaters on neither roster, with their club's games in the window. */
+  private candidatePool(lookAheadDays: number): any[] {
     if (!NHL_SCHEDULE.isAvailable()) return [];
     const start = NhlScheduleService.today();
     const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
-    const pool = LEAGUE_DATA.getPlayerPool({ limit: 300 })
+    return LEAGUE_DATA.getPlayerPool({ limit: 400 })
       .filter(p => p.position !== 'G')
       .map(p => ({ player_id: p.player_id, name: p.name, team: p.team, position: p.position,
         games_in_window: NHL_SCHEDULE.countGamesInRange(p.team, start, end),
         points: (p as any).stats?.points ?? 0 }));
-    const most = Math.max(0, ...pool.map(p => p.games_in_window));
-    if (most === 0) return [];
-    return pool
-      .filter(p => p.games_in_window === most)
-      .sort((a, b) => b.points - a.points)
-      .slice(0, 5);
+  }
+
+  /**
+   * The best producers at these positions (any, if none given) among the clubs that play most in the window. "Most" is
+   * relative to the window: an absolute three-game bar named nobody in a short week.
+   */
+  static bestFor(pool: any[], positions: string[], n: number, exclude: Set<string> = new Set()): any[] {
+    const eligible = pool.filter(p => !exclude.has(p.player_id) && p.games_in_window > 0 &&
+      (!positions.length || String(p.position).split(',').some((x: string) => positions.includes(x.trim().toUpperCase()))));
+    const most = Math.max(0, ...eligible.map(p => p.games_in_window));
+    return eligible.filter(p => p.games_in_window === most).sort((a, b) => b.points - a.points).slice(0, n);
   }
 
   /**

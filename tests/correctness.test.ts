@@ -343,3 +343,78 @@ describe('third review', () => {
     for (const s of body.analysis_insights.streaming_targets) expect(s.weekend_games).toBeGreaterThan(0);
   });
 });
+
+describe('fourth review', () => {
+  it('chirp_draft_pick offers goalies when the need is G', async () => {
+    const { body } = await run('chirp_draft_pick', { pick_number: 5, roster_needs: ['G'], max_results: 10 });
+    const goalies = body.analysis_insights.top_candidates.filter((c: any) => c.position === 'G');
+    expect(goalies.length).toBeGreaterThan(0);
+    expect(goalies.every((c: any) => c.fills_need)).toBe(true);
+    expect(goalies[0].reasoning).not.toMatch(/best producer/);
+  });
+
+  it('schedule_value never lists a favoured club among the worst', async () => {
+    // Two strong regular seasons: both favoured. The lower one used to land in worst_schedules and be called "the one
+    // you draft around" while its own recommendation said target it.
+    vi.spyOn(NHL_SCHEDULE, 'getTeamProfile').mockImplementation((team: string) => ({
+      team, total_games: 82, weeks_with_4_plus: team === 'SEA' ? 12 : team === 'COL' ? 10 : 4,
+      weeks_with_2_or_fewer: team === 'NJD' ? 8 : 1,
+    }) as any);
+    for (const teams of [['SEA', 'COL'], ['SEA', 'COL', 'NJD'], ['TOR', 'SJS']]) {
+      const { body, text } = await run('schedule_value', { teams, playoff_start_week: 22, playoff_end_week: 24 });
+      const favoured = new Set(body.analysis_insights.all_teams.filter((t: any) => t.stance === 'favour').map((t: any) => t.team));
+      expect(body.analysis_insights.worst_schedules.filter((t: any) => favoured.has(t.team))).toEqual([]);
+      expect(text).not.toMatch(/\b1 weeks\b|\b1 four-game weeks\b/);
+    }
+  });
+
+  it('weekend streams keep "genuine" for multi-game weekends with a real role, and say why', async () => {
+    const { body } = await run('analyze_weekend_streams', { roster_text: MY_ROSTER, date_range: { start: '2026-10-09', end: '2026-10-11' } });
+    for (const r of body.recommendations) {
+      expect(r.reasoning).not.toMatch(/Speculative opportunity/);
+      if (r.reasoning.startsWith('Genuine')) expect(r.player.weekend_games).toBeGreaterThanOrEqual(2);
+      if (r.player.drop_suggestion) expect(r.player.drop_suggestion).not.toMatch(/lowest-scoring player in position/);
+    }
+    const b = body.metadata.classification_breakdown;
+    expect(b.genuine_count).toBeLessThan(b.genuine_count + b.monitor_count + b.desperation_count);
+  });
+
+  it('roster transactions honour target_positions for pickups', async () => {
+    const { body } = await run('get_roster_transaction_recommendations', { roster_text: 'Young Winger', opponent_text: 'Old Star\nRate Goalie', target_positions: ['RW'] });
+    const pickups = body.recommendations.filter((r: any) => r.pickup).map((r: any) => r.pickup.position);
+    expect(pickups.length).toBeGreaterThan(0);
+    expect(pickups.every((p: string) => p.split(',').includes('RW'))).toBe(true);
+  });
+
+  it('streaming goalies are ranked on expected starts, not club games', async () => {
+    const { body } = await run('get_streaming_recommendations', { position_filter: 'G', max_recommendations: 3 });
+    for (const r of body.recommendations) expect(r.reasoning).toMatch(/expected starts/);
+  });
+
+  it('games in hand uses the same action labels as ice', async () => {
+    const ahead = (await run('get_games_in_hand', { roster_text: MY_ROSTER, opponent_text: 'Young Winger' })).body;
+    const behind = (await run('get_games_in_hand', { roster_text: 'Young Defender', opponent_text: 'Old Star\nRate Goalie' })).body;
+    expect(ahead.recommendations[0].action).toBe('hold');
+    expect(behind.recommendations[0].action).toBe('volume_play');
+  });
+
+  it('standings skip a header row and rank unnumbered rows by order', async () => {
+    const { body } = await run('get_league_standings', { standings_text: 'Team W-L-T\nAlpha 8-2-1\nBeta 7-3-1' });
+    expect(body.teams).toBe(2);
+    expect(body.standings.map((r: any) => [r.rank, r.team_name])).toEqual([[1, 'Alpha'], [2, 'Beta']]);
+  });
+
+  it('search_players uses LW/RW like every other tool', async () => {
+    const { body } = await run('search_players', { count: 20 });
+    expect(body.players.filter((p: any) => /^(L|R)$/.test(p.position))).toEqual([]);
+  });
+
+  it('read_ice calls it "the whole problem" only for a player it sits', async () => {
+    vi.spyOn(NHL_SCHEDULE, 'hasGameOn').mockImplementation((team: string, date: string) =>
+      Array.from({ length: GAMES[team] ?? 0 }, (_, i) => `2026-10-1${i}`).includes(date));
+    const { body } = await run('read_ice', { roster_text: 'Old Star\nOlder Star\nYoung Winger', start: '2026-10-10' });
+    for (const v of body.verdicts) {
+      if (/whole problem/.test(v.line)) expect(body.calls.sit).toContain(v.ids[0]);
+    }
+  });
+});

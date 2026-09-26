@@ -19,9 +19,13 @@ import {
 } from '../domain/types.js';
 import { LEAGUE_DATA, LeagueDataService, NO_ROSTER_MESSAGE } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
+import { savePercentile, streamScore } from '../services/GoalieStreamService.js';
+import { GOALIE_STARTER_GP } from '../domain/goalie-rank.js';
 
 /** Candidates from any one club, so a single heavy schedule cannot fill the list. */
 const MAX_PER_CLUB = 2;
+/** Regular-season games per club, for a goalie's share of starts. */
+const SEASON_GAMES = 82;
 
 export interface StreamingArgs {
   look_ahead_days?: number;
@@ -33,6 +37,9 @@ export interface StreamingArgs {
 export interface StreamingPlayerAnalysis {
   player: Player;
   games_this_week: number;
+  /** Club games for a skater; for a goalie, club games × last season's start share. */
+  expected_games: number;
+  goalie_score: number | null;
   recent_performance: string;
   pickup_priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   reasoning: string;
@@ -90,6 +97,9 @@ export class StreamingAnalysis extends AnalysisTemplate {
     const maxRecommendations = args.max_recommendations || 5;
 
     const streamingRecommendations: StreamingPlayerAnalysis[] = [];
+    const starterSvs = NHL_STATS.getAll()
+      .filter(p => p.position === 'G' && (p.stats?.games_played ?? 0) >= GOALIE_STARTER_GP && typeof p.stats?.save_percentage === 'number')
+      .map(p => p.stats!.save_percentage as number);
 
     // Analyze each available player
     for (const player of data.availablePlayers || []) {
@@ -106,15 +116,28 @@ export class StreamingAnalysis extends AnalysisTemplate {
       const facts = [`${gamesThisWeek} game${gamesThisWeek === 1 ? '' : 's'} in the window`];
       if (player.position !== 'G' && gp > 0) facts.push(`${ppg.toFixed(2)} P/gm`, `${mins.toFixed(1)} min/gm last season`);
 
+      // A goalie's games are his club's games only when he starts them. Ranked on club games alone, an .877 goalie
+      // led the list; analyze_goalie_streams already weighs start share and save %, and this now agrees with it.
+      const isG = player.position === 'G';
+      const share = Math.min(1, gp / SEASON_GAMES);
+      const expected = isG ? Math.round(gamesThisWeek * share * 10) / 10 : gamesThisWeek;
+      if (isG && gp > 0) {
+        facts.push(`started ${Math.round(share * 100)}% of his club's games last season (≈${expected} expected starts)`);
+        if (typeof st?.save_percentage === 'number') facts.push(`${st.save_percentage.toFixed(3).replace(/^0/, '')} SV%`);
+      }
+
       let pickupPriority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-      if (gamesThisWeek >= 4) pickupPriority = 'HIGH';
-      else if (gamesThisWeek === 3) pickupPriority = 'MEDIUM';
+      if (expected >= 4) pickupPriority = 'HIGH';
+      else if (expected >= 3) pickupPriority = 'MEDIUM';
       else pickupPriority = 'LOW';
       const reasoning = facts.join(', ');
 
       streamingRecommendations.push({
         player,
         games_this_week: gamesThisWeek,
+        expected_games: expected,
+        // Goalies are ordered on analyze_goalie_streams' score (opposition unknown here, so neutral) so the two agree.
+        goalie_score: isG ? streamScore(expected, null, savePercentile(starterSvs, st?.save_percentage ?? null)) : null,
         recent_performance: this.describePerformance(player),
         pickup_priority: pickupPriority,
         reasoning
@@ -126,7 +149,8 @@ export class StreamingAnalysis extends AnalysisTemplate {
       const priorityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
       const priorityDiff = priorityOrder[a.pickup_priority] - priorityOrder[b.pickup_priority];
       if (priorityDiff !== 0) return priorityDiff;
-      if (b.games_this_week !== a.games_this_week) return b.games_this_week - a.games_this_week;
+      if (a.goalie_score !== null && b.goalie_score !== null) return b.goalie_score - a.goalie_score;
+      if (b.expected_games !== a.expected_games) return b.expected_games - a.expected_games;
       return ((b.player as any).stats?.points ?? 0) - ((a.player as any).stats?.points ?? 0);
     });
 

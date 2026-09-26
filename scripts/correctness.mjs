@@ -120,11 +120,10 @@ await probe('goalie order', async () => {
 });
 
 await probe('behind on games', async () => {
-  // A 3-day window in season, a one-player roster against three: you are behind, and ICE must name who to add.
-  const win = { start: '2026-10-16', look_ahead_days: 3 };
+  // ICE reads from today. A one-player roster against the five-player test roster is behind in any window with games.
   const [ice, gih] = await Promise.all([
-    tool('ice', { roster_text: 'Cale Makar', opponent_text: OPPONENT, ...win }),
-    tool('get_games_in_hand', { roster_text: 'Cale Makar', opponent_text: OPPONENT, ...win }),
+    tool('ice', { roster_text: 'Cale Makar', opponent_text: ROSTER }),
+    tool('get_games_in_hand', { roster_text: 'Cale Makar', opponent_text: ROSTER }),
   ]);
   const edge = ice.body.analysis_insights.schedule_edge;
   // ICE reads from today, so before opening night nobody is behind and there is nothing to check yet.
@@ -168,6 +167,35 @@ await probe('weekend streams', async () => {
   const w = (await tool('analyze_weekend_streams', { date_range: { start: '2026-10-16', end: '2026-10-18' } })).body;
   check('weekend streams run without a roster and find genuine plays', !w.error && w.metadata.classification_breakdown.genuine_count > 0,
     w.error ?? JSON.stringify(w.metadata?.classification_breakdown));
+});
+
+await probe('fourth review', async () => {
+  const pick = (await tool('chirp_draft_pick', { pick_number: 40, roster_needs: ['G'], max_results: 10 })).body.analysis_insights.top_candidates;
+  check('chirp_draft_pick offers goalies when the need is G', pick.some(c => c.position === 'G' && c.fills_need));
+
+  const sv = (await tool('schedule_value', { teams: ['SJ', 'TOR'], playoff_start_week: 22, playoff_end_week: 24 }));
+  const favoured = new Set(sv.body.analysis_insights.all_teams.filter(t => t.stance === 'favour').map(t => t.team));
+  check('schedule_value never lists a favoured club among the worst',
+    sv.body.analysis_insights.worst_schedules.every(t => !favoured.has(t.team)) && !/\b1 weeks\b/.test(sv.text));
+
+  const w = (await tool('analyze_weekend_streams', { date_range: { start: '2026-10-16', end: '2026-10-18' } })).body;
+  const b = w.metadata.classification_breakdown;
+  check('weekend "genuine" is selective and never a one-game weekend',
+    b.genuine_count < (b.genuine_count + b.monitor_count + b.desperation_count) / 2 &&
+    w.recommendations.every(r => !r.reasoning.startsWith('Genuine') || r.player.weekend_games >= 2) &&
+    w.recommendations.every(r => !/Speculative opportunity/.test(r.reasoning)), JSON.stringify(b));
+
+  const tx = (await tool('get_roster_transaction_recommendations', { roster_text: 'Cale Makar', opponent_text: ROSTER, target_positions: ['RW'] })).body;
+  check('roster transactions honour target_positions', tx.recommendations.filter(r => r.pickup).every(r => r.pickup.position.split(',').includes('RW')));
+
+  const sg = (await tool('get_streaming_recommendations', { position_filter: 'G', max_recommendations: 3 })).body;
+  check('streaming goalies are ranked on expected starts', sg.recommendations.every(r => /expected starts/.test(r.reasoning)));
+
+  const st = (await tool('get_league_standings', { standings_text: 'Team W-L-T\nAlpha 8-2-1\nBeta 7-3-1' })).body;
+  check('standings skip a header row', st.teams === 2 && st.standings[0].rank === 1);
+
+  const sp = (await tool('search_players', { count: 25 })).body;
+  check('search_players says LW/RW', sp.players.every(p => !/^(L|R)$/.test(p.position)));
 });
 
 console.log(failures === 0 ? '\n✅ All correctness checks passed.\n' : `\n❌ ${failures} check(s) failed.\n`);

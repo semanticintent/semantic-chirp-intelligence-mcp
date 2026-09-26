@@ -32,8 +32,12 @@ import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService
 import { toNhlTricode } from '../domain/nhl-teams.js';
 import { LEAGUE_DATA, LeagueDataService } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
+import { rankGoalies } from '../domain/goalie-rank.js';
 import { ROSTER_STORE } from '../services/RosterStore.js';
 import { parseCategories, valueForCategories } from '../services/CategoryService.js';
+
+/** Board slots per goalie: a typical roster carries two goalies to ten or twelve skaters, so about one pick in six. */
+const GOALIE_EVERY = 6;
 
 export interface DraftPickArgs {
   readonly pick_number?: number;
@@ -95,7 +99,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
           .sort((a: any, b: any) => cats.values.get(b.player_id)!.value - cats.values.get(a.player_id)!.value)
           .slice(0, size)
           .map((p: any) => ({ ...p, category_line: cats.values.get(p.player_id)!.line }))
-      : LEAGUE_DATA.getPlayerPool({ limit: size });
+      : this.board(size);
     return {
       pool,
       roster: LEAGUE_DATA.getRoster(),
@@ -103,6 +107,24 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       cats
     };
 
+  }
+
+  /**
+   * The board without categories: skaters by points, with goalies — ordered by the shared goalie ranking — placed one
+   * every GOALIE_EVERY slots. A single list sorted on points for skaters and wins for goalies put a goalie's board slot
+   * on a meaningless scale, and none reached the candidates even when the only need was G.
+   */
+  private board(size: number): any[] {
+    const all = LEAGUE_DATA.getPlayerPool({ limit: 5000 });
+    const skaters = all.filter((p: any) => p.position !== 'G');
+    const goalies = rankGoalies(all.filter((p: any) => p.position === 'G'));
+    const out: any[] = [];
+    while (out.length < size && (skaters.length || goalies.length)) {
+      const goalieTurn = (out.length + 1) % GOALIE_EVERY === 0;
+      const next = (goalieTurn && goalies.length) || !skaters.length ? goalies.shift() : skaters.shift();
+      out.push(next);
+    }
+    return out;
   }
 
   // ==========================================
@@ -445,6 +467,8 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     rankLabel = 'best producer'
   ): string {
     const parts: string[] = [`${player.name} (${player.position}, ${player.team})`];
+    // A goalie's slot comes from the goalie ranking, not points, so "best producer" would misdescribe it.
+    if (rankLabel === 'best producer' && player.positions?.includes('G')) rankLabel = 'on the board';
 
     if (adpDelta === null) {
       parts.push('no production rank');
