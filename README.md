@@ -121,6 +121,10 @@ occasional chirp.
 > *unowned in your league* — ownership is league-private and no public source
 > exposes it. Pool-based tools therefore return "players not on the rosters you
 > provided", ranked by production, and say so. Check availability before adding.
+> The pickup tools take an optional `assume_rostered` (e.g. `150` for a 12-team
+> league): the top N on the draft board are treated as taken and left out, so
+> suggestions look like a real waiver wire. It is an assumption, and the output
+> says when it was applied.
 
 ## Two ways to reach it
 

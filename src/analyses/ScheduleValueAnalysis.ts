@@ -178,9 +178,10 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
     // Best and worst are drawn from opposite ends without overlap, however few clubs were asked about — with three
     // clubs, the same three used to appear in both lists.
     const bestCount = Math.min(8, Math.ceil(teams.length / 2));
-    const topN = teams.slice(0, bestCount);
-    // A favoured club never appears among the worst, whatever its place in a short list.
-    const bottom = teams.slice(bestCount).filter(t => t.stance !== 'favour').slice(-5);
+    // Every favoured club is among the best and none is among the worst, whatever its place in a short list — a
+    // favoured club below the halfway line used to be in neither list.
+    const topN = teams.filter((t, i) => t.stance === 'favour' || (i < bestCount && t.stance !== 'avoid')).slice(0, Math.max(8, bestCount));
+    const bottom = teams.filter(t => !topN.includes(t) && t.stance !== 'favour').slice(-5);
 
     // A recommendation follows the club's own verdict, not its place in the list: a club whose verdict says "break the
     // tie the other way" used to be recommended as a HIGH-priority target because it happened to sort near the top.

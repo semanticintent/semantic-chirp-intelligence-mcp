@@ -19,6 +19,7 @@ import type {
   AnalysisInsights
 } from '../domain/types.js';
 import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
+import { rankGoalies } from '../domain/goalie-rank.js';
 import { LEAGUE_DATA, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
 import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
@@ -457,11 +458,13 @@ export class IceAnalysis extends AnalysisTemplate {
     if (!NHL_SCHEDULE.isAvailable()) return [];
     const start = NhlScheduleService.today();
     const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
-    return LEAGUE_DATA.getPlayerPool({ limit: 400 })
-      .filter(p => p.position !== 'G')
-      .map(p => ({ player_id: p.player_id, name: p.name, team: p.team, position: p.position,
-        games_in_window: NHL_SCHEDULE.countGamesInRange(p.team, start, end),
-        points: (p as any).stats?.points ?? 0 }));
+    const all = LEAGUE_DATA.getPlayerPool({ limit: 5000 });
+    const shape = (p: any, value: number) => ({ player_id: p.player_id, name: p.name, team: p.team, position: p.position,
+      games_in_window: NHL_SCHEDULE.countGamesInRange(p.team, start, end), points: value });
+    // Goalies are ordered by the shared goalie ranking (value falls with rank) and only offered when G is asked for or
+    // weak: ICE listed G as a weak position and then suggested no goalie, because this pool held skaters only.
+    const goalies = rankGoalies(all.filter(p => p.position === 'G')).map((p, i) => ({ ...shape(p, -i), goalie: true }));
+    return [...all.filter(p => p.position !== 'G').slice(0, 400).map(p => shape(p, (p as any).stats?.points ?? 0)), ...goalies];
   }
 
   /**
@@ -470,7 +473,14 @@ export class IceAnalysis extends AnalysisTemplate {
    */
   static bestFor(pool: any[], positions: string[], n: number, exclude: Set<string> = new Set()): any[] {
     const eligible = pool.filter(p => !exclude.has(p.player_id) && p.games_in_window > 0 &&
-      (!positions.length || String(p.position).split(',').some((x: string) => positions.includes(x.trim().toUpperCase()))));
+      (positions.length
+        ? String(p.position).split(',').some((x: string) => positions.includes(x.trim().toUpperCase()))
+        : !p.goalie));
+    // Skater points and goalie rank are different scales; a mixed request takes each group's best in turn.
+    if (positions.includes('G') && positions.some(x => x !== 'G')) {
+      const g = IceAnalysis.bestFor(pool, ['G'], n, exclude), sk = IceAnalysis.bestFor(pool, positions.filter(x => x !== 'G'), n, exclude);
+      return sk.flatMap((x, i) => (g[i] ? [x, g[i]] : [x])).concat(g.slice(sk.length)).slice(0, n);
+    }
     const most = Math.max(0, ...eligible.map(p => p.games_in_window));
     return eligible.filter(p => p.games_in_window === most).sort((a, b) => b.points - a.points).slice(0, n);
   }

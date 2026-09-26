@@ -110,15 +110,15 @@ describe('readIce', () => {
 
   it('makes the calls and writes the lines the screen will drop', async () => {
     const read = await readIce(ROSTER, OPTS);
-    expect(read.calls.start).toHaveLength(2);
-    expect(read.calls.start).toContain('gridin');
+    // Frost has four games but projects 1.3 against Strome's 2.0 on the bench, so he is not a start call.
+    expect(read.calls.start).toEqual(['gridin']);
     expect(read.calls.sit).toEqual(['zary']);
     expect(read.calls.stream).toEqual(['strome']);
     expect(read.calls.ir).toEqual(['huberdeau']);
     const pair = read.verdicts.find((v) => v.ids.length === 2 && v.ids.includes('strome') && v.ids.includes('zary'))!;
-    expect(pair.line).toBe('Strome skates 2 more. Start him.');
+    expect(pair.line).toBe('Strome projects 0.9 more points. Start him.');
     expect(read.verdicts.find((v) => v.ids.length === 1 && v.ids[0] === 'gridin')!.line).toBe("4 games. That's the whole argument.");
-    expect(read.take).toBe('Your bench has Strome at 4 games and your lineup is carrying Zary at 2. Fix it before puck drop.');
+    expect(read.take).toBe('Your bench has Strome at 4 games (2 projected) and your lineup is carrying Zary at 2 (1.1). Fix it before puck drop.');
   });
 
   it('counts games in hand, opponent only when given', async () => {

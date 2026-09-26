@@ -425,8 +425,12 @@ export class DraftKitAnalysis extends AnalysisTemplate {
   }
 
   protected async formatResponse(chirpEnhanced: any, data: FantasyData): Promise<AnalysisResponse> {
+    // A player flagged for decline is not also a target: Karlsson was both a MEDIUM target and a decline risk.
+    const declining = new Set((chirpEnhanced.signals?.decline_risk ?? []).map((p: any) => `${p.name}|${p.team}`));
     const recommendations: Recommendation[] =
-      (chirpEnhanced.signals?.playoff_schedule_winners ?? []).slice(0, 5).map((p: any, i: number) => ({
+      (chirpEnhanced.signals?.playoff_schedule_winners ?? [])
+        .filter((p: any) => !declining.has(`${p.name}|${p.team}`))
+        .slice(0, 5).map((p: any, i: number) => ({
         priority: i < 2 ? 'HIGH' : 'MEDIUM',
         action: 'target',
         reasoning: `${p.name} (${p.team} ${p.position}) — ${p.ppg} P/gm and ${p.playoff_games} games in your playoff window`

@@ -57,7 +57,7 @@ export class StreamingAnalysis extends AnalysisTemplate {
     // v4: no waiver wire exists without league-private ownership data, so the
     // pool is "NHL players not on the rosters you gave me", ranked by
     // production. The caveat travels with the results.
-    await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
+    await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load(), NHL_SCHEDULE.loadStandings()]);
 
     // The tool schema has always offered position_filter; it was never applied, so asking for RW returned centres.
     const wanted = (Array.isArray(args.position_filter) ? args.position_filter : args.position_filter ? [args.position_filter] : [])
@@ -136,8 +136,9 @@ export class StreamingAnalysis extends AnalysisTemplate {
         player,
         games_this_week: gamesThisWeek,
         expected_games: expected,
-        // Goalies are ordered on analyze_goalie_streams' score (opposition unknown here, so neutral) so the two agree.
-        goalie_score: isG ? streamScore(expected, null, savePercentile(starterSvs, st?.save_percentage ?? null)) : null,
+        // Goalies are ordered on analyze_goalie_streams' score — expected starts, opposing attack, save % — so the two
+        // tools name the same goalie. Leaving the opposition out put Shesterkin (BOS, TBL) ahead of its pick.
+        goalie_score: isG ? streamScore(expected, this.avgAttack(player, lookAheadDays), savePercentile(starterSvs, st?.save_percentage ?? null)) : null,
         recent_performance: this.describePerformance(player),
         pickup_priority: pickupPriority,
         reasoning
@@ -285,6 +286,17 @@ export class StreamingAnalysis extends AnalysisTemplate {
     const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
 
     return NHL_SCHEDULE.countGamesInRange(player.team, start, end);
+  }
+
+  /** Average attack (0–100) of the clubs this goalie's team faces in the window; null when standings are unknown. */
+  private avgAttack(player: Player, lookAheadDays: number): number | null {
+    if (!NHL_SCHEDULE.isAvailable()) return null;
+    const start = NhlScheduleService.today();
+    const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
+    const known = NHL_SCHEDULE.getGamesInRange(player.team, start, end)
+      .map(g => NHL_SCHEDULE.getTeamStrength(g.opponent)?.attack)
+      .filter((a): a is number => typeof a === 'number');
+    return known.length ? Math.round(known.reduce((x, y) => x + y, 0) / known.length) : null;
   }
 
   /** Whether recommendations in this run were backed by the real schedule. */

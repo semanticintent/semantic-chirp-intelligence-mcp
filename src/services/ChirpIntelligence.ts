@@ -189,7 +189,8 @@ export class ChirpIntelligence {
     }
 
     if (advantage === "you" && chirpStyle.tone === "direct_honest") {
-      return `${chirpStyle.prefix} capitalize on your ${diff}-game advantage ${chirpStyle.suffix}`;
+      // Ahead means hold: keep the lineup full. "Time to capitalize … and improve your game" read as a call to act.
+      return `You have ${diff} more game${diff === 1 ? '' : 's'}. Keep every slot filled and let them work.`;
     }
 
     // Fallbacks are whole sentences: splicing a personality phrase onto a noun phrase read "Elite players the schedule

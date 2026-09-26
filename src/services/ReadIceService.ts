@@ -155,17 +155,24 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
   const byId = new Map(skaters.map((s) => [s.id, s]));
   const gp = (s: ReadSkater): number => s.games.filter(Boolean).length;
   const active = skaters.filter((s) => ACTIVE.includes(s.slot));
-  const ranked = [...active].sort((a, b) => b.schedule_value - a.schedule_value || b.projected_pts - a.projected_pts);
+  // Calls rank on projected points — last season's points per game × games in the window — not games alone. On games
+  // alone a 0.28 P/gm depth winger with two games was "enough to start" and a 1.1-point star with one was the soft spot.
+  const byValue = (a: ReadSkater, b: ReadSkater) => b.projected_pts - a.projected_pts || b.schedule_value - a.schedule_value;
+  const ranked = [...active].sort(byValue);
   const lineGames = active.reduce((a, s) => a + gp(s), 0);
-  const startIds = ranked.filter((s) => s.schedule_value >= 50).slice(0, 2).map((s) => s.id);
+  // A start call needs a real schedule (two games or more in a week), a projection at least the lineup median, and no
+  // bench player projecting more — otherwise "Enough to start him" went to a depth winger the bench outscored.
+  const median = ranked.length ? ranked[Math.floor((ranked.length - 1) / 2)].projected_pts : 0;
+  const benchBest = Math.max(0, ...skaters.filter((s) => s.slot === 'BN').map((s) => s.projected_pts));
+  const startIds = ranked.filter((s) => s.schedule_value >= 50 && s.projected_pts >= median && s.projected_pts >= benchBest)
+    .slice(0, 2).map((s) => s.id);
   const weakest = ranked.length > 2 ? ranked[ranked.length - 1] : undefined;
   const streamIds = skaters.filter((s) => s.flag === 'stream').sort((a, b) => b.schedule_value - a.schedule_value || b.projected_pts - a.projected_pts).map((s) => s.id);
   // The soft spot is the weakest active schedule. It becomes a sit call only when someone on the bench would beat him —
   // otherwise the Read told you to sit a player while its own take said nobody on the bench was better.
-  const soft = lineGames > 0 && weakest && weakest.schedule_value < 50 ? weakest : undefined;
-  const replacement = soft
-    ? streamIds.map((id) => byId.get(id)).find((b) => b && b.id !== soft.id && b.schedule_value > soft.schedule_value)
-    : undefined;
+  const soft = lineGames > 0 && weakest && !startIds.includes(weakest.id) ? weakest : undefined;
+  const bench = skaters.filter((s) => s.slot === 'BN' && gp(s) > 0).sort(byValue);
+  const replacement = soft ? bench.find((b) => b.projected_pts > soft.projected_pts) : undefined;
   const sitIds = soft && replacement ? [soft.id] : [];
   const irIds = skaters.filter((s) => s.slot === 'IR').map((s) => s.id);
 
@@ -180,12 +187,12 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
       : `${gp(s)} game${gp(s) === 1 ? '' : 's'}. Light, but nobody better is waiting.`,
   }));
   const pair = (a: ReadSkater, b: ReadSkater) => {
-    const d = gp(a) - gp(b);
-    return { ids: [a.id, b.id], line: d > 0 ? `${a.name} skates ${d} more. Start him.` : d < 0 ? `${b.name} actually has more games. Flip it.` : 'Even on games. Go with the hotter stick.' };
+    const d = round(a.projected_pts - b.projected_pts, 1);
+    return { ids: [a.id, b.id], line: d > 0 ? `${a.name} projects ${d} more points. Start him.` : d < 0 ? `${b.name} actually projects more. Flip it.` : 'Even on projection. Go with the hotter stick.' };
   };
   const sit = sitIds[0] ? byId.get(sitIds[0]) : undefined;
   if (sit) {
-    for (const id of [...startIds, ...streamIds]) {
+    for (const id of [...startIds, ...(replacement ? [replacement.id] : [])]) {
       const a = byId.get(id);
       if (a && a.id !== sit.id) verdicts.push(pair(a, sit));
     }
@@ -194,9 +201,9 @@ export async function readIce(players: StoredPlayer[], opts: ReadIceOptions = {}
   const take = lineGames === 0
     ? `Nobody in your lineup plays ${span}. Either the season hasn't started or you've pasted the wrong team.`
     : sit && replacement
-    ? `Your bench has ${replacement.name} at ${gp(replacement)} games and your lineup is carrying ${sit.name} at ${gp(sit)}. Fix it before puck drop.`
+    ? `Your bench has ${replacement.name} at ${gp(replacement)} game${gp(replacement) === 1 ? '' : 's'} (${replacement.projected_pts} projected) and your lineup is carrying ${sit.name} at ${gp(sit)} (${sit.projected_pts}). Fix it before puck drop.`
     : soft
-      ? `${soft.name} is the soft spot at ${gp(soft)} game${gp(soft) === 1 ? '' : 's'}. Nobody on the bench beats him, so live with it.`
+      ? `${soft.name} is the soft spot at ${gp(soft)} game${gp(soft) === 1 ? '' : 's'} (${soft.projected_pts} projected). Nobody on the bench beats him, so live with it.`
       : `Lineup's carrying ${lineGames} games. Keep it, and stop tinkering.`;
 
   const tallyOf = (s: ReadSkater): Tally => ({ id: s.id, name: s.name, games: gp(s), b2b: s.b2b, projected_pts: s.projected_pts });

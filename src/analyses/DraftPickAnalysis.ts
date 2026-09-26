@@ -32,12 +32,9 @@ import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService
 import { toNhlTricode } from '../domain/nhl-teams.js';
 import { LEAGUE_DATA, LeagueDataService } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
-import { rankGoalies } from '../domain/goalie-rank.js';
 import { ROSTER_STORE } from '../services/RosterStore.js';
 import { parseCategories, valueForCategories } from '../services/CategoryService.js';
 
-/** Board slots per goalie: a typical roster carries two goalies to ten or twelve skaters, so about one pick in six. */
-const GOALIE_EVERY = 6;
 
 export interface DraftPickArgs {
   readonly pick_number?: number;
@@ -109,22 +106,9 @@ export class DraftPickAnalysis extends AnalysisTemplate {
 
   }
 
-  /**
-   * The board without categories: skaters by points, with goalies — ordered by the shared goalie ranking — placed one
-   * every GOALIE_EVERY slots. A single list sorted on points for skaters and wins for goalies put a goalie's board slot
-   * on a meaningless scale, and none reached the candidates even when the only need was G.
-   */
+  /** The board without categories — the shared draft board, so chirp_draft_pick and assume_rostered agree. */
   private board(size: number): any[] {
-    const all = LEAGUE_DATA.getPlayerPool({ limit: 5000 });
-    const skaters = all.filter((p: any) => p.position !== 'G');
-    const goalies = rankGoalies(all.filter((p: any) => p.position === 'G'));
-    const out: any[] = [];
-    while (out.length < size && (skaters.length || goalies.length)) {
-      const goalieTurn = (out.length + 1) % GOALIE_EVERY === 0;
-      const next = (goalieTurn && goalies.length) || !skaters.length ? goalies.shift() : skaters.shift();
-      out.push(next);
-    }
-    return out;
+    return LEAGUE_DATA.draftBoard(LEAGUE_DATA.getPlayerPool({ limit: 5000 })).slice(0, size);
   }
 
   // ==========================================
@@ -258,6 +242,9 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     const enhanced = ChirpIntelligence.enhance(this.toolName, analysisResults, contract);
 
     const top: DraftCandidate | undefined = analysisResults.candidates[0];
+    // A goalie's board slot comes from the goalie ranking; "6th best producer left" misdescribed it.
+    const label = top && top.position.split(',').includes('G') && analysisResults.rank_label === 'best producer'
+      ? 'player on the board' : analysisResults.rank_label;
 
     // The playoff clause is only truthful when a window was actually resolved.
     const windowResolved = analysisResults.playoff_window?.resolved === true;
@@ -273,7 +260,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       // so the claim is "better player than this slot", not "the room drafts
       // him earlier" — nothing here knows what a room does.
       chirp =
-        `${top.name} is the ${this.ordinal(top.average_pick ?? 0)} ${analysisResults.rank_label} left and you are ` +
+        `${top.name} is the ${this.ordinal(top.average_pick ?? 0)} ${label} left and you are ` +
         `picking at ${analysisResults.pick_number}. That is ${Math.round(top.adp_delta)} slots of ` +
         `talent above where you are sitting${scheduleClause}.`;
     } else if (top.fills_need) {
@@ -282,7 +269,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
         `Best available is a luxury; a full lineup is not.`;
     } else {
       chirp =
-        `${top.name} is the pick. No bargain, no drama — just the ${analysisResults.rank_label} left ` +
+        `${top.name} is the pick. No bargain, no drama — just the ${label} left ` +
         `at ${analysisResults.pick_number}${scheduleClause}.`;
     }
 

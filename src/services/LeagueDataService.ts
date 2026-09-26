@@ -15,6 +15,17 @@
 
 import { ROSTER_STORE, type StoredPlayer, type StoredRoster } from './RosterStore.js';
 import { NHL_STATS } from './NhlStatsService.js';
+import { rankGoalies } from '../domain/goalie-rank.js';
+import { AsyncLocalStorage } from 'async_hooks';
+
+/** Board slots per goalie: a typical roster carries two goalies to ten or twelve skaters, so about one pick in six. */
+export const GOALIE_EVERY = 6;
+
+/**
+ * How many players at the top of the board this call treats as already rostered (assume_rostered). League ownership is
+ * private, so without it pickup tools name stars who are certainly taken. Scoped to the call, like pasted rosters.
+ */
+const assumption = new AsyncLocalStorage<{ assumeRostered: number }>();
 
 /** A roster player in the shape the analyses were written against. */
 export interface LeaguePlayer {
@@ -80,8 +91,42 @@ export class LeagueDataService {
    * describes itself as "not on your roster" rather than "available". Callers
    * must not present these as confirmed waiver adds.
    */
+  /** Run fn treating the top `n` of the draft board as rostered elsewhere. */
+  public static runWithAssumption<T>(n: number, fn: () => Promise<T>): Promise<T> {
+    return assumption.run({ assumeRostered: Math.max(0, Math.floor(n)) }, fn);
+  }
+
+  /** The assume_rostered count in force for this call, or 0. */
+  public assumedRosteredCount(): number {
+    return assumption.getStore()?.assumeRostered ?? 0;
+  }
+
+  /**
+   * The draft board: skaters by last season's points, with goalies — in the shared goalie order — one every
+   * GOALIE_EVERY slots. chirp_draft_pick reads it as its board; assume_rostered takes its top N as taken.
+   */
+  public draftBoard(players: any[] = NHL_STATS.getAll()): any[] {
+    const skaters = players.filter((p: any) => p.position !== 'G')
+      .sort((a: any, b: any) => (b.stats?.points ?? 0) - (a.stats?.points ?? 0));
+    const goalies = rankGoalies(players.filter((p: any) => p.position === 'G'));
+    const out: any[] = [];
+    while (skaters.length || goalies.length) {
+      const goalieTurn = (out.length + 1) % GOALIE_EVERY === 0;
+      out.push((goalieTurn && goalies.length) || !skaters.length ? goalies.shift() : skaters.shift());
+    }
+    return out;
+  }
+
+  /** Player ids this call treats as rostered in your league under assume_rostered. */
+  public assumedRosteredIds(): Set<string> {
+    const n = this.assumedRosteredCount();
+    if (!n) return new Set();
+    return new Set(this.draftBoard().slice(0, n).map((p: any) => p.player_id));
+  }
+
   public getPlayerPool(options: { position?: string; limit?: number } = {}): LeaguePlayer[] {
     const owned = new Set((ROSTER_STORE.getRoster('roster')?.players ?? []).map(p => p.player_id));
+    for (const id of this.assumedRosteredIds()) owned.add(id);
     const opponentOwned = new Set((ROSTER_STORE.getRoster('opponent')?.players ?? []).map(p => p.player_id));
 
     // Fantasy platforms say LW/RW; the NHL says L/R.
@@ -146,7 +191,7 @@ export class LeagueDataService {
       team,
       // A paste without slot information means the player is simply rostered;
       // treat that as an active lineup spot rather than inventing a bench.
-      selected_position: stored.slot ?? position,
+      selected_position: stored.slot ?? this.eligiblePositions(position),
       status: '',
       stats: live?.stats
     };

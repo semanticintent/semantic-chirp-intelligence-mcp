@@ -12,6 +12,7 @@ import type { StoredPlayer } from './RosterStore.js';
 import { windowLabel } from './ReadIceService.js';
 import { getVersion } from '../version.js';
 import { GOALIE_STARTER_GP } from '../domain/goalie-rank.js';
+import { LEAGUE_DATA } from './LeagueDataService.js';
 
 const SEASON_GAMES = 82; // last completed regular season, the denominator for start share
 const SOFT = 40;         // an opponent attack below this is a soft night
@@ -82,7 +83,9 @@ export async function goalieStreams(opts: { look_ahead_days?: number; today?: st
 
   const mineIds = new Set((opts.roster ?? []).map((p) => p.player_id));
   const yours = pool.filter((p) => mineIds.has(p.player_id)).map(outlook).sort((a, b) => b.stream_score - a.stream_score);
-  const candidates = pool.filter((p) => !mineIds.has(p.player_id)).map(outlook)
+  // assume_rostered: goalies high on the draft board are taken as rostered elsewhere.
+  const assumed = LEAGUE_DATA.assumedRosteredIds();
+  const candidates = pool.filter((p) => !mineIds.has(p.player_id) && !assumed.has(p.player_id)).map(outlook)
     .filter((o) => o.games > 0 && o.start_share > 0)
     .sort((a, b) => b.stream_score - a.stream_score || b.expected_starts - a.expected_starts)
     .slice(0, Math.max(1, Math.min(25, opts.top_n ?? 8)));
