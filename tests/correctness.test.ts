@@ -418,3 +418,58 @@ describe('fourth review', () => {
     }
   });
 });
+
+describe('fifth review', () => {
+  it('assume_rostered leaves the top of the board out of pickups, and says so', async () => {
+    const plain = (await run('get_streaming_recommendations', { roster_text: 'Young Defender', max_recommendations: 10 })).body;
+    expect(plain.recommendations.map((r: any) => r.pickup.name)).toContain('Old Star');
+    const { body } = await run('get_streaming_recommendations', { roster_text: 'Young Defender', max_recommendations: 10, assume_rostered: 2 });
+    const names = body.recommendations.map((r: any) => r.pickup.name);
+    expect(names).not.toContain('Old Star');
+    expect(names).not.toContain('Older Star');
+    expect(body.assume_rostered).toMatchObject({ count: 2 });
+    expect(body.assume_rostered.note).toMatch(/assumption, not ownership data/);
+  });
+
+  it('assume_rostered also applies to goalie streams', async () => {
+    const all = (await run('analyze_goalie_streams', {})).body.candidates.map((c: any) => c.id);
+    const some = (await run('analyze_goalie_streams', { assume_rostered: 6 })).body.candidates.map((c: any) => c.id);
+    expect(some.length).toBe(all.length - 1); // the sixth board slot is the top goalie
+  });
+
+  it('the two goalie tools name the same goalie first', async () => {
+    const a = (await run('analyze_goalie_streams', {})).body.candidates[0];
+    const b = (await run('get_streaming_recommendations', { position_filter: 'G', max_recommendations: 3 })).body.recommendations[0].pickup;
+    expect(b.player_id).toBe(a.id);
+  });
+
+  it('schedule_value puts every favoured club among the best', async () => {
+    vi.spyOn(NHL_SCHEDULE, 'getTeamProfile').mockImplementation((team: string) => ({
+      team, total_games: 82, weeks_with_4_plus: team === 'SEA' ? 12 : team === 'COL' ? 10 : 4,
+      weeks_with_2_or_fewer: 1,
+    }) as any);
+    const { body } = await run('schedule_value', { teams: ['SEA', 'COL'] });
+    const best = body.analysis_insights.best_schedules.map((t: any) => t.team);
+    for (const t of body.analysis_insights.all_teams) if (t.stance === 'favour') expect(best).toContain(t.team);
+  });
+
+  it('read_ice does not start a low producer on games alone', async () => {
+    vi.spyOn(NHL_SCHEDULE, 'hasGameOn').mockImplementation((team: string, date: string) =>
+      Array.from({ length: GAMES[team] ?? 0 }, (_, i) => `2026-10-1${i}`).includes(date));
+    // Depth One: SEA, 4 games at 0.25 P/gm (1.0 projected). Old Star: COL, 3 at 1.38 (4.1). Young Winger: SJS, 1 at
+    // 0.64. Older Star lands on the bench at 2.6 projected — more than Depth One, so Depth One is no start.
+    const { body } = await run('read_ice', { roster_text: 'Old Star\nDepth One\nYoung Winger\nOlder Star', start: '2026-10-10' });
+    expect(body.calls.start).not.toContain('sea1');
+    expect(body.calls.start).toContain('vet1');
+  });
+
+  it('get_team_roster says LW/RW for the slot too', async () => {
+    const { text } = await run('get_team_roster', { roster_text: 'Young Winger\nOlder Star' });
+    expect(text).not.toMatch(/"selected_position": "(L|R)"/);
+  });
+
+  it('weekend streams omit an empty fit_reason', async () => {
+    const { text } = await run('analyze_weekend_streams', { date_range: { start: '2026-10-09', end: '2026-10-11' } });
+    expect(text).not.toMatch(/"fit_reason": ""/);
+  });
+});

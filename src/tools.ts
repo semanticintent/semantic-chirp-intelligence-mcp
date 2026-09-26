@@ -52,7 +52,7 @@ import { DraftKitAnalysis } from './analyses/DraftKitAnalysis.js';
 import { NHL_STATS } from './services/NhlStatsService.js';
 import { ROSTER_STORE } from './services/RosterStore.js';
 import { rankGoalies } from './domain/goalie-rank.js';
-import { LEAGUE_DATA, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE } from './services/LeagueDataService.js';
+import { LEAGUE_DATA, LeagueDataService, NO_ROSTER_MESSAGE, NO_OPPONENT_MESSAGE } from './services/LeagueDataService.js';
 import { NHL_SCHEDULE, NhlScheduleService } from './services/NhlScheduleService.js';
 import { readIce, readIceFromText } from './services/ReadIceService.js';
 import { goalieStreams } from './services/GoalieStreamService.js';
@@ -1808,6 +1808,24 @@ for (const tool of TOOL_DEFINITIONS) {
   }
 }
 
+/** Tools that suggest players to add, and so can take an assumption about who is already rostered in the league. */
+const ASSUME_ROSTERED_TOOLS = new Set([
+  'ice', 'get_roster_transaction_recommendations', 'get_streaming_recommendations', 'analyze_weekend_streams',
+  'analyze_goalie_streams', 'analyze_breakout_players',
+]);
+for (const tool of TOOL_DEFINITIONS) {
+  if (!ASSUME_ROSTERED_TOOLS.has(tool.name)) continue;
+  tool.inputSchema.properties = {
+    ...(tool.inputSchema.properties ?? {}),
+    assume_rostered: {
+      type: "number",
+      description: "Optional. Treat the top N players on the draft board as already rostered in your league and leave " +
+        "them out of the suggestions — e.g. 150 for a 12-team league. League ownership is private, so without this " +
+        "the suggestions can include stars who are certainly taken. Off by default; the output says when it was applied.",
+    },
+  };
+}
+
 /** Tools that write or read the on-disk store. Meaningless where there is no disk. */
 const STATEFUL_TOOLS = new Set(['set_roster', 'set_opponent_roster', 'set_standings', 'show_stored_data']);
 const STATELESS_REFUSAL =
@@ -1880,6 +1898,20 @@ export async function callTool(name: string, args: Record<string, unknown> | und
   if (stateless && STATEFUL_TOOLS.has(name)) {
     return { content: [{ type: "text", text: STATELESS_REFUSAL }], isError: true };
   }
+  const assume = typeof args?.assume_rostered === 'number' && ASSUME_ROSTERED_TOOLS.has(name) ? Math.floor(args.assume_rostered) : 0;
+  if (assume > 0) {
+    await NHL_STATS.load();
+    const result = await LeagueDataService.runWithAssumption(assume, () => callWithRosters(name, args));
+    return withField(result, 'assume_rostered', {
+      count: assume,
+      note: `The top ${assume} on the draft board (skaters by last season's points, a goalie every sixth slot) were ` +
+        'treated as rostered in your league and left out of the suggestions. This is an assumption, not ownership data.',
+    });
+  }
+  return callWithRosters(name, args);
+}
+
+async function callWithRosters(name: string, args: Record<string, unknown> | undefined): Promise<CallToolResult> {
   const rosterText = typeof args?.roster_text === 'string' ? args.roster_text.trim() : '';
   const opponentText = typeof args?.opponent_text === 'string' ? args.opponent_text.trim() : '';
   if (!rosterText && !opponentText) return dispatchTool(name, args);
@@ -1900,21 +1932,22 @@ export async function callTool(name: string, args: Record<string, unknown> | und
   if (opponentText) pasted.opponent = RosterStore.asStored(parse(opponentText, 'Opponent'), 'pasted opponent');
   const result = await RosterStore.runWith(pasted, () => dispatchTool(name, args));
   // read_ice reports these in its own notes, and its body must match the Sepiola read contract exactly.
-  return notMatched.length && name !== 'read_ice' ? withNotMatched(result, notMatched) : result;
+  return notMatched.length && name !== 'read_ice'
+    ? withField(result, 'roster_not_matched', notMatched, `Left out of this analysis — ${notMatched.join('; ')}`)
+    : result;
 }
 
-/** Report pasted lines left out of the analysis, inside the JSON when the result is JSON, else as a trailing note. */
-function withNotMatched(result: CallToolResult, notMatched: string[]): CallToolResult {
+/** Add a field to a JSON result, or a trailing note when the result is not a JSON object. */
+function withField(result: CallToolResult, key: string, value: unknown, note = `${key}: ${JSON.stringify(value)}`): CallToolResult {
   const first = result.content?.[0];
   if (first?.type === 'text') {
     try {
       const body = JSON.parse(first.text);
       if (body && typeof body === 'object' && !Array.isArray(body)) {
-        const text = JSON.stringify({ ...body, roster_not_matched: notMatched }, null, 2);
+        const text = JSON.stringify({ ...body, [key]: value }, null, 2);
         return { ...result, content: [{ ...first, text }, ...result.content.slice(1)] };
       }
     } catch { /* not JSON — fall through to a note */ }
   }
-  const note = `Left out of this analysis — ${notMatched.join('; ')}`;
   return { ...result, content: [...(result.content ?? []), { type: 'text', text: note }] };
 }

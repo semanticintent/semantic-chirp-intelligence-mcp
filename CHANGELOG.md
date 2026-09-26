@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.10.0] — assume_rostered, fifth review
+
+A fifth test of every hosted tool through Claude, against 4.9.3. Every 4.9.3 fix held and nothing blocked submission;
+this adds the option the reviews kept pointing at and clears what was left.
+
+### Added
+- **`assume_rostered`** on the pickup tools (`ice`, `get_roster_transaction_recommendations`,
+  `get_streaming_recommendations`, `analyze_weekend_streams`, `analyze_goalie_streams`, `analyze_breakout_players`).
+  League ownership is private, so without it these tools suggest stars who are certainly taken. Pass a number — e.g.
+  150 for a 12-team league — and the top N on the draft board (skaters by last season's points, a goalie every sixth
+  slot; the same board `chirp_draft_pick` uses) are treated as rostered for that call. Off by default. When applied,
+  the result carries `assume_rostered: { count, note }` saying it is an assumption, not ownership data.
+
+### Fixed
+- **The two goalie tools disagreed.** `get_streaming_recommendations` with G left out opponent attack strength, so it
+  led with a goalie facing two strong offences while `analyze_goalie_streams` led with another. Both now use the same
+  score (expected starts, opposing attack, save %), and name the same goalie first.
+- **`read_ice` start, sit and bench calls ignored production.** They ranked on games alone: a 0.28 P/gm depth winger
+  was "enough to start" and a 1.1-projected star with one game was the soft spot. Calls now rank on projected points
+  (points per game × games). A start needs two or more games, a projection at least the lineup median, and no bench
+  player projecting more; the sit and "your bench has…" take compare projections, and say them.
+- **`ice` named G as a weak position and suggested no goalie** — its pickup pool held skaters only. Goalies, in the
+  shared goalie order, are now offered when G is weak or asked for.
+- **`schedule_value`** could leave a favoured club out of both lists. Every favoured club is now in `best_schedules`.
+- **`draft_kit`** listed a player as a target and in `decline_risk` at once. Targets now exclude decline risks.
+- **Wording:** `get_games_in_hand`'s ahead-case chirp said "Time to capitalize… and improve your game" next to a `hold`
+  call — it now says keep every slot filled. A goalie pick is "the Nth player on the board", not "best producer".
+  `get_team_roster`'s `selected_position` says LW/RW, not L/R. Weekend results omit an empty `fit_reason`.
+
 ## [4.9.3] — fourth review
 
 A fourth test of every hosted tool through Claude, against 4.9.2. All ten 4.9.2 fixes held; this fixes what it found

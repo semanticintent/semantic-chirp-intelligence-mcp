@@ -679,7 +679,8 @@ CHIRP STYLE: desperate_or_legit
     }
 
     return {
-      fit_reason: fitReason,
+      // Omitted when there is no fit to state, rather than an empty string.
+      fit_reason: fitReason || undefined,
       drop_suggestion: dropSuggestion,
       matches_position_need: matchesNeed
     };

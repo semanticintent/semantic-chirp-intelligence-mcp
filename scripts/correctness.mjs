@@ -198,5 +198,24 @@ await probe('fourth review', async () => {
   check('search_players says LW/RW', sp.players.every(p => !/^(L|R)$/.test(p.position)));
 });
 
+await probe('fifth review', async () => {
+  const plain = (await tool('get_streaming_recommendations', { roster_text: ROSTER, max_recommendations: 5 })).body;
+  const assumed = (await tool('get_streaming_recommendations', { roster_text: ROSTER, max_recommendations: 5, assume_rostered: 150 })).body;
+  const top = new Set(plain.recommendations.map(r => r.pickup.name));
+  check('assume_rostered leaves the top of the board out, and says so',
+    assumed.assume_rostered?.count === 150 && assumed.recommendations.every(r => !top.has(r.pickup.name)),
+    assumed.recommendations.map(r => r.pickup.name).join(', '));
+
+  const [g1, g2] = await Promise.all([
+    tool('analyze_goalie_streams', { roster_text: ROSTER }),
+    tool('get_streaming_recommendations', { roster_text: ROSTER, position_filter: 'G', max_recommendations: 3 }),
+  ]);
+  check('the two goalie tools lead with the same goalie', g2.body.recommendations[0]?.pickup.player_id === g1.body.candidates[0]?.id,
+    `${g1.body.candidates[0]?.name} vs ${g2.body.recommendations[0]?.pickup.name}`);
+
+  const roster = (await tool('get_team_roster', { roster_text: ROSTER })).text;
+  check('get_team_roster slots say LW/RW', !/"selected_position": "(L|R)"/.test(roster));
+});
+
 console.log(failures === 0 ? '\n✅ All correctness checks passed.\n' : `\n❌ ${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);
