@@ -127,12 +127,22 @@ async function getTeamRoster() {
 }
 
 // Tool: Get League Standings
-async function getLeagueStandings() {
-  const standings = LEAGUE_DATA.getStandings();
+async function getLeagueStandings(standingsText?: string) {
+  // Pasted standings win, and are the only route on the stateless hosted endpoint, which stores nothing.
+  if (standingsText && standingsText.trim()) {
+    const rows = ROSTER_STORE.parseStandings(standingsText);
+    if (rows.length === 0) return { error: 'No standings rows could be read from that text — paste one team per line.' };
+    return { teams: rows.length, standings: rows, source: 'pasted in this call' };
+  }
+
+  const standings = isStateless() ? null : LEAGUE_DATA.getStandings();
   if (!standings) {
     return {
-      error: 'No standings stored. Paste them with `set_standings` — copy the standings ' +
-             'table from your league, one team per line.'
+      error: isStateless()
+        ? 'This endpoint keeps no state. Pass your league standings as standings_text — copy the standings table ' +
+          'from your league, one team per line.'
+        : 'No standings stored. Pass them as standings_text, or save them with `set_standings` — copy the standings ' +
+          'table from your league, one team per line.'
     };
   }
 
@@ -833,16 +843,18 @@ async function chirpOpponent(chirpIntensity = 'savage', personalityMode = 'roast
   }));
 
   const onIr = players.filter(p => p.slot === 'IR');
-  const idle = players.filter(p => p.games_this_week === 0);
-  const light = players.filter(p => (p.games_this_week ?? 9) <= 2 && p.slot !== 'IR');
+  const idle = players.filter(p => p.games_this_week === 0 && p.slot !== 'IR');
+  // Disjoint from `idle`: a player with no games was previously also counted as light, so three players could
+  // produce "1 don't play … 3 more on two games or fewer".
+  const light = players.filter(p => p.games_this_week !== null && p.games_this_week >= 1 && p.games_this_week <= 2 && p.slot !== 'IR');
   const totalGames = players.reduce((n, p) => n + (p.games_this_week ?? 0), 0);
 
   const style = (CHIRP_STYLES as any)[chirpIntensity] ?? (CHIRP_STYLES as any).standard;
   const persona = (PERSONALITY_MODES as any)[personalityMode] ?? (PERSONALITY_MODES as any).analytical;
 
   const lines: string[] = [];
-  if (idle.length) lines.push(`${idle.length} of their players don't play at all this week. Free real estate.`);
-  if (light.length) lines.push(`${light.length} more are stuck on two games or fewer.`);
+  if (idle.length) lines.push(`${idle.length} of their players ${idle.length === 1 ? "doesn't" : "don't"} play at all this week. Free real estate.`);
+  if (light.length) lines.push(`${light.length} more ${light.length === 1 ? 'plays' : 'play'} only once or twice.`);
   if (onIr.length) lines.push(`${onIr.length} parked on IR — that roster is holding a hospital ward.`);
   if (!lines.length) lines.push(`${theirs.team_name} is actually well set up this week. Annoying, but true.`);
 
@@ -976,10 +988,15 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "get_league_standings",
-        description: "Get current league standings showing all teams and their records",
+        description: "Read your league standings — rank, team, record and points. Paste them as standings_text, one team per line, copied from any fantasy platform.",
         inputSchema: {
           type: "object",
-          properties: {},
+          properties: {
+            standings_text: {
+              type: "string",
+              description: "Your league standings, pasted — one team per line, e.g. \"1. TeamDestroyersz 8-2-1 142 pts\". Required on the hosted (stateless) endpoint."
+            }
+          },
         },
       },
       {
@@ -1032,7 +1049,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "get_streaming_recommendations",
-        description: "Get AI-powered streaming recommendations based on team schedules, player trends, and ownership. Identifies players on teams with favorable schedules (more games remaining this week) for optimal waiver pickups.",
+        description: "Schedule-aware pickup candidates: NHL players not on the rosters you provided, ranked by games in the look-ahead window and then last season's production. League ownership is private and cannot be seen here, so check each player's availability in your league before adding.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1043,7 +1060,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
             },
             position_filter: {
               type: "string",
-              description: "Filter by position: C, LW, RW, D, G, or leave empty for all",
+              description: "Limit to one position: C, LW, RW, D or G. Leave empty for all.",
             },
             strategy_type: {
               type: "string",
@@ -1159,11 +1176,6 @@ export const TOOL_DEFINITIONS: Tool[] = [
               type: "array",
               items: { type: "string" },
               description: "Filter by positions: ['C', 'LW', 'RW', 'D', 'G']. Leave empty for all positions"
-            },
-            ownership_max: {
-              type: "number",
-              description: "Maximum ownership percentage (default 50). Players above this are excluded",
-              default: 50
             },
             team_needs: {
               type: "array",
@@ -1429,7 +1441,7 @@ async function dispatchTool(name: string, args: Record<string, unknown> | undefi
       }
 
       case "get_league_standings": {
-        const standings = await getLeagueStandings();
+        const standings = await getLeagueStandings(args?.standings_text as string | undefined);
         return {
           content: [{ type: "text", text: JSON.stringify(standings, null, 2) }],
         };
@@ -1495,7 +1507,7 @@ async function dispatchTool(name: string, args: Record<string, unknown> | undefi
 
         const analysisArgs = {
           look_ahead_days: (args?.days_ahead as number) || 7,
-          position_filter: args?.position_filter as string[] | undefined,
+          position_filter: args?.position_filter as string | string[] | undefined,
           max_recommendations: (args?.max_recommendations as number) || 5
         };
 
@@ -1727,7 +1739,6 @@ async function dispatchTool(name: string, args: Record<string, unknown> | undefi
             {
               date_range: args?.date_range as { start: string; end: string },
               position_filter: args?.position_filter as string[] | undefined,
-              ownership_max: args?.ownership_max as number | undefined,
               team_needs: args?.team_needs as string[] | undefined,
               min_upside_score: args?.min_upside_score as number | undefined,
               max_results: args?.max_results as number | undefined

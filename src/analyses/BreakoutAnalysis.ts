@@ -1,483 +1,237 @@
 /**
- * 🏒 Breakout Player Analysis - Fantasy Hockey Intelligence
+ * 📈 Breakout Analysis — young skaters whose underlying numbers run ahead of their points
  *
- * Analyzes free agents to identify top pickups and breakout candidates
- * using data-driven predictability with external source integration.
+ * A breakout candidate is a young player whose opportunity and process already look like a bigger producer's:
+ * real ice time, real shot volume, and a shooting percentage below what the rest of the league converts at. Those
+ * inputs tend to persist; a low conversion rate on high volume tends not to. Every input here is a last-completed-season
+ * figure from the NHL's club statistics, and the league norms it compares against are computed from the same data at
+ * run time rather than asserted.
  *
- * Based on comprehensive prompt template with:
- * - 40% recent performance
- * - 30% projections
- * - 20% opportunity metrics
- * - 10% risk factors
+ * What it deliberately does not claim: line assignments, power-play units, projections or availability in your
+ * league. None of those has a public source, so no catalyst, reason or score here depends on them.
+ *
+ * Score (0–100) = 0.30 production + 0.25 usage + 0.20 shot volume + 0.15 conversion upside + 0.10 youth,
+ * less up to 15 points for a small sample. Each component is itself clamped to 0–100.
  */
 
 import { AnalysisTemplate } from '../template/AnalysisTemplate.js';
-import type {
-  AnalysisType,
-  SemanticChirpContract,
-  AnalysisResponse,
-  FantasyData,
-  AnalysisInsights,
-  Recommendation,
-  Player,
-  StreamingTarget,
-  ChirpResponse
-} from '../domain/types.js';
-import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
-import { LEAGUE_DATA, LeagueDataService, NO_ROSTER_MESSAGE } from '../services/LeagueDataService.js';
-import { NHL_STATS } from '../services/NhlStatsService.js';
-import { NHL_SCHEDULE } from '../services/NhlScheduleService.js';
+import type { SemanticChirpContract, AnalysisResponse, FantasyData } from '../domain/types.js';
+import { LEAGUE_DATA, LeagueDataService } from '../services/LeagueDataService.js';
+import { NHL_STATS, NhlStatsService } from '../services/NhlStatsService.js';
 
 interface BreakoutAnalysisArgs {
   readonly position_filter?: string[];
-  readonly ownership_threshold?: number;
   readonly breakout_age_max?: number;
   readonly min_score?: number;
   readonly max_results?: number;
 }
 
-interface BreakoutCandidate extends Player {
+export interface BreakoutCandidate {
+  readonly player_id: string;
+  readonly name: string;
+  readonly team: string;
+  readonly position: string;
+  readonly age: number;
+  readonly games_played: number;
+  readonly points_per_game: number;
+  readonly minutes_per_game: number;
+  readonly shots_per_game: number;
+  readonly shooting_pct: number | null;
+  readonly components: Record<string, number>;
   readonly breakout_score: number;
-  readonly recent_ppg: number;
-  readonly projected_fpg: number;
-  readonly opportunity_score: number;
-  readonly risk_percentage: number;
-  readonly catalyst: string;
-  readonly confidence: 'high' | 'medium' | 'low';
-  readonly category: 'must_add' | 'strong_pickup' | 'monitor' | 'sleeper';
+  readonly category: 'strong' | 'watch' | 'longshot';
+  readonly reasons: string[];
 }
 
-interface PickupCandidate extends StreamingTarget {
-  readonly pickup_score: number;
-  readonly urgency: 'immediate' | 'high' | 'medium' | 'low';
-  readonly fit_reason: string;
-}
+/** Below this many games a season line is too thin to read much into. */
+const MIN_GAMES = 20;
+const SAMPLE_GAMES = 60;
+const DEFAULT_AGE_MAX = 26;
+
+const clamp = (n: number) => Math.max(0, Math.min(100, n));
+const round1 = (n: number) => Math.round(n * 10) / 10;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export class BreakoutAnalysis extends AnalysisTemplate {
-
   constructor() {
-    super('get_breakout_analysis', 'streaming_recommendations');
+    super('analyze_breakout_players', 'streaming_recommendations');
   }
 
-  /**
-   * Fetch raw data: free agents, trending players, roster
-   */
-  protected async fetchData(args: BreakoutAnalysisArgs): Promise<any> {
-    await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
-
-    // Breakout candidates are drawn from every NHL player not already on a
-    // roster you provided, scored on their real season line.
+  protected async fetchData(_args: BreakoutAnalysisArgs): Promise<any> {
+    await NHL_STATS.load();
     return {
-      freeAgents: LEAGUE_DATA.getPlayerPool({ limit: 200 }),
-      trendingAdds: [],
-      roster: LEAGUE_DATA.getRoster(),
-      pool_caveat: LeagueDataService.POOL_CAVEAT
-    };
-
-  }
-
-  /**
-   * Prepare data for analysis
-   */
-  protected async prepareData(rawData: any, args: BreakoutAnalysisArgs): Promise<FantasyData> {
-    return {
-      availablePlayers: rawData.freeAgents,
-      trendingPlayers: rawData.trendingAdds,
-      roster: rawData.roster
+      // Skaters across the whole league, so norms are league-wide; the candidates themselves exclude rostered players.
+      league: NHL_STATS.getAll().filter(p => p.position !== 'G' && (p.stats?.games_played ?? 0) >= MIN_GAMES),
+      pool: LEAGUE_DATA.getPlayerPool(),
+      caveat: LeagueDataService.POOL_CAVEAT,
     };
   }
 
-  /**
-   * Execute breakout analysis with predictable scoring
-   */
-  protected async analyzeData(
-    data: FantasyData,
-    args: BreakoutAnalysisArgs
-  ): Promise<any> {
-    const freeAgents = data.availablePlayers || [];
-    const trending = data.trendingPlayers || [];
+  protected async prepareData(rawData: any, _args: BreakoutAnalysisArgs): Promise<FantasyData> {
+    return {
+      league: rawData.league,
+      pool: rawData.pool,
+      caveat: rawData.caveat,
+      norms: this.leagueNorms(rawData.league),
+    } as any;
+  }
 
-    // Score each free agent using the comprehensive formula
-    const scoredPlayers = await Promise.all(
-      freeAgents.map(player => this.scorePlayer(player, trending))
-    );
+  /** League conversion rates by position group, from the same season's data — not a remembered constant. */
+  private leagueNorms(league: any[]): { forward: number | null; defence: number | null } {
+    const rate = (group: any[]) => {
+      const shots = group.reduce((n, p) => n + (p.stats?.shots ?? 0), 0);
+      const goals = group.reduce((n, p) => n + (p.stats?.goals ?? 0), 0);
+      return shots > 0 ? (goals / shots) * 100 : null;
+    };
+    return {
+      forward: rate(league.filter(p => p.position !== 'D')),
+      defence: rate(league.filter(p => p.position === 'D')),
+    };
+  }
 
-    // Sort by score and categorize
-    const sorted = scoredPlayers
-      .filter(p => p.breakout_score >= (args.min_score || 0))
+  protected async analyzeData(data: FantasyData, args: BreakoutAnalysisArgs): Promise<any> {
+    const d = data as any;
+    const ageMax = args.breakout_age_max ?? DEFAULT_AGE_MAX;
+    const wanted = (args.position_filter ?? []).map(p => p.toUpperCase());
+    const maxResults = Math.max(1, args.max_results ?? 10);
+
+    const candidates: BreakoutCandidate[] = [];
+    for (const p of d.pool as any[]) {
+      if (p.position === 'G') continue;
+      const s = p.stats;
+      const gp = s?.games_played ?? 0;
+      if (gp < MIN_GAMES) continue;
+
+      // The age filter is the definition of a breakout candidate, so a player without a known age is excluded
+      // rather than assumed young.
+      const age = NhlStatsService.ageOf(p);
+      if (age === null || age > ageMax) continue;
+
+      const positions = String(p.position).split(',').map((x: string) => x.trim().toUpperCase());
+      if (wanted.length && !wanted.some(w => positions.includes(w))) continue;
+
+      candidates.push(this.score(p, age, gp, ageMax, d.norms));
+    }
+
+    const ranked = candidates
+      .filter(c => c.breakout_score >= (args.min_score ?? 0))
       .sort((a, b) => b.breakout_score - a.breakout_score);
 
-    // Separate into pickups vs breakouts
-    const pickups = this.identifyTopPickups(sorted, args.max_results || 10);
-    const breakouts = this.identifyBreakoutCandidates(sorted, args.breakout_age_max || 26);
-
-    return {
-      pickups,
-      breakouts,
-      all_scored: sorted.slice(0, 50),
-      position_breakdown: this.analyzeByPosition(sorted),
-      market_intelligence: this.analyzeMarketTrends(trending, sorted)
-    };
-  }
-
-  /**
-   * Score a player using the comprehensive formula:
-   * Score = (0.4 * Recent PPG) + (0.3 * Proj FP/G) + (0.2 * Opp Score/10) - (0.1 * Risk %)
-   */
-  private async scorePlayer(
-    player: Player,
-    trending: any[]
-  ): Promise<BreakoutCandidate> {
-    // Get detailed stats for scoring
-    const stats = await this.getPlayerMetrics(player);
-
-    // Recent performance (0-100 scale)
-    const recentPPG = this.calculateRecentPerformance(stats) * 100;
-
-    // Projected fantasy points (0-100 scale, estimated)
-    const projectedFPG = this.estimateProjectedPoints(player, stats, trending) * 100;
-
-    // Opportunity score (0-100 scale)
-    const opportunityScore = this.calculateOpportunity(player, stats);
-
-    // Risk percentage (0-100)
-    const riskPercentage = this.calculateRisk(player, stats);
-
-    // Apply formula
-    const breakoutScore =
-      0.4 * recentPPG +
-      0.3 * projectedFPG +
-      0.2 * opportunityScore -
-      0.1 * riskPercentage;
-
-    // Determine confidence and category
-    const confidence = this.determineConfidence(breakoutScore, riskPercentage);
-    const category = this.categorizePlayer(breakoutScore);
-    const catalyst = this.identifyCatalyst(player, stats, trending);
-
-    return {
-      ...player,
-      breakout_score: Math.round(breakoutScore),
-      recent_ppg: recentPPG / 100,
-      projected_fpg: projectedFPG / 100,
-      opportunity_score: opportunityScore,
-      risk_percentage: riskPercentage,
-      catalyst,
-      confidence,
-      category
-    };
-  }
-
-  /**
-   * Calculate recent performance score
-   */
-  private calculateRecentPerformance(stats: any): number {
-    // Simplified - in real implementation, would fetch last 5-10 games
-    // For now, use season averages as proxy
-    const goals = parseFloat(stats.G || 0);
-    const assists = parseFloat(stats.A || 0);
-    const gamesPlayed = parseFloat(stats.GP || 1);
-
-    if (gamesPlayed === 0) return 0;
-
-    const ppg = (goals + assists) / gamesPlayed;
-    return Math.min(ppg, 1.5); // Cap at 1.5 PPG
-  }
-
-  /**
-   * Estimate projected fantasy points
-   */
-  private estimateProjectedPoints(player: Player, stats: any, trending: any[]): number {
-    // Base projection on current stats + trending momentum
-    const isTrending = trending.some(t => t.player_id === player.player_id);
-    const baseProjection = this.calculateRecentPerformance(stats);
-    const trendingBonus = isTrending ? 0.15 : 0;
-
-    return Math.min(baseProjection + trendingBonus, 1.0);
-  }
-
-  /**
-   * Calculate opportunity score (TOI, PP role, linemates)
-   */
-  private calculateOpportunity(player: Player, stats: any): number {
-    let score = 50; // Base score
-
-    // Position-based opportunities
-    if (player.position.includes('C')) score += 10; // Centers have more opportunity
-    if (player.position.includes('LW') || player.position.includes('RW')) score += 5;
-
-    // Check if on good team (more goals = more opportunities)
-    const teamScore = this.getTeamStrength(player.team);
-    score += teamScore;
-
-    return Math.min(score, 100);
-  }
-
-  /**
-   * Calculate risk percentage
-   */
-  private calculateRisk(player: Player, stats: any): number {
-    let risk = 20; // Base risk
-
-    // Injury status increases risk
-    if (player.status && player.status !== '') {
-      risk += 30;
+    const byPosition: Record<string, { count: number; top: string | null }> = {};
+    for (const pos of ['C', 'LW', 'RW', 'D']) {
+      const group = ranked.filter(c => c.position.split(',').includes(pos));
+      byPosition[pos] = { count: group.length, top: group[0]?.name ?? null };
     }
 
-    // Low games played = higher risk
-    const gamesPlayed = parseFloat(stats.GP || 0);
-    if (gamesPlayed < 10) risk += 20;
-
-    // High ownership = lower risk (proven commodity)
-    const ownership = player.percent_owned || 0;
-    if (ownership > 30) risk -= 10;
-    if (ownership < 10) risk += 15;
-
-    return Math.min(Math.max(risk, 0), 100);
-  }
-
-  /**
-   * Get team strength score
-   */
-  private getTeamStrength(teamAbbr: string): number {
-    // Simplified team rankings - top teams get bonus
-    const topTeams = ['BOS', 'CAR', 'COL', 'DAL', 'EDM', 'FLA', 'NYR', 'TOR', 'VGK', 'WPG'];
-    const midTeams = ['CGY', 'LAK', 'MIN', 'NJD', 'NSH', 'NYI', 'SEA', 'TBL', 'VAN'];
-
-    if (topTeams.includes(teamAbbr)) return 20;
-    if (midTeams.includes(teamAbbr)) return 10;
-    return 0;
-  }
-
-  /**
-   * Identify catalyst for breakout potential
-   */
-  private identifyCatalyst(player: Player, stats: any, trending: any[]): string {
-    const isTrending = trending.some(t => t.player_id === player.player_id);
-
-    if (isTrending) return 'Hot streak - trending upward';
-    if (player.position.includes('C')) return 'Top-6 center opportunity';
-    if (this.getTeamStrength(player.team) >= 20) return 'Playing on elite team';
-
-    return 'Solid opportunity available';
-  }
-
-  /**
-   * Determine confidence level
-   */
-  private determineConfidence(score: number, risk: number): 'high' | 'medium' | 'low' {
-    if (score >= 70 && risk < 30) return 'high';
-    if (score >= 50 && risk < 50) return 'medium';
-    return 'low';
-  }
-
-  /**
-   * Categorize player by score
-   */
-  private categorizePlayer(score: number): 'must_add' | 'strong_pickup' | 'monitor' | 'sleeper' {
-    if (score >= 80) return 'must_add';
-    if (score >= 65) return 'strong_pickup';
-    if (score >= 50) return 'monitor';
-    return 'sleeper';
-  }
-
-  /**
-   * Real season stat line for a candidate, from Yahoo.
-   *
-   * Missing categories come back as 0 rather than absent so the scoring
-   * formula keeps its shape; `has_stats` distinguishes a genuine zero from a
-   * player Yahoo returned nothing for.
-   */
-  private async getPlayerMetrics(player: Player): Promise<any> {
-    // v4: the pool carries NHL season statistics on each player already.
-    const stats = (player as any).stats ?? null;
-
     return {
-      G: stats?.goals ?? 0,
-      A: stats?.assists ?? 0,
-      GP: stats?.games_played ?? 0,
-      // The NHL feed publishes power-play goals, not power-play points.
-      PPP: stats?.power_play_goals ?? 0,
-      SOG: stats?.shots ?? 0,
-      has_stats: Boolean(stats)
-    };
-  }
-
-  /**
-   * Identify top pickup recommendations
-   */
-  private identifyTopPickups(
-    sorted: BreakoutCandidate[],
-    maxResults: number
-  ): PickupCandidate[] {
-    return sorted
-      .filter(p => p.category === 'must_add' || p.category === 'strong_pickup')
-      .slice(0, maxResults)
-      .map(player => ({
-        ...player,
-        pickup_score: player.breakout_score,
-        urgency: player.category === 'must_add' ? 'immediate' : 'high',
-        fit_reason: `${player.catalyst} - Score: ${player.breakout_score}`,
-        streaming_score: player.breakout_score,
-        reason: player.catalyst
-      }));
-  }
-
-  /**
-   * Identify breakout candidates (young players with upside)
-   */
-  private identifyBreakoutCandidates(
-    sorted: BreakoutCandidate[],
-    ageMax: number
-  ): BreakoutCandidate[] {
-    // In real implementation, would filter by age
-    // For now, return top sleepers/monitors
-    return sorted
-      .filter(p => p.category === 'sleeper' || p.category === 'monitor')
-      .filter(p => p.confidence === 'medium' || p.confidence === 'high')
-      .slice(0, 5);
-  }
-
-  /**
-   * Analyze players by position
-   */
-  private analyzeByPosition(players: BreakoutCandidate[]): any {
-    const positions = ['C', 'LW', 'RW', 'D', 'G'];
-    const breakdown: any = {};
-
-    for (const pos of positions) {
-      const posPlayers = players.filter(p => p.position.includes(pos));
-      breakdown[pos] = {
-        count: posPlayers.length,
-        top_player: posPlayers[0] || null,
-        avg_score: posPlayers.length > 0
-          ? posPlayers.reduce((sum, p) => sum + p.breakout_score, 0) / posPlayers.length
-          : 0
-      };
-    }
-
-    return breakdown;
-  }
-
-  /**
-   * Analyze market trends
-   */
-  private analyzeMarketTrends(trending: any[], scored: BreakoutCandidate[]): any {
-    const trendingScored = scored.filter(s =>
-      trending.some(t => t.player_id === s.player_id)
-    );
-
-    return {
-      trending_count: trending.length,
-      trending_avg_score: trendingScored.length > 0
-        ? trendingScored.reduce((sum, p) => sum + p.breakout_score, 0) / trendingScored.length
-        : 0,
-      hot_positions: this.identifyHotPositions(trending)
-    };
-  }
-
-  /**
-   * Identify hot positions from trending data
-   */
-  private identifyHotPositions(trending: any[]): string[] {
-    const positionCounts: Record<string, number> = {};
-
-    for (const player of trending) {
-      const positions = (player.position || '').split(',');
-      for (const pos of positions) {
-        positionCounts[pos] = (positionCounts[pos] || 0) + 1;
-      }
-    }
-
-    return Object.entries(positionCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 3)
-      .map(([pos]) => pos);
-  }
-
-  /**
-   * Generate chirp intelligence
-   */
-  protected async generateChirp(
-    analysisResults: any,
-    semanticContract: SemanticChirpContract,
-    data: FantasyData
-  ): Promise<any> {
-    if (semanticContract.enable_chirp === false) {
-      return analysisResults;
-    }
-
-    // Use ChirpIntelligence static enhance method
-    const enhanced = ChirpIntelligence.enhance(
-      'get_breakout_analysis',
-      {
-        ...analysisResults,
-        streaming_targets: analysisResults.pickups,
-        market_intelligence: analysisResults.market_intelligence,
-        recommendations: analysisResults.pickups
+      age_max: ageMax,
+      stats_season: NHL_STATS.getSeasons().stats,
+      league_shooting_pct: {
+        forwards: d.norms.forward === null ? null : round1(d.norms.forward),
+        defence: d.norms.defence === null ? null : round1(d.norms.defence),
       },
-      semanticContract
-    );
-
-    return enhanced;
+      eligible: ranked.length,
+      candidates: ranked.slice(0, maxResults),
+      by_position: byPosition,
+      caveat: d.caveat,
+    };
   }
 
-  /**
-   * Format final response
-   */
-  protected async formatResponse(
-    chirpEnhanced: any,
-    data: FantasyData
-  ): Promise<AnalysisResponse> {
-    const recommendations: Recommendation[] = chirpEnhanced.pickups.map((p: PickupCandidate) => ({
-      priority: p.urgency === 'immediate' ? 'CRITICAL' : 'HIGH',
-      action: 'pickup',
-      player: p,
-      reasoning: p.fit_reason
-    }));
+  private score(p: any, age: number, gp: number, ageMax: number, norms: { forward: number | null; defence: number | null }): BreakoutCandidate {
+    const s = p.stats;
+    const isD = String(p.position).split(',').includes('D');
+    const points = (s.goals ?? 0) + (s.assists ?? 0);
+    const ppg = points / gp;
+    const toi = (s.time_on_ice_per_game ?? 0) / 60;           // NHL publishes seconds per game
+    const spg = (s.shots ?? 0) / gp;
+    const shots = s.shots ?? 0;
+    const shPct = shots > 0 ? ((s.goals ?? 0) / shots) * 100 : null;
+    const norm = isD ? norms.defence : norms.forward;
 
-    const insights: AnalysisInsights = {
-      streaming_targets: chirpEnhanced.pickups,
-      favorable_teams: Object.entries(chirpEnhanced.position_breakdown)
-        .map(([pos, data]: [string, any]) => ({
-          team_abbr: pos,
-          games_count: data.count,
-          favorable_score: data.avg_score
-        })),
-      market_intelligence: {
-        total_trending: chirpEnhanced.market_intelligence.trending_count,
-        favorable_teams_count: Object.keys(chirpEnhanced.position_breakdown).length,
-        top_trending_team: chirpEnhanced.market_intelligence.hot_positions[0] || 'N/A'
-      }
+    const components = {
+      production: clamp((ppg / (isD ? 0.8 : 1.1)) * 100),
+      usage: clamp(((toi - (isD ? 16 : 11)) / (isD ? 8 : 9)) * 100),
+      shot_volume: clamp((spg / (isD ? 2.5 : 3.5)) * 100),
+      // Upside only when the player shoots enough for the rate to mean something and converts below the league.
+      conversion_upside: shPct !== null && norm && shots >= 80 && shPct < norm ? clamp(((norm - shPct) / norm) * 200) : 0,
+      youth: clamp(((ageMax - age) / Math.max(1, ageMax - 19)) * 100),
     };
+    const samplePenalty = gp >= SAMPLE_GAMES ? 0 : ((SAMPLE_GAMES - gp) / (SAMPLE_GAMES - MIN_GAMES)) * 15;
+
+    const breakout_score = Math.round(clamp(
+      0.30 * components.production + 0.25 * components.usage + 0.20 * components.shot_volume +
+      0.15 * components.conversion_upside + 0.10 * components.youth - samplePenalty,
+    ));
+
+    // Reasons are the numbers themselves, never an inferred role.
+    const reasons = [`age ${age}`, `${round1(toi)} min/gm`, `${round1(spg)} shots/gm`, `${round2(ppg)} P/gm over ${gp} GP`];
+    if (components.conversion_upside > 0 && shPct !== null && norm) {
+      reasons.push(`shooting ${round1(shPct)}% on ${shots} shots vs a league ${isD ? 'defence' : 'forward'} rate of ${round1(norm)}%`);
+    }
+    if (gp < SAMPLE_GAMES) reasons.push(`small sample (${gp} GP)`);
 
     return {
-      analysis_insights: insights,
-      recommendations,
-      chirp_intelligence: chirpEnhanced.chirp_intelligence || this.getDefaultChirp(),
+      player_id: p.player_id,
+      name: p.name,
+      team: p.team,
+      position: p.position,
+      age,
+      games_played: gp,
+      points_per_game: round2(ppg),
+      minutes_per_game: round1(toi),
+      shots_per_game: round1(spg),
+      shooting_pct: shPct === null ? null : round1(shPct),
+      components: Object.fromEntries(Object.entries(components).map(([k, v]) => [k, Math.round(v)])),
+      breakout_score,
+      category: breakout_score >= 60 ? 'strong' : breakout_score >= 45 ? 'watch' : 'longshot',
+      reasons,
+    };
+  }
+
+  protected async generateChirp(results: any, semanticContract: SemanticChirpContract, _data: FantasyData): Promise<any> {
+    if (semanticContract.enable_chirp === false) return results;
+    const top: BreakoutCandidate | undefined = results.candidates[0];
+    const rebound = results.candidates.find((c: BreakoutCandidate) => c.components.conversion_upside > 0);
+    const parts: string[] = [];
+    if (!top) {
+      parts.push(`No skater aged ${results.age_max} or under with ${MIN_GAMES}+ games passes those filters.`);
+    } else {
+      parts.push(`${top.name} leads: ${top.reasons.slice(0, 3).join(', ')}.`);
+      if (rebound && rebound !== top) {
+        parts.push(`${rebound.name} is the one to watch — ${rebound.reasons.find((r: string) => r.startsWith('shooting'))}. That usually corrects.`);
+      }
+    }
+    return { ...results, chirp_intelligence: { analysis_chirp: parts.join(' ') } };
+  }
+
+  protected async formatResponse(chirpEnhanced: any, _data: FantasyData): Promise<AnalysisResponse> {
+    return {
+      analysis_insights: {
+        basis: `Last completed season (${chirpEnhanced.stats_season}) NHL club statistics. League shooting rates are ` +
+          'computed from the same data. Skaters only.',
+        age_max: chirpEnhanced.age_max,
+        league_shooting_pct: chirpEnhanced.league_shooting_pct,
+        eligible_candidates: chirpEnhanced.eligible,
+        candidates: chirpEnhanced.candidates,
+        by_position: chirpEnhanced.by_position,
+        availability: chirpEnhanced.caveat,
+        not_included: [
+          'Projections — this reads last season, it does not forecast',
+          'Line assignments and power-play units — not published by the NHL',
+          'Whether a player is available in your league — ownership is league-private',
+        ],
+      } as any,
+      recommendations: chirpEnhanced.candidates.slice(0, 5).map((c: BreakoutCandidate) => ({
+        priority: c.category === 'strong' ? 'HIGH' : 'MEDIUM',
+        action: 'watch',
+        reasoning: `${c.name} (${c.team} ${c.position}) — ${c.reasons.join(', ')}`,
+      })) as any,
+      chirp_intelligence: chirpEnhanced.chirp_intelligence ?? { analysis_chirp: '' },
       metadata: {
         analysis_type: this.analysisType,
-        tool_identity: 'breakout_analysis',
-        generated_at: new Date().toISOString(),
-        semantic_contract_applied: true
-      }
-    };
-  }
-
-  /**
-   * Default chirp when chirp intelligence is disabled
-   */
-  private getDefaultChirp(): ChirpResponse {
-    return {
-      tool_identity: 'breakout_analysis',
-      style: 'analytical',
-      personality: 'data_driven',
-      intensity: 'standard',
-      semantic_context: 'breakout_player_analysis',
-      analysis_chirp: 'Data-driven breakout analysis complete',
-      intent_summary: 'Breakout player recommendations ready',
-      ice_cold_truth: 'Smart pickups win championships',
-      energy_level: 'focused'
+        timestamp: new Date().toISOString(),
+        semantic_contract_applied: true,
+      } as any,
     };
   }
 }

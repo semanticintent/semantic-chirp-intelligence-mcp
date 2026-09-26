@@ -63,13 +63,18 @@ interface KitPlayer {
   readonly age: number | null;
   readonly games_played: number;
   readonly points: number;
-  readonly points_per_game: number;
+  /** Skaters only; goalies carry goalie_line instead. */
+  readonly points_per_game: number | null;
+  readonly goalie_line: string | null;
   readonly playoff_games: number | null;
   readonly four_game_weeks: number | null;
   readonly flags: string[];
   /** "HIT +2.1 · BLK +1.4 · PPP −0.3" when ranked for categories. */
   readonly category_line: string | null;
 }
+
+/** A starter's workload: below this many games a goalie's rates say little. */
+const GOALIE_STARTER_GP = 20;
 
 /** Positions a kit is organised by, in the order people draft them. */
 const KIT_POSITIONS = ['C', 'LW', 'RW', 'D', 'G'];
@@ -130,11 +135,35 @@ export class DraftKitAnalysis extends AnalysisTemplate {
     return { players, unresolved: [...report.unresolved, ...report.ambiguous] };
   }
 
-  /** Build a board from last season's production when no list is given. */
+  /**
+   * Build a board from last season's production when no list is given.
+   *
+   * Skaters rank on points. Goalies rank on a blend of wins, save percentage and goals-against average among goalies
+   * with a starter's workload — wins alone are largely a team statistic, and ranked on wins a .895 goalie on a strong
+   * club outranks a .912 goalie on a weak one. Goalies below the workload threshold follow the starters.
+   */
   private fromProduction(): NhlPlayer[] {
-    return NHL_STATS.getAll()
-      .filter(p => (p.stats?.games_played ?? 0) > 0)
-      .sort((a, b) => this.productionValue(b) - this.productionValue(a));
+    const played = NHL_STATS.getAll().filter(p => (p.stats?.games_played ?? 0) > 0);
+    const skaters = played.filter(p => p.position !== 'G')
+      .sort((a, b) => (b.stats?.points ?? 0) - (a.stats?.points ?? 0));
+    return [...skaters, ...this.rankGoalies(played.filter(p => p.position === 'G'))];
+  }
+
+  private rankGoalies(goalies: NhlPlayer[]): NhlPlayer[] {
+    const starters = goalies.filter(g => (g.stats?.games_played ?? 0) >= GOALIE_STARTER_GP);
+    const z = (values: number[]) => {
+      const mean = values.reduce((a, b) => a + b, 0) / Math.max(1, values.length);
+      const sd = Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, values.length)) || 1;
+      return (v: number) => (v - mean) / sd;
+    };
+    const zW = z(starters.map(g => g.stats?.wins ?? 0));
+    const zSv = z(starters.map(g => g.stats?.save_percentage ?? 0));
+    const zGaa = z(starters.map(g => g.stats?.goals_against_average ?? 0));
+    const value = (g: NhlPlayer) =>
+      0.4 * zW(g.stats?.wins ?? 0) + 0.35 * zSv(g.stats?.save_percentage ?? 0) - 0.25 * zGaa(g.stats?.goals_against_average ?? 0);
+    const backups = goalies.filter(g => (g.stats?.games_played ?? 0) < GOALIE_STARTER_GP)
+      .sort((a, b) => (b.stats?.games_played ?? 0) - (a.stats?.games_played ?? 0));
+    return [...starters.sort((a, b) => value(b) - value(a)), ...backups];
   }
 
   /**
@@ -149,10 +178,7 @@ export class DraftKitAnalysis extends AnalysisTemplate {
     return [...valued, ...rest];
   }
 
-  /** Skaters rank on points, goalies on wins — they are not comparable. */
-  private productionValue(p: NhlPlayer): number {
-    return p.position === 'G' ? (p.stats?.wins ?? 0) : (p.stats?.points ?? 0);
-  }
+
 
   // ==========================================
   // Hook 3: Analyze
@@ -167,8 +193,16 @@ export class DraftKitAnalysis extends AnalysisTemplate {
     const wanted = (args.positions?.length ? args.positions : KIT_POSITIONS)
       .map(p => p.toUpperCase());
 
+    // A pasted list keeps its own overall order. A board built here ranks skaters and goalies separately: points and
+    // wins are not on one scale, and one overall rank put every goalie somewhere around 200th.
+    const groupRank = new Map<string, number>();
+    let skaterN = 0, goalieN = 0;
+    for (const p of d.kitPlayers as NhlPlayer[]) {
+      groupRank.set(p.player_id, p.position === 'G' ? ++goalieN : ++skaterN);
+    }
+    const ownOrder = d.source === 'pasted rankings';
     const annotated: KitPlayer[] = d.kitPlayers.map((p: NhlPlayer, index: number) =>
-      this.annotate(p, index + 1, window, d.cats)
+      this.annotate(p, ownOrder ? index + 1 : groupRank.get(p.player_id)!, window, d.cats)
     );
 
     // Tiers are per position, because "when does C dry up" is the question a
@@ -237,7 +271,11 @@ export class DraftKitAnalysis extends AnalysisTemplate {
       age: NhlStatsService.ageOf(p),
       games_played: gp,
       points,
-      points_per_game: gp > 0 ? Number((points / gp).toFixed(2)) : 0,
+      points_per_game: p.position === 'G' ? null : gp > 0 ? Number((points / gp).toFixed(2)) : 0,
+      goalie_line: p.position === 'G' && s
+        ? `${gp} GP, ${s.wins ?? 0} W, ${(s.goals_against_average ?? 0).toFixed(2)} GAA, ` +
+          `${(s.save_percentage ?? 0).toFixed(3).replace(/^0/, '')} SV%`
+        : null,
       playoff_games: playoffGames,
       four_game_weeks: profile?.weeks_with_4_plus ?? null,
       flags: this.flagsFor(p, playoffGames),
@@ -291,7 +329,7 @@ export class DraftKitAnalysis extends AnalysisTemplate {
           name: p.name,
           team: p.team,
           age: p.age,
-          ppg: p.points_per_game,
+          ...(p.goalie_line ? { goalie_line: p.goalie_line } : { ppg: p.points_per_game }),
           playoff_games: p.playoff_games,
           flags: p.flags,
           ...(p.category_line ? { categories: p.category_line } : {})
@@ -322,8 +360,9 @@ export class DraftKitAnalysis extends AnalysisTemplate {
   private playoffWinners(players: KitPlayer[], window: any): any[] {
     if (!window?.resolved) return [];
     return players
-      .filter(p => (p.playoff_games ?? 0) >= 11)
-      .sort((a, b) => b.points_per_game - a.points_per_game)
+      // Skaters: the P/gm comparison is meaningless for goalies.
+      .filter(p => (p.playoff_games ?? 0) >= 11 && p.points_per_game !== null)
+      .sort((a, b) => (b.points_per_game ?? 0) - (a.points_per_game ?? 0))
       .slice(0, 10)
       .map(p => ({
         name: p.name, team: p.team, position: p.position,

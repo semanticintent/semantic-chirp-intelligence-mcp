@@ -4,6 +4,53 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.9.0] — correctness pass
+
+A test of every hosted tool through Claude read the answers rather than checking that they arrived, and found output
+that was untrue. Every tool had passed `npm run smoke`, which only checks that something comes back. This release fixes
+what it found and adds tests that check content.
+
+### Fixed
+- **Invented facts presented as findings.** `analyze_weekend_streams` and `analyze_breakout_players` produced catalysts
+  such as "Top-6 linemate upgrade", "Top-6 center opportunity" and "PP1 role lock". Line assignments and power-play units
+  are not published by the NHL, so none of these was known. Every such claim is gone; reasons are now the numbers
+  themselves — games in the window, minutes, shots, power-play goals.
+- **`analyze_breakout_players` rebuilt.** Its age filter was never applied (the code read "in real implementation, would
+  filter by age"), so 31- and 33-year-olds came back as "must add" breakouts; scores could exceed 100; projections were
+  flat at 1.0; "team strength" came from a hardcoded list of ten clubs; and `favorable_teams` held position averages. It
+  now scores skaters at or under the age cap on production, ice time, shot volume, conversion upside against a league
+  shooting rate computed from the same season's data, and youth — each component 0–100, with a small-sample penalty.
+- **`draft_kit` goalies.** Built from production, the board sorted wins and points on one scale and gave one overall rank,
+  so every goalie sat around 200th with "0 points per game". Skaters and goalies are now ranked separately, and goalies
+  on a blend of wins, save percentage and GAA among starters — wins alone are largely a team statistic. Goalies show a
+  goalie line instead of points per game.
+- **Unknown ownership read as a value.** With league ownership unknowable since v4, `get_streaming_recommendations`
+  reported "low ownership (undefined%)", described every player — MacKinnon included — as a "deep league sleeper", and
+  the weekend classifier added an "unproven" risk penalty to every player. Ownership no longer enters any score or reason.
+- **`analyze_weekend_streams` "TOI" was not ice time.** It was a synthetic 0–25 score, which is why it disagreed with the
+  minutes in the same response. It is now the real minutes per game.
+- **`get_streaming_recommendations` ignored `position_filter`**, and its chirp read "0 streaming opportunities" above a
+  list of five.
+- **`get_league_standings` could never succeed on the hosted endpoint**, and its error pointed to a tool that is not
+  offered there. It now accepts `standings_text`.
+- **`chirp_opponent` double-counted**: a player with no games was also counted as "on two games or fewer", and an IR
+  player on an idle club was counted twice. The groups are now disjoint.
+- `read_ice` cited the roster season as its statistics season.
+
+### Added
+- **`minutes_per_game`** on every stat line, beside the NHL's raw `time_on_ice_per_game` seconds. (Player cache schema v5.)
+- **`tests/correctness.test.ts`** — assertions on content: no invented roles or unknown values in any tool's output,
+  breakout ages within the cap, scores within range, goalies ranked among goalies, filters applied, groups disjoint.
+  Run against the previous release it fails 13 of its 14 tests.
+- **`npm run correctness`** — the same checks against a live endpoint.
+
+### Changed
+- `analyze_weekend_streams` no longer offers `ownership_max`, which could not do anything.
+- `read_ice`'s `start` list remains the two strongest schedule edges in the window, not a full lineup — a star on a club
+  with fewer games that week will not appear there.
+
+---
+
 ## [4.8.2]
 
 ### Added

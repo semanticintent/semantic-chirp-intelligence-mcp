@@ -22,7 +22,8 @@ import { NHL_STATS } from '../services/NhlStatsService.js';
 
 export interface StreamingArgs {
   look_ahead_days?: number;
-  position_filter?: string[];
+  /** One position ("RW") or several (["C", "RW"]). */
+  position_filter?: string | string[];
   max_recommendations?: number;
 }
 
@@ -48,8 +49,16 @@ export class StreamingAnalysis extends AnalysisTemplate {
     // production. The caveat travels with the results.
     await Promise.all([NHL_STATS.load(), NHL_SCHEDULE.load()]);
 
+    // The tool schema has always offered position_filter; it was never applied, so asking for RW returned centres.
+    const wanted = (Array.isArray(args.position_filter) ? args.position_filter : args.position_filter ? [args.position_filter] : [])
+      .map(p => String(p).trim().toUpperCase()).filter(Boolean);
+    const pool = wanted.length
+      ? wanted.flatMap(pos => LEAGUE_DATA.getPlayerPool({ position: pos, limit: 120 }))
+      : LEAGUE_DATA.getPlayerPool({ limit: 120 });
+    const seen = new Set<string>();
+
     return {
-      pool: LEAGUE_DATA.getPlayerPool({ limit: 120 }),
+      pool: pool.filter(p => !seen.has(p.player_id) && seen.add(p.player_id)),
       roster: LEAGUE_DATA.getRoster(),
       pool_caveat: LeagueDataService.POOL_CAVEAT
     };
@@ -84,23 +93,21 @@ export class StreamingAnalysis extends AnalysisTemplate {
       // Real games in the look-ahead window for this player's actual club
       const gamesThisWeek = this.countGamesThisWeek(player, lookAheadDays);
 
-      // Determine pickup priority based on games and ownership
-      let pickupPriority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-      let reasoning: string;
+      // Priority from facts that exist: games in the window, then last season's production. League ownership is
+      // private and unknown here, so it no longer enters the reasoning — it used to report "low ownership
+      // (undefined%)" for every player.
+      const st = (player as any).stats;
+      const gp = st?.games_played ?? 0;
+      const ppg = gp > 0 ? ((st?.goals ?? 0) + (st?.assists ?? 0)) / gp : 0;
+      const mins = gp > 0 ? (st?.time_on_ice_per_game ?? 0) / 60 : 0;
+      const facts = [`${gamesThisWeek} game${gamesThisWeek === 1 ? '' : 's'} in the window`];
+      if (player.position !== 'G' && gp > 0) facts.push(`${ppg.toFixed(2)} P/gm`, `${mins.toFixed(1)} min/gm last season`);
 
-      if (gamesThisWeek >= 4 && (player.percent_owned || 0) < 20) {
-        pickupPriority = 'HIGH';
-        reasoning = `${gamesThisWeek} games this week, low ownership (${player.percent_owned?.toFixed(1)}%)`;
-      } else if (gamesThisWeek >= 3) {
-        pickupPriority = 'MEDIUM';
-        reasoning = `${gamesThisWeek} games this week, good volume play`;
-      } else if ((player.percent_owned || 0) > 50) {
-        pickupPriority = 'HIGH';
-        reasoning = `High ownership (${player.percent_owned?.toFixed(1)}%) trending player`;
-      } else {
-        pickupPriority = 'LOW';
-        reasoning = `${gamesThisWeek} games this week, speculative add`;
-      }
+      let pickupPriority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+      if (gamesThisWeek >= 4) pickupPriority = 'HIGH';
+      else if (gamesThisWeek === 3) pickupPriority = 'MEDIUM';
+      else pickupPriority = 'LOW';
+      const reasoning = facts.join(', ');
 
       streamingRecommendations.push({
         player,
@@ -116,7 +123,8 @@ export class StreamingAnalysis extends AnalysisTemplate {
       const priorityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
       const priorityDiff = priorityOrder[a.pickup_priority] - priorityOrder[b.pickup_priority];
       if (priorityDiff !== 0) return priorityDiff;
-      return b.games_this_week - a.games_this_week;
+      if (b.games_this_week !== a.games_this_week) return b.games_this_week - a.games_this_week;
+      return ((b.player as any).stats?.points ?? 0) - ((a.player as any).stats?.points ?? 0);
     });
 
     return streamingRecommendations.slice(0, maxRecommendations);
@@ -132,7 +140,8 @@ export class StreamingAnalysis extends AnalysisTemplate {
   ): Promise<any> {
     return ChirpIntelligence.enhance(
       this.toolName,
-      { streaming_recommendations: analysisResults },
+      // streaming_targets is what the chirp counts; without it the chirp read "0 streaming opportunities" above a list.
+      { streaming_recommendations: analysisResults, streaming_targets: analysisResults },
       semanticContract
     );
   }
@@ -251,17 +260,13 @@ export class StreamingAnalysis extends AnalysisTemplate {
    * Helper: Describe recent performance
    */
   private describePerformance(player: Player): string {
-    // Simplified - would analyze actual recent stats in production
-    const ownership = player.percent_owned || 0;
-
-    if (ownership > 70) {
-      return "Widely owned hot player";
-    } else if (ownership > 40) {
-      return "Trending upward";
-    } else if (ownership > 20) {
-      return "Under-the-radar option";
-    } else {
-      return "Deep league sleeper";
+    // From the stat line, not ownership — which is unknown, and used to label every player a "deep league sleeper".
+    const st = (player as any).stats;
+    const gp = st?.games_played ?? 0;
+    if (player.position === 'G') {
+      return gp > 0 ? `${gp} GP, ${(st?.save_percentage ?? 0).toFixed(3).replace(/^0/, '')} SV% last season` : 'No games last season';
     }
+    return gp > 0 ? `${st?.points ?? 0} points in ${gp} games last season` : 'No games last season';
   }
+
 }

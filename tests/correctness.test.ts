@@ -1,0 +1,203 @@
+/**
+ * Correctness — assertions on what the answers say, not on whether an answer came back.
+ *
+ * Every other suite here passed while tools reported breakout "candidates" aged 31 and 33, ranked goalies on a points
+ * scale, called every player a "deep league sleeper", printed "low ownership (undefined%)", presented invented line and
+ * power-play roles as findings, double-counted an opponent's roster and ignored a position filter. A smoke test that
+ * checks each tool returns data cannot see any of that. These tests read the output and check it is true of the input.
+ */
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { callTool, setStateless, TOOL_DEFINITIONS } from '../src/tools.js';
+import { NHL_STATS } from '../src/services/NhlStatsService.js';
+import { NHL_SCHEDULE } from '../src/services/NhlScheduleService.js';
+
+const mk = (id: string, name: string, team: string, position: string, birth: string, stats: Record<string, number>) =>
+  ({ player_id: id, name, team, position, birth_date: birth, stats });
+
+/** A small league with the shapes that exposed the bugs: veterans, young volume shooters, starters and a team-stat goalie. */
+const LEAGUE = [
+  mk('vet1', 'Old Star', 'COL', 'C', '1995-08-01', { games_played: 80, goals: 40, assists: 70, points: 110, shots: 300, time_on_ice_per_game: 1300, power_play_goals: 12, penalty_minutes: 20 }),
+  mk('vet2', 'Older Star', 'TBL', 'R', '1993-06-01', { games_played: 78, goals: 35, assists: 65, points: 100, shots: 250, time_on_ice_per_game: 1250, power_play_goals: 10, penalty_minutes: 10 }),
+  mk('kid1', 'Young Shooter', 'SEA', 'C', '2004-03-01', { games_played: 75, goals: 12, assists: 30, points: 42, shots: 220, time_on_ice_per_game: 1150, power_play_goals: 3, penalty_minutes: 10 }),
+  mk('kid2', 'Young Winger', 'SJS', 'R', '2003-01-01', { games_played: 70, goals: 20, assists: 25, points: 45, shots: 170, time_on_ice_per_game: 1050, power_play_goals: 4, penalty_minutes: 8 }),
+  mk('kid3', 'Young Defender', 'NJD', 'D', '2003-05-01', { games_played: 80, goals: 6, assists: 30, points: 36, shots: 160, time_on_ice_per_game: 1300, power_play_goals: 1, penalty_minutes: 20 }),
+  mk('mid1', 'Depth Winger', 'BOS', 'R', '1999-01-01', { games_played: 60, goals: 10, assists: 12, points: 22, shots: 90, time_on_ice_per_game: 800, power_play_goals: 0, penalty_minutes: 30 }),
+  mk('g1', 'Rate Goalie', 'COL', 'G', '1992-08-01', { games_played: 45, wins: 30, save_percentage: 0.921, goals_against_average: 2.02 }),
+  mk('g2', 'Team Goalie', 'CAR', 'G', '1998-01-01', { games_played: 40, wins: 31, save_percentage: 0.895, goals_against_average: 2.47 }),
+  mk('g3', 'Starter Goalie', 'TBL', 'G', '1994-03-18', { games_played: 58, wins: 39, save_percentage: 0.912, goals_against_average: 2.31 }),
+];
+
+const GAMES: Record<string, number> = { COL: 3, TBL: 2, SEA: 4, SJS: 1, NJD: 0, BOS: 3, CAR: 2 };
+const key = (s: string) => String(s).normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  setStateless(true); // the hosted endpoint's mode: every call carries its own roster, nothing is stored
+  vi.spyOn(NHL_STATS, 'load').mockResolvedValue(undefined);
+  vi.spyOn(NHL_STATS, 'isAvailable').mockReturnValue(true);
+  vi.spyOn(NHL_STATS, 'getAll').mockReturnValue(LEAGUE as any);
+  vi.spyOn(NHL_STATS, 'getSeasons').mockReturnValue({ roster: '20262027', stats: '20252026' } as any);
+  vi.spyOn(NHL_STATS, 'getById').mockImplementation((id) => (LEAGUE.find(p => p.player_id === id) as any) ?? null);
+  vi.spyOn(NHL_STATS, 'resolve').mockImplementation((input: string) => {
+    const hit = LEAGUE.filter(p => key(p.name) === key(input));
+    return hit.length === 1 ? { input, player: hit[0] } as any : { input, player: null, reason: 'no NHL player found with that name' } as any;
+  });
+  vi.spyOn(NHL_SCHEDULE, 'load').mockResolvedValue(undefined);
+  vi.spyOn(NHL_SCHEDULE, 'loadStandings').mockResolvedValue(undefined);
+  vi.spyOn(NHL_SCHEDULE, 'isAvailable').mockReturnValue(true);
+  vi.spyOn(NHL_SCHEDULE, 'getSeason').mockReturnValue('20262027');
+  vi.spyOn(NHL_SCHEDULE, 'getSeasonStartDate').mockReturnValue('2026-09-29');
+  vi.spyOn(NHL_SCHEDULE, 'countGamesInRange').mockImplementation((team: string) => GAMES[team] ?? 0);
+  vi.spyOn(NHL_SCHEDULE, 'getGamesInRange').mockImplementation((team: string) =>
+    Array.from({ length: GAMES[team] ?? 0 }, (_, i) => ({ date: `2026-10-1${i}`, opponent: 'VAN', home: true })) as any);
+  vi.spyOn(NHL_SCHEDULE, 'countBackToBacks').mockReturnValue(0);
+});
+
+const run = async (name: string, args: Record<string, unknown> = {}) => {
+  const r = await callTool(name, args);
+  const text = (r.content[0] as any).text as string;
+  return { r, text, body: (() => { try { return JSON.parse(text); } catch { return null; } })() };
+};
+
+const MY_ROSTER = 'Old Star\nYoung Defender\nRate Goalie';
+
+describe('no tool presents an invented fact', () => {
+  // Words that name something no public source provides, or that betray an unknown value printed as if known.
+  const INVENTED_ROLE = /\bPP1\b|\bPP2\b|Top-6|Bottom-6|linemate|Deep league sleeper|role lock/i;
+  // Case-sensitive: "governance" contains "nan".
+  const UNKNOWN_AS_VALUE = /\bNaN\b|undefined%|\bundefined\b(?= (?:games|GP|W|pts|points|min))/;
+
+  it('holds across every tool offered on the hosted endpoint', async () => {
+    const args: Record<string, Record<string, unknown>> = {
+      analyze_weekend_streams: { roster_text: MY_ROSTER, date_range: { start: '2026-10-09', end: '2026-10-11' } },
+      analyze_trade: { giving: ['Old Star'], receiving: ['Young Shooter', 'Young Winger'] },
+      get_player_stats: { player_id: 'Old Star' },
+      chirp_draft_pick: { pick_number: 3, playoff_start_week: 22, playoff_end_week: 24 },
+      draft_kit: { playoff_start_week: 22, playoff_end_week: 24 },
+      schedule_value: { playoff_start_week: 22, playoff_end_week: 24 },
+      read_ice: { roster_text: MY_ROSTER, start: '2026-10-12', look_ahead_days: 3 },
+    };
+    const offenders: string[] = [];
+    for (const t of TOOL_DEFINITIONS) {
+      if (['set_roster', 'set_opponent_roster', 'set_standings', 'show_stored_data'].includes(t.name)) continue;
+      const { text } = await run(t.name, { roster_text: MY_ROSTER, opponent_text: 'Older Star\nTeam Goalie', ...(args[t.name] ?? {}) });
+      const hit = text.match(INVENTED_ROLE) ?? text.match(UNKNOWN_AS_VALUE);
+      if (hit) offenders.push(`${t.name}: "${hit[0]}"`);
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe('analyze_breakout_players', () => {
+  it('only returns players at or under the age cap', async () => {
+    // Previously the cap was never applied: 31- and 33-year-olds came back as "must add" breakouts.
+    const { body } = await run('analyze_breakout_players', { breakout_age_max: 26 });
+    const c = body.analysis_insights.candidates;
+    expect(c.length).toBeGreaterThan(0);
+    for (const p of c) expect(p.age, p.name).toBeLessThanOrEqual(26);
+    expect(c.map((p: any) => p.name)).not.toContain('Old Star');
+  });
+
+  it('keeps every score within 0–100', async () => {
+    const { body } = await run('analyze_breakout_players', {});
+    for (const p of body.analysis_insights.candidates) {
+      expect(p.breakout_score).toBeGreaterThanOrEqual(0);
+      expect(p.breakout_score).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('flags conversion upside only against a computed league rate', async () => {
+    const { body } = await run('analyze_breakout_players', {});
+    const shooter = body.analysis_insights.candidates.find((p: any) => p.name === 'Young Shooter');
+    expect(shooter.components.conversion_upside).toBeGreaterThan(0);
+    expect(shooter.reasons.join(' ')).toMatch(/shooting 5\.5% on 220 shots vs a league forward rate/);
+    expect(body.analysis_insights.league_shooting_pct.forwards).toBeGreaterThan(0);
+  });
+
+  it('respects the position filter', async () => {
+    const { body } = await run('analyze_breakout_players', { position_filter: ['D'] });
+    for (const p of body.analysis_insights.candidates) expect(p.position).toBe('D');
+  });
+});
+
+describe('draft_kit goalies', () => {
+  it('ranks goalies among goalies, and never on a points scale', async () => {
+    const { body } = await run('draft_kit', { positions: ['G'], tier_size: 3 });
+    const g = body.analysis_insights.positions.G.tiers[0].players;
+    expect(g.map((p: any) => p.rank)).toEqual([1, 2, 3]);
+    for (const p of g) {
+      expect(p.ppg).toBeUndefined();
+      expect(p.goalie_line).toMatch(/GP, \d+ W, [\d.]+ GAA, \.\d{3} SV%/);
+    }
+  });
+
+  it('does not let a team-driven win total outrank better rate stats', async () => {
+    // 31 wins on .895 used to beat 30 wins on .921 because only wins were counted.
+    const { body } = await run('draft_kit', { positions: ['G'], tier_size: 3 });
+    const order = body.analysis_insights.positions.G.tiers[0].players.map((p: any) => p.name);
+    expect(order.indexOf('Rate Goalie')).toBeLessThan(order.indexOf('Team Goalie'));
+  });
+});
+
+describe('get_streaming_recommendations', () => {
+  it('applies the position filter it advertises', async () => {
+    const { body } = await run('get_streaming_recommendations', { roster_text: MY_ROSTER, position_filter: 'RW', max_recommendations: 5 });
+    const picks = body.recommendations.map((r: any) => r.pickup);
+    expect(picks.length).toBeGreaterThan(0);
+    for (const p of picks) expect(p.position).toBe('RW');
+  });
+
+  it('counts the list it returns in its own chirp', async () => {
+    const { body } = await run('get_streaming_recommendations', { roster_text: MY_ROSTER, max_recommendations: 3 });
+    const n = body.recommendations.length;
+    expect(JSON.stringify(body.chirp_intelligence)).not.toMatch(/\b0 streaming opportunities/);
+    expect(n).toBeGreaterThan(0);
+  });
+
+  it('orders by games in the window', async () => {
+    const { body } = await run('get_streaming_recommendations', { roster_text: MY_ROSTER, max_recommendations: 5 });
+    const games = body.recommendations.map((r: any) => Number(r.reasoning.match(/^(\d+) game/)[1]));
+    expect([...games].sort((a, b) => b - a)).toEqual(games);
+  });
+});
+
+describe('chirp_opponent', () => {
+  it('never counts one player in two groups', async () => {
+    // Three players previously produced "1 don't play … 3 more on two games or fewer".
+    const { body } = await run('chirp_opponent', { roster_text: MY_ROSTER, opponent_text: 'Young Defender\nYoung Winger\nOld Star' });
+    const w = body.weaknesses;
+    const all = [...w.idle_players, ...w.light_schedule, ...w.on_ir];
+    expect(new Set(all).size).toBe(all.length);
+    expect(all.length).toBeLessThanOrEqual(body.roster_size);
+    expect(w.idle_players).toEqual(['Young Defender']);   // NJD: 0 games
+    expect(w.light_schedule).toEqual(['Young Winger']);   // SJS: 1 game
+  });
+});
+
+describe('get_league_standings', () => {
+  it('works on the stateless endpoint from pasted standings', async () => {
+    const { body } = await run('get_league_standings', { standings_text: '1. Alpha 8-2-1 142 pts\n2. Beta 7-3-1 138 pts' });
+    expect(body.teams).toBe(2);
+    expect(body.standings[0]).toMatchObject({ rank: 1, team_name: 'Alpha', record: '8-2-1' });
+  });
+
+  it('points to an argument that exists here, not to a tool that does not', async () => {
+    const { text } = await run('get_league_standings', {});
+    expect(text).toMatch(/standings_text/);
+    expect(text).not.toMatch(/set_standings/);
+  });
+});
+
+describe('analyze_weekend_streams', () => {
+  it('reports ice time that matches the player\'s own stat line', async () => {
+    // "TOI" was a synthetic 0–25 score, so it disagreed with the minutes in the same response.
+    const { body } = await run('analyze_weekend_streams', { roster_text: MY_ROSTER, date_range: { start: '2026-10-09', end: '2026-10-11' } });
+    const all = [...(body.analysis_insights?.all_streams ?? body.all_streams ?? [])];
+    const sample = JSON.stringify(body);
+    expect(sample).not.toMatch(/Top-6|PP1/);
+    for (const s of all) {
+      const own = LEAGUE.find(p => p.player_id === s.player_id)!;
+      expect(s.opportunity_toi).toBeCloseTo((own.stats.time_on_ice_per_game ?? 0) / 60, 1);
+    }
+  });
+});
