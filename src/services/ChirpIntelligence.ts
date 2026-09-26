@@ -239,8 +239,25 @@ export class ChirpIntelligence {
     return `${personality.phrases[0]} ${targets} streaming opportunities on the wire.`;
   }
 
+  /**
+   * Fallback chirp for tools without a specific one.
+   *
+   * It used to splice style fragments around a fixed phrase, which rendered as "The data shows the data patterns. Time
+   * to taking action based on these insights. and improve your game". It now says something about the result, in whole
+   * sentences, with a closing line chosen by tone.
+   */
   private static generateGenericChirp(data: any, chirpStyle: any, personality: any): string {
-    return `${personality.phrases[0]} the data patterns. ${chirpStyle.prefix} taking action based on these insights. ${chirpStyle.suffix}`;
+    const n = Array.isArray(data?.recommendations) ? data.recommendations.length : 0;
+    const opening = n === 0
+      ? 'Nothing needs changing right now.'
+      : `${n} ${n === 1 ? 'move' : 'moves'} worth making, listed above.`;
+    const closing: Record<string, string> = {
+      encouraging: n === 0 ? 'Nicely done.' : "Take them when you're ready.",
+      direct_honest: n === 0 ? 'Check back before the next game day.' : 'Make them before your opponent does.',
+      brutal_truth: n === 0 ? "Don't get comfortable." : 'Get it together.',
+      championship_enforcer: n === 0 ? 'Stay sharp.' : "That's how legends are made.",
+    };
+    return `${opening} ${closing[chirpStyle?.tone] ?? ''}`.trim();
   }
 
   private static generateIntentSummary(data: any, personality: any): string {

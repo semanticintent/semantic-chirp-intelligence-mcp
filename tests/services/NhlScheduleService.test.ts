@@ -240,3 +240,11 @@ describe('fantasy weeks, counted as Yahoo counts them', () => {
   });
 });
 
+
+describe('NhlScheduleService.today', () => {
+  it('uses the NHL calendar (Eastern), not UTC', () => {
+    // 8:30 pm in Toronto on Sep 25 is already Sep 26 in UTC.
+    expect(NhlScheduleService.today(new Date('2026-09-26T00:30:00Z'))).toBe('2026-09-25');
+    expect(NhlScheduleService.today(new Date('2026-09-26T05:30:00Z'))).toBe('2026-09-26');
+  });
+});

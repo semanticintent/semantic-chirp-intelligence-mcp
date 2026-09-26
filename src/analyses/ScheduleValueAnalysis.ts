@@ -47,6 +47,8 @@ export interface TeamScheduleValue {
   readonly playoff_weeks: string[];
   readonly value_score: number;   // 0-100
   readonly verdict: string;
+  /** What the verdict means for a close draft decision: lean towards, lean away, or no lean. */
+  readonly stance: 'favour' | 'avoid' | 'neutral';
 }
 
 /** Yahoo fantasy weeks run Monday to Sunday. */
@@ -164,15 +166,23 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
 
   protected async formatResponse(chirpEnhanced: any, data: FantasyData): Promise<AnalysisResponse> {
     const teams: TeamScheduleValue[] = chirpEnhanced.teams ?? [];
-    const topN = teams.slice(0, 8);
+    // Best and worst are drawn from opposite ends without overlap, however few clubs were asked about — with three
+    // clubs, the same three used to appear in both lists.
+    const bestCount = Math.min(8, Math.ceil(teams.length / 2));
+    const topN = teams.slice(0, bestCount);
+    const bottom = teams.slice(bestCount).slice(-5);
 
-    const recommendations: Recommendation[] = topN.map((team, index) => ({
-      priority: index < 3 ? 'HIGH' : 'MEDIUM',
-      action: 'target',
-      reasoning:
-        `${team.team}: ${team.playoff_games} games in your playoff window, ` +
-        `${team.weeks_with_4_plus} four-game weeks, ${team.total_games} total. ${team.verdict}`
-    })) as any;
+    // A recommendation follows the club's own verdict, not its place in the list: a club whose verdict says "break the
+    // tie the other way" used to be recommended as a HIGH-priority target because it happened to sort near the top.
+    const describe = (t: TeamScheduleValue) =>
+      `${t.team}: ${t.playoff_games} games in your playoff window, ${t.weeks_with_4_plus} four-game weeks, ` +
+      `${t.total_games} total. ${t.verdict}`;
+    const favoured = teams.filter(t => t.stance === 'favour');
+    const avoided = teams.filter(t => t.stance === 'avoid');
+    const recommendations: Recommendation[] = [
+      ...favoured.slice(0, 8).map((t, i) => ({ priority: i < 3 ? 'HIGH' : 'MEDIUM', action: 'target', reasoning: describe(t) })),
+      ...avoided.slice(-5).map(t => ({ priority: 'LOW', action: 'fade', reasoning: describe(t) })),
+    ] as any;
 
     const analysisInsights: AnalysisInsights = {
       schedule_source: chirpEnhanced.schedule_available
@@ -185,7 +195,7 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
         playoff_games: t.playoff_games,
         four_game_weeks: t.weeks_with_4_plus
       })),
-      worst_schedules: teams.slice(-5).map(t => ({
+      worst_schedules: bottom.map(t => ({
         team: t.team,
         value_score: t.value_score,
         playoff_games: t.playoff_games,
@@ -232,7 +242,8 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
       playoff_games: playoffGames,
       playoff_weeks: playoffWeeks,
       value_score: this.scoreTeam(profile, playoffGames, playoffWeeks.length),
-      verdict: this.verdictFor(profile, playoffGames, playoffWeeks.length)
+      verdict: this.verdictFor(profile, playoffGames, playoffWeeks.length),
+      stance: this.stanceFor(profile, playoffGames, playoffWeeks.length)
     };
   }
 
@@ -263,6 +274,19 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
       (0.15 * lightWeekPenalty);
 
     return Math.round(Math.max(0, Math.min(1, score + 0.15)) * 100);
+  }
+
+  /** The same thresholds as verdictFor, as a direction a recommendation can follow. */
+  private stanceFor(profile: any, playoffGames: number, playoffWeekCount: number): 'favour' | 'avoid' | 'neutral' {
+    if (playoffWeekCount === 0) {
+      if (profile.weeks_with_4_plus >= 9) return 'favour';
+      if (profile.weeks_with_2_or_fewer >= 6) return 'avoid';
+      return 'neutral';
+    }
+    const perWeek = playoffGames / playoffWeekCount;
+    if (perWeek >= 3.6 || profile.weeks_with_4_plus >= 9) return 'favour';
+    if (perWeek <= 2.8) return 'avoid';
+    return 'neutral';
   }
 
   private verdictFor(profile: any, playoffGames: number, playoffWeekCount: number): string {

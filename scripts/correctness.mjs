@@ -100,5 +100,24 @@ await probe('playoff window', async () => {
     `${sv.playoff_window.start} → ${sv.playoff_window.end}`);
 });
 
+await probe('ice schedule edge', async () => {
+  const [ice, gih] = await Promise.all([
+    tool('ice', { roster_text: ROSTER, opponent_text: OPPONENT, look_ahead_days: 14 }),
+    tool('get_games_in_hand', { roster_text: ROSTER, opponent_text: OPPONENT, look_ahead_days: 14 }),
+  ]);
+  const edge = ice.body.analysis_insights.schedule_edge;
+  const g = gih.body.analysis_insights ?? gih.body;
+  const theirs = JSON.stringify(g);
+  check('ICE reports the same games edge as games-in-hand, with the right sign',
+    edge && edge.advantage === edge.your_games - edge.opponent_games && !/games_disadvantage/.test(ice.text),
+    JSON.stringify(edge));
+});
+
+await probe('goalie order', async () => {
+  const search = (await tool('search_players', { position: 'G', count: 5 })).body.players.map(p => p.name);
+  const kit = (await tool('draft_kit', { positions: ['G'], tier_size: 5, max_per_position: 5 })).body.analysis_insights.positions.G.tiers[0].players.map(p => p.name);
+  check('search_players and draft_kit agree on goalies', search.join() === kit.join(), `${search.join(', ')} vs ${kit.join(', ')}`);
+});
+
 console.log(failures === 0 ? '\n✅ All correctness checks passed.\n' : `\n❌ ${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

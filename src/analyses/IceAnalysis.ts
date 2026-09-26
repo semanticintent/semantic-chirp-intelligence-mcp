@@ -72,6 +72,7 @@ export class IceAnalysis extends AnalysisTemplate {
     return {
       roster,
       gamesInHand: this.calculateGamesInHand(lookAheadDays),
+      volumeCandidates: this.volumeCandidates(lookAheadDays),
       streaming: this.streamingContext(),
       lookAheadDays
     };
@@ -162,19 +163,21 @@ export class IceAnalysis extends AnalysisTemplate {
       }
     }
 
-    // 3. MEDIUM: Schedule optimization
-    const gamesDiff = extendedData.gamesInHand?.games_in_hand_difference || 0;
-    if (gamesDiff < 0) {
-      const volumePickups = extendedData.streaming?.streaming_targets
-        ?.filter((t: any) => t.team_trending_count >= 3)
-        .slice(0, 2) || [];
-
-      for (const pickup of volumePickups) {
+    // 3. MEDIUM: Schedule edge.
+    // games_in_hand_difference is YOUR games minus your opponent's, so positive is an advantage. It was reported as
+    // "games_disadvantage", which turned a +6 edge into a 6-game deficit — the opposite of the right advice.
+    const gih = extendedData.gamesInHand ?? {};
+    const gamesDiff: number = gih.games_in_hand_difference || 0;
+    if (gih.opponent_remaining !== null && gih.opponent_remaining !== undefined && gamesDiff < 0) {
+      // Behind on volume: name real candidates — players not on either roster whose clubs play at least three times
+      // in the window, best producers first. These used to come from a streaming list that has been empty since v4.
+      for (const pickup of (extendedData.volumeCandidates ?? []).slice(0, 2)) {
         recommendations.push({
           priority: "MEDIUM",
           action: "volume_play",
-          pickup: pickup,
-          reasoning: `Opponent has ${Math.abs(gamesDiff)} more games - need volume players`
+          pickup,
+          reasoning: `Opponent has ${Math.abs(gamesDiff)} more games in the window. ${pickup.name} (${pickup.team}) ` +
+            `plays ${pickup.games_in_window} times — check he is available in your league.`
         });
       }
     }
@@ -199,7 +202,7 @@ export class IceAnalysis extends AnalysisTemplate {
     return {
       roster_analysis: rosterAnalysis,
       immediate_issues: injuredActive.length,
-      games_disadvantage: gamesDiff,
+      schedule_edge: this.describeEdge(gih),
       weak_positions: weakPositions,
       recommendations: sortedRecommendations,
       optimal_timing: extendedData.streaming?.optimal_timing,
@@ -233,7 +236,7 @@ export class IceAnalysis extends AnalysisTemplate {
     // Format insights according to AnalysisInsights interface
     const insights: AnalysisInsights = {
       immediate_issues: chirpEnhanced.immediate_issues || 0,
-      games_disadvantage: chirpEnhanced.games_disadvantage || 0,
+      schedule_edge: chirpEnhanced.schedule_edge,
       weak_positions: chirpEnhanced.weak_positions || [],
       optimal_timing: chirpEnhanced.optimal_timing,
       market_intelligence: chirpEnhanced.market_intelligence
@@ -396,6 +399,40 @@ export class IceAnalysis extends AnalysisTemplate {
       games_in_hand_difference: mine - theirs,
       window: { start, end }
     };
+  }
+
+  /** A signed, labelled reading of the games-in-hand numbers. Positive is always your advantage. */
+  private describeEdge(gih: any): any {
+    if (!gih?.available) return { available: false, note: gih?.note ?? 'Schedule unavailable' };
+    if (gih.opponent_remaining === null || gih.opponent_remaining === undefined) {
+      return { available: true, your_games: gih.your_remaining, opponent_games: null, note: gih.note };
+    }
+    const edge = gih.games_in_hand_difference;
+    return {
+      available: true,
+      your_games: gih.your_remaining,
+      opponent_games: gih.opponent_remaining,
+      advantage: edge,
+      reading: edge > 0 ? `You have ${edge} more games than your opponent in the window.`
+        : edge < 0 ? `Your opponent has ${-edge} more games than you in the window.`
+        : 'You and your opponent play the same number of games in the window.',
+      window: gih.window,
+    };
+  }
+
+  /** Players on neither roster whose clubs play at least three times in the window, best producers first. */
+  private volumeCandidates(lookAheadDays: number): any[] {
+    if (!NHL_SCHEDULE.isAvailable()) return [];
+    const start = NhlScheduleService.today();
+    const end = NhlScheduleService.addDays(start, Math.max(0, lookAheadDays - 1));
+    return LEAGUE_DATA.getPlayerPool({ limit: 300 })
+      .filter(p => p.position !== 'G')
+      .map(p => ({ player_id: p.player_id, name: p.name, team: p.team, position: p.position,
+        games_in_window: NHL_SCHEDULE.countGamesInRange(p.team, start, end),
+        points: (p as any).stats?.points ?? 0 }))
+      .filter(p => p.games_in_window >= 3)
+      .sort((a, b) => b.games_in_window - a.games_in_window || b.points - a.points)
+      .slice(0, 5);
   }
 
   /**

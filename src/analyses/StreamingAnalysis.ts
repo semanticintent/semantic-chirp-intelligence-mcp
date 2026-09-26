@@ -20,6 +20,9 @@ import {
 import { LEAGUE_DATA, LeagueDataService, NO_ROSTER_MESSAGE } from '../services/LeagueDataService.js';
 import { NHL_STATS } from '../services/NhlStatsService.js';
 
+/** Candidates from any one club, so a single heavy schedule cannot fill the list. */
+const MAX_PER_CLUB = 2;
+
 export interface StreamingArgs {
   look_ahead_days?: number;
   /** One position ("RW") or several (["C", "RW"]). */
@@ -127,7 +130,16 @@ export class StreamingAnalysis extends AnalysisTemplate {
       return ((b.player as any).stats?.points ?? 0) - ((a.player as any).stats?.points ?? 0);
     });
 
-    return streamingRecommendations.slice(0, maxRecommendations);
+    // At most two candidates per club. Ranking games-first let one club fill every slot — five NYR depth players,
+    // including 0.28 P/gm skaters, ahead of better producers whose clubs play once fewer.
+    const perClub = new Map<string, number>();
+    const spread = streamingRecommendations.filter(r => {
+      const n = perClub.get(r.player.team) ?? 0;
+      if (n >= MAX_PER_CLUB) return false;
+      perClub.set(r.player.team, n + 1);
+      return true;
+    });
+    return spread.slice(0, maxRecommendations);
   }
 
   /**

@@ -22,6 +22,10 @@ const LEAGUE = [
   mk('kid2', 'Young Winger', 'SJS', 'R', '2003-01-01', { games_played: 70, goals: 20, assists: 25, points: 45, shots: 170, time_on_ice_per_game: 1050, power_play_goals: 4, penalty_minutes: 8 }),
   mk('kid3', 'Young Defender', 'NJD', 'D', '2003-05-01', { games_played: 80, goals: 6, assists: 30, points: 36, shots: 160, time_on_ice_per_game: 1300, power_play_goals: 1, penalty_minutes: 20 }),
   mk('mid1', 'Depth Winger', 'BOS', 'R', '1999-01-01', { games_played: 60, goals: 10, assists: 12, points: 22, shots: 90, time_on_ice_per_game: 800, power_play_goals: 0, penalty_minutes: 30 }),
+  // Three depth skaters on one heavy-schedule club, to test that one club cannot fill a streaming list.
+  mk('sea1', 'Depth One', 'SEA', 'R', '1996-01-01', { games_played: 60, goals: 5, assists: 10, points: 15, shots: 70, time_on_ice_per_game: 750 }),
+  mk('sea2', 'Depth Two', 'SEA', 'R', '1996-02-01', { games_played: 60, goals: 4, assists: 9, points: 13, shots: 60, time_on_ice_per_game: 740 }),
+  mk('sea3', 'Depth Three', 'SEA', 'R', '1996-03-01', { games_played: 60, goals: 3, assists: 8, points: 11, shots: 50, time_on_ice_per_game: 730 }),
   mk('g1', 'Rate Goalie', 'COL', 'G', '1992-08-01', { games_played: 45, wins: 30, save_percentage: 0.921, goals_against_average: 2.02 }),
   mk('g2', 'Team Goalie', 'CAR', 'G', '1998-01-01', { games_played: 40, wins: 31, save_percentage: 0.895, goals_against_average: 2.47 }),
   mk('g3', 'Starter Goalie', 'TBL', 'G', '1994-03-18', { games_played: 58, wins: 39, save_percentage: 0.912, goals_against_average: 2.31 }),
@@ -199,5 +203,63 @@ describe('analyze_weekend_streams', () => {
       const own = LEAGUE.find(p => p.player_id === s.player_id)!;
       expect(s.opportunity_toi).toBeCloseTo((own.stats.time_on_ice_per_game ?? 0) / 60, 1);
     }
+  });
+});
+
+describe('second review', () => {
+  it('ICE reads a games edge in your favour as an advantage', async () => {
+    // Mine: Old Star (COL 3) + Young Defender (NJD 0) + Rate Goalie (COL 3) = 6. Theirs: Young Winger (SJS 1).
+    // This used to be reported as games_disadvantage: 5.
+    const { body } = await run('ice', { roster_text: MY_ROSTER, opponent_text: 'Young Winger' });
+    const edge = body.analysis_insights.schedule_edge;
+    expect(edge).toMatchObject({ your_games: 6, opponent_games: 1, advantage: 5 });
+    expect(edge.reading).toMatch(/^You have 5 more games/);
+    expect(JSON.stringify(body)).not.toMatch(/games_disadvantage/);
+  });
+
+  it('schedule_value never lists a club as both best and worst, and follows its verdicts', async () => {
+    const { body } = await run('schedule_value', { teams: ['SEA', 'COL', 'NJD'], playoff_start_week: 22, playoff_end_week: 24 });
+    const best = body.analysis_insights.best_schedules.map((t: any) => t.team);
+    const worst = body.analysis_insights.worst_schedules.map((t: any) => t.team);
+    expect(best.filter((t: string) => worst.includes(t))).toEqual([]);
+    for (const r of body.recommendations) {
+      if (/Break the tie the other way/.test(r.reasoning)) expect(r.action).toBe('fade');
+    }
+  });
+
+  it('no tool falls back to spliced template text', async () => {
+    const { text } = await run('optimize_lineup', { roster_text: MY_ROSTER });
+    expect(text).not.toMatch(/the data patterns|Time to taking/);
+  });
+
+  it('search_players and draft_kit agree on the goalie order', async () => {
+    const search = (await run('search_players', { position: 'G', count: 3 })).body.players.map((p: any) => p.name);
+    const kit = (await run('draft_kit', { positions: ['G'], tier_size: 3 })).body.analysis_insights.positions.G.tiers[0].players.map((p: any) => p.name);
+    expect(search).toEqual(kit);
+  });
+
+  it('a searched-for-everything list does not mix goalies into the skater ranking', async () => {
+    const { body } = await run('search_players', { count: 20 });
+    expect(body.players.every((p: any) => p.position !== 'G')).toBe(true);
+    expect(body.goalies.every((p: any) => p.position === 'G')).toBe(true);
+  });
+
+  it('no club fills more than two streaming slots', async () => {
+    const { body } = await run('get_streaming_recommendations', { roster_text: MY_ROSTER, max_recommendations: 6 });
+    const teams = body.recommendations.map((r: any) => r.pickup.team);
+    for (const t of new Set(teams)) expect(teams.filter((x: string) => x === t).length).toBeLessThanOrEqual(2);
+  });
+
+  it('a goalie-only draft kit carries no skater signals', async () => {
+    const { body } = await run('draft_kit', { positions: ['G'], playoff_start_week: 22, playoff_end_week: 24 });
+    const sig = body.analysis_insights.signals;
+    const named = [...sig.shooting_rebounds, ...sig.decline_risk, ...sig.playoff_schedule_winners].map((p: any) => p.position);
+    expect(named.filter((p: string) => p !== 'G')).toEqual([]);
+    for (const r of body.recommendations) expect(r.reasoning).toMatch(/\bG\b/);
+  });
+
+  it('the opponent scout does not say "more" when nothing came before', async () => {
+    const { body } = await run('chirp_opponent', { roster_text: MY_ROSTER, opponent_text: 'Young Winger\nDepth Winger' });
+    expect(body.chirp).not.toMatch(/^\d+ more/);
   });
 });

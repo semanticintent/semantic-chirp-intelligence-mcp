@@ -54,7 +54,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export class BreakoutAnalysis extends AnalysisTemplate {
   constructor() {
-    super('analyze_breakout_players', 'streaming_recommendations');
+    super('analyze_breakout_players', 'breakout_analysis');
   }
 
   protected async fetchData(_args: BreakoutAnalysisArgs): Promise<any> {

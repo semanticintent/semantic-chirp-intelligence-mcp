@@ -28,7 +28,8 @@ export type AnalysisType =
   | 'streaming_recommendations'
   | 'games_in_hand'
   | 'weekly_matchup'
-  | 'draft_pick';
+  | 'draft_pick'
+  | 'breakout_analysis';
 
 /**
  * Chirp personality modes
@@ -324,6 +325,16 @@ export interface FantasyData {
 export interface AnalysisInsights {
   readonly immediate_issues?: number;
   readonly games_disadvantage?: number;
+  /** Games in the window for you and your opponent. `advantage` is yours minus theirs: positive favours you. */
+  readonly schedule_edge?: {
+    readonly available: boolean;
+    readonly your_games?: number;
+    readonly opponent_games?: number | null;
+    readonly advantage?: number;
+    readonly reading?: string;
+    readonly note?: string;
+    readonly window?: { start: string; end: string };
+  };
   readonly weak_positions?: PositionWeakness[];
   readonly position_counts?: PositionCounts;
   readonly favorable_teams?: FavorableTeam[];
