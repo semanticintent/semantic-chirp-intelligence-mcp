@@ -118,6 +118,8 @@ export class ScheduleValueAnalysis extends AnalysisTemplate {
     data: FantasyData
   ): Promise<any> {
     const contract = this.mergeContractWithDefaults(semanticContract);
+    // enable_chirp: false was accepted and ignored — the verdict chirp came back regardless.
+    if (contract.enable_chirp === false) return analysisResults;
 
     if (!analysisResults.schedule_available) {
       return {

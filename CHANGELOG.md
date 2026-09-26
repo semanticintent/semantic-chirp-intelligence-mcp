@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.10.1] — sixth review
+
+A sixth test of every hosted tool through Claude, against 4.10.0. `assume_rostered` worked on all six tools and every
+4.10.0 fix held; this fixes the goalie and draft-need findings.
+
+### Fixed
+- **Three tools, three goalie orders.** `ice` / `get_roster_transaction_recommendations` ranked goalies their own way —
+  suggesting .877 and .883 goalies, two from one club (who split its starts), each with a negative `points` standing in
+  for a rank. One shared `goalieScore` (expected starts, opposing attack, save %) now drives `analyze_goalie_streams`,
+  `get_streaming_recommendations` and `ice`; `ice` offers at most one goalie per club, carries no `points` for goalies,
+  and its reasons give expected starts and the stream score.
+- **Tiny samples topped the save % scale.** A goalie with five games was ranked at the 100th save % percentile. The
+  percentile now applies only to goalies with 20+ games, as the method already said; others count as 50.
+- **`analyze_goalie_streams` limits** said candidates are "every goalie not on the roster you pasted" even with
+  `assume_rostered`; they now say which top of the board was left out.
+- **A stated need beat elite players at the top of the draft.** At pick 3 with a G need, `chirp_draft_pick` made a
+  goalie CRITICAL over Kucherov. The need weight now fades in over the first three rounds (full from pick 36), and a
+  player flagged REACH is listed after every non-reach and never above LOW.
+- **`schedule_value` ignored `enable_chirp: false`.** It now returns no chirp when asked not to.
+- **`analyze_trade` called a 4–3 category loss "a donation".** A one-category margin now reads as the close call it is,
+  either way.
+- **`draft_kit`** listed a player among playoff schedule winners and decline risks without saying so; schedule winners
+  now carry `also_decline_risk: true` when both apply.
+
 ## [4.10.0] — assume_rostered, fifth review
 
 A fifth test of every hosted tool through Claude, against 4.9.3. Every 4.9.3 fix held and nothing blocked submission;

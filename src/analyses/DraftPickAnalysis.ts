@@ -36,6 +36,9 @@ import { ROSTER_STORE } from '../services/RosterStore.js';
 import { parseCategories, valueForCategories } from '../services/CategoryService.js';
 
 
+/** The pick by which a stated roster need carries its full weight: three rounds of a 12-team draft. */
+const NEED_FULL_WEIGHT_PICK = 36;
+
 export interface DraftPickArgs {
   readonly pick_number?: number;
   /** Players already off the board, pasted in any shape a draft room shows them. */
@@ -205,9 +208,11 @@ export class DraftPickAnalysis extends AnalysisTemplate {
         !d.draftedNames.has(this.normalizeName(p.name))
     );
 
+    // A reach is listed, but after every non-reach: Thompson was flagged REACH and still recommended at the top.
     const candidates: DraftCandidate[] = available
       .map((p: any) => this.rateCandidate(p, pickNumber, needs, d.playoffWindow, d.rankLabel))
-      .sort((a: DraftCandidate, b: DraftCandidate) => b.draft_score - a.draft_score)
+      .sort((a: DraftCandidate, b: DraftCandidate) =>
+        Number(a.verdict === 'REACH') - Number(b.verdict === 'REACH') || b.draft_score - a.draft_score)
       .slice(0, maxResults);
 
     return {
@@ -306,7 +311,7 @@ export class DraftPickAnalysis extends AnalysisTemplate {
     const candidates: DraftCandidate[] = chirpEnhanced.candidates ?? [];
 
     const recommendations: Recommendation[] = candidates.map((c, index) => ({
-      priority: index === 0 ? 'CRITICAL' : index < 3 ? 'HIGH' : 'MEDIUM',
+      priority: c.verdict === 'REACH' ? 'LOW' : index === 0 ? 'CRITICAL' : index < 3 ? 'HIGH' : 'MEDIUM',
       action: 'draft',
       reasoning: c.reasoning
     })) as any;
@@ -395,11 +400,14 @@ export class DraftPickAnalysis extends AnalysisTemplate {
       : 0.5;
 
     const needComponent = fillsNeed ? 1 : 0;
+    // Need fades in over the first three rounds (of twelve): at pick 3 a stated G need made a goalie CRITICAL over
+    // Kucherov. Early picks are for the best player; holes get filled once the elite are gone.
+    const needWeight = 0.18 * Math.min(1, pickNumber / NEED_FULL_WEIGHT_PICK);
 
     const score =
       (0.40 * valueComponent) +
       (0.30 * rankComponent) +
-      (0.18 * needComponent) +
+      (needWeight * needComponent) +
       (0.12 * scheduleComponent);
 
     return {

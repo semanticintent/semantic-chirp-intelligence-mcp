@@ -223,7 +223,8 @@ export class DraftKitAnalysis extends AnalysisTemplate {
       signals: {
         shooting_rebounds: this.shootingRebounds(inScope),
         decline_risk: this.declineRisk(inScope),
-        playoff_schedule_winners: this.playoffWinners(inScope, window),
+        // A schedule winner can also be a decline risk; both are facts, so the overlap is said rather than hidden.
+        playoff_schedule_winners: this.markDeclining(this.playoffWinners(inScope, window), this.declineRisk(inScope)),
         category_specialists: this.categorySpecialists(inScope)
       },
       cheat_sheet: this.cheatSheet(byPosition),
@@ -333,6 +334,11 @@ export class DraftKitAnalysis extends AnalysisTemplate {
       .filter(p => p.flags.some(f => f.includes('volume without conversion')))
       .slice(0, 8)
       .map(p => ({ name: p.name, team: p.team, position: p.position, age: p.age, note: p.flags[0] }));
+  }
+
+  private markDeclining(winners: any[], declining: any[]): any[] {
+    const flagged = new Set(declining.map((p: any) => `${p.name}|${p.team}`));
+    return winners.map(w => flagged.has(`${w.name}|${w.team}`) ? { ...w, also_decline_risk: true } : w);
   }
 
   private declineRisk(players: KitPlayer[]): any[] {

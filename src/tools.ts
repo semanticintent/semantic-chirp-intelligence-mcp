@@ -708,9 +708,14 @@ async function analyzeTradeImpact(giving: string[], receiving: string[], chirpIn
     categories_lost: losses,
     verdict,
     chirp: verdict === 'ACCEPT'
-      ? `You win ${wins} categories to ${losses}. Take it before they think twice.`
+      ? wins - losses <= 1
+        ? `You win ${wins} categories to ${losses}. Narrow — make sure the ones you win are the ones you need.`
+        : `You win ${wins} categories to ${losses}. Take it before they think twice.`
       : verdict === 'DECLINE'
-        ? `You lose ${losses} categories to ${wins}. That's not a trade, that's a donation.`
+        // A one-category loss is a close call, not a donation.
+        ? losses - wins <= 1
+          ? `You lose ${losses} categories to ${wins}. Close — it comes down to which categories you need.`
+          : `You lose ${losses} categories to ${wins}. That's not a trade, that's a donation.`
         : `Dead even at ${wins}-${losses}. Decide on need, not numbers.`,
     ...(unresolved.length ? { unresolved } : {}),
     basis: `Last full season totals (${NHL_STATS.getSeasons().stats}) from the NHL public API. ` +
