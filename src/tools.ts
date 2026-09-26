@@ -811,7 +811,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "get_streaming_recommendations",
-        description: "Schedule-aware pickup candidates: NHL players not on the rosters you provided, ranked by games in the look-ahead window and then last season's production, at most two per club. Goalies rank on the same stream score as analyze_goalie_streams (expected starts, opposing attack, save %). League ownership is private, so check availability before adding — or pass assume_rostered to leave out the top of the board.",
+        description: "Schedule-aware pickup candidates: NHL players not on the rosters you provided, ranked by games in the look-ahead window and then last season's production, at most two per club. Goalies rank on a stream score of expected starts, opposing attack and save %. League ownership is private, so check availability before adding — or pass assume_rostered to leave out the top of the board.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1010,7 +1010,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "set_opponent_roster",
-        description: "📋 Paste your weekly opponent's roster, so head-to-head tools (games-in-hand, matchup comparison, opponent scouting) can work without a league account. Same forgiving format as set_roster.",
+        description: "📋 Paste your weekly opponent's roster, so head-to-head tools (games-in-hand, matchup comparison, opponent scouting) can work without a league account. Same forgiving paste format as your own roster.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1075,7 +1075,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "read_ice",
-        description: "📺 Read the ice for Sepiola, the telestrator: one drawable Read. Per skater — game bits for the window, back-to-back, schedule value 0–100, flag, a one-line reason, points per game and projected points. Plus the start/sit/stream/IR calls, games in hand, the closing line for each replay, and the take. Validates against the vendored read contract (contracts/read.schema.json). Real NHL schedule and club stats only; refuses rather than estimates when they are unavailable. Pass roster_text, or omit it to use the roster set with set_roster.",
+        description: "📺 Read the ice for Sepiola, the telestrator: one drawable Read. Per skater — game bits for the window, back-to-back, schedule value 0–100, flag, a one-line reason, points per game and projected points. Plus the start/sit/stream/IR calls, games in hand, the closing line for each replay, and the take. Output follows the Sepiola read contract. Real NHL schedule and club stats only; refuses rather than estimates when they are unavailable. Pass roster_text, or omit it to use a stored roster.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1145,7 +1145,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
       },
       {
         name: "chirp_draft_pick",
-        description: "❄️ ICE at the draft table — with a pick on the clock, ranks who to take against YOUR draft: the best producers still available (last season's NHL production, since there is no market ADP), weighted toward the positions your roster still needs (a weight that grows over the first three rounds, so elite players come first) and each club's schedule during your league's playoff weeks. Pass already_drafted as picks go by, in whatever shape your draft room shows them; nothing is read from a fantasy platform. Use draft_kit for the whole board before the draft, this for the pick in front of you.",
+        description: "❄️ ICE at the draft table — with a pick on the clock, ranks who to take against YOUR draft: the best producers still available (last season's NHL production, since there is no market ADP), weighted toward the positions your roster still needs (a weight that grows over the first three rounds, so elite players come first) and each club's schedule during your league's playoff weeks. Pass already_drafted as picks go by, in whatever shape your draft room shows them; nothing is read from a fantasy platform.",
         inputSchema: {
           type: "object",
           properties: {
@@ -1161,7 +1161,7 @@ export const TOOL_DEFINITIONS: Tool[] = [
             roster_needs: {
               type: "array",
               items: { type: "string" },
-              description: "Positions you still need, e.g. [\"RW\", \"G\"]. If omitted, inferred from the roster you set with set_roster (the thinnest positions)."
+              description: "Positions you still need, e.g. [\"RW\", \"G\"]. If omitted, inferred from your roster (the thinnest positions)."
             },
             max_results: {
               type: "number",

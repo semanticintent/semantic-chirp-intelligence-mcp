@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.10.4] — directory policy
+
+### Fixed
+- **Tool descriptions no longer refer to other tools or files.** The Claude directory requires descriptions with no
+  instructions about other tools and no external instruction sources. `chirp_draft_pick` told the model to use
+  `draft_kit` first; `read_ice`, `set_opponent_roster` and a `chirp_draft_pick` parameter pointed at `set_roster`
+  (hidden on the hosted endpoint); `read_ice` named a schema file; `get_streaming_recommendations` named
+  `analyze_goalie_streams`. Each now describes only itself. A test fails if any description names another tool or
+  carries invisible or control characters.
+
 ## [4.10.3] — seventh review
 
 A seventh test through Claude, against 4.10.2. The new descriptions matched the tools; this fixes the leftovers.
