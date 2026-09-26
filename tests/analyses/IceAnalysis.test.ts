@@ -311,7 +311,7 @@ describe('IceAnalysis', () => {
     it('should format response according to AnalysisResponse interface', async () => {
       const chirpEnhanced = {
         immediate_issues: 2,
-        games_disadvantage: -3,
+        schedule_edge: { available: true, your_games: 6, opponent_games: 9, advantage: -3, reading: 'Your opponent has 3 more games than you in the window.' },
         weak_positions: [{ position: 'C', current_count: 1 }],
         recommendations: [
           { priority: 'CRITICAL', action: 'drop', player: { name: 'Test' }, reasoning: 'Test reason' }
@@ -333,7 +333,7 @@ describe('IceAnalysis', () => {
       expect(result).toHaveProperty('metadata');
 
       expect(result.analysis_insights.immediate_issues).toBe(2);
-      expect(result.analysis_insights.games_disadvantage).toBe(-3);
+      expect(result.analysis_insights.schedule_edge.advantage).toBe(-3);
       expect(result.recommendations).toHaveLength(1);
     });
 
@@ -350,7 +350,20 @@ describe('IceAnalysis', () => {
       const result = await formatResponseMethod(chirpEnhanced, data);
 
       expect(result.analysis_insights.immediate_issues).toBe(0);
-      expect(result.analysis_insights.games_disadvantage).toBe(0);
+      expect(result.analysis_insights.schedule_edge).toBeUndefined();
+    });
+  });
+
+  describe('schedule edge', () => {
+    it('reads a positive difference as your advantage, never as a deficit', () => {
+      // 9 games vs 3 used to be reported as games_disadvantage: 6.
+      const edge = (iceAnalysis as any).describeEdge({ available: true, your_remaining: 9, opponent_remaining: 3, games_in_hand_difference: 6 });
+      expect(edge.advantage).toBe(6);
+      expect(edge.reading).toMatch(/^You have 6 more games/);
+    });
+    it('reads a negative difference as your opponent\'s advantage', () => {
+      const edge = (iceAnalysis as any).describeEdge({ available: true, your_remaining: 3, opponent_remaining: 9, games_in_hand_difference: -6 });
+      expect(edge.reading).toMatch(/^Your opponent has 6 more games/);
     });
   });
 
@@ -471,7 +484,6 @@ describe('IceAnalysis', () => {
         chirp_intelligence: { message: 'Test chirp' },
         metadata: { tool_name: 'get_roster_transaction_recommendations' },
         immediate_issues: 0,
-        games_disadvantage: 0,
         weak_positions: []
       };
 

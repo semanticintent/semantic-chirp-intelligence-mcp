@@ -359,9 +359,18 @@ export class NhlScheduleService {
     return d.toISOString().split('T')[0];
   }
 
-  /** Today as YYYY-MM-DD (UTC). */
-  public static today(): string {
-    return new Date().toISOString().split('T')[0];
+  /**
+   * Today as YYYY-MM-DD, on the NHL's calendar.
+   *
+   * NHL game dates are local calendar dates, and the league runs on Eastern time. This used UTC, which rolls over at
+   * 8 pm Eastern in summer and 7 pm in winter, so an evening request counted "the next seven days" from
+   * tomorrow — a player's games changed between two runs an hour apart.
+   */
+  public static today(now: Date = new Date()): string {
+    // en-CA formats as YYYY-MM-DD.
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(now);
   }
 
   // ==========================================

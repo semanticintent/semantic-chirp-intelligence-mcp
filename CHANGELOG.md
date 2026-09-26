@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.9.1] — second review
+
+A second test of every hosted tool through Claude, against 4.9.0. All of 4.9.0's fixes held; this fixes what it found next.
+
+### Fixed
+- **`ice` reported your advantage as a deficit.** Its `games_disadvantage` field held *your games minus your opponent's*,
+  so a +6 edge read as a six-game deficit — the opposite of the right advice, in the flagship tool. It now reports a
+  `schedule_edge` with `your_games`, `opponent_games`, a signed `advantage` (positive favours you) and a plain-English
+  `reading`. When you genuinely are behind, it now names real volume candidates; that branch drew from a streaming list
+  that has been empty since v4, so it could never recommend anything.
+- **`schedule_value` contradicted itself for a short team list.** With three clubs, all three appeared as both best and
+  worst, and a club whose own verdict said "break the tie the other way" was recommended as a HIGH-priority target
+  because of its place in the list. Best and worst no longer overlap, and each recommendation follows its club's verdict:
+  `target` for a favourable schedule, `fade` for a light one.
+- **`optimize_lineup` (and any tool without its own chirp) produced spliced template text**: "The data shows the data
+  patterns. Time to taking action based on these insights. and improve your game". The fallback now writes whole
+  sentences about the result.
+- **`search_players` and `draft_kit` disagreed on the best goalie** — one ranked on wins, the other on a blend. Both now
+  use one shared ranking (`src/domain/goalie-rank.ts`). A search across all positions also no longer sorts goalies' wins
+  against skaters' points; goalies are listed separately.
+- **`get_streaming_recommendations` could be filled by one club.** Ranking games-first let five depth players from the
+  only three-game club take every slot. At most two candidates now come from any one club.
+- **A goalie-only `draft_kit` recommended skaters.** Signals and recommendations now follow the positions asked for.
+- **"The next seven days" started from the UTC date**, which rolls over at 8 pm Eastern in summer, so a player's game count
+  could change between two runs an hour apart. Dates now follow the NHL's Eastern calendar.
+- `chirp_opponent` said "3 more play only once or twice" when nothing came before them.
+- `analyze_breakout_players` reported its analysis type as `streaming_recommendations`.
+
+### Changed
+- `governance_dashboard` states the scope of its counters. On the hosted endpoint they describe one short-lived instance,
+  not the connector's traffic.
+
+### Removed
+- A dead legacy copy of the roster-transaction logic in `tools.ts`, and four helpers only it used. Both `ice` and
+  `get_roster_transaction_recommendations` run `IceAnalysis`, which is why the review found their output identical.
+
+### Tests
+- Eight new correctness tests, each failing against 4.9.0. `npm run correctness` also checks ICE's edge against
+  games-in-hand and that the two goalie rankings agree.
+
+---
+
 ## [4.9.0] — correctness pass
 
 A test of every hosted tool through Claude read the answers rather than checking that they arrived, and found output

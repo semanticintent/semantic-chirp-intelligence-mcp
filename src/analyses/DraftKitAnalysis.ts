@@ -37,6 +37,7 @@ import { ChirpIntelligence } from '../services/ChirpIntelligence.js';
 import { NHL_SCHEDULE, NhlScheduleService } from '../services/NhlScheduleService.js';
 import { NHL_STATS, NhlStatsService, type NhlPlayer } from '../services/NhlStatsService.js';
 import { ROSTER_STORE } from '../services/RosterStore.js';
+import { rankGoalies } from '../domain/goalie-rank.js';
 import { LEAGUE_DATA } from '../services/LeagueDataService.js';
 import { parseCategories, valueForCategories, MIN_GAMES, type CategoryBoard } from '../services/CategoryService.js';
 
@@ -72,9 +73,6 @@ interface KitPlayer {
   /** "HIT +2.1 · BLK +1.4 · PPP −0.3" when ranked for categories. */
   readonly category_line: string | null;
 }
-
-/** A starter's workload: below this many games a goalie's rates say little. */
-const GOALIE_STARTER_GP = 20;
 
 /** Positions a kit is organised by, in the order people draft them. */
 const KIT_POSITIONS = ['C', 'LW', 'RW', 'D', 'G'];
@@ -146,25 +144,9 @@ export class DraftKitAnalysis extends AnalysisTemplate {
     const played = NHL_STATS.getAll().filter(p => (p.stats?.games_played ?? 0) > 0);
     const skaters = played.filter(p => p.position !== 'G')
       .sort((a, b) => (b.stats?.points ?? 0) - (a.stats?.points ?? 0));
-    return [...skaters, ...this.rankGoalies(played.filter(p => p.position === 'G'))];
+    return [...skaters, ...rankGoalies(played.filter(p => p.position === 'G'))];
   }
 
-  private rankGoalies(goalies: NhlPlayer[]): NhlPlayer[] {
-    const starters = goalies.filter(g => (g.stats?.games_played ?? 0) >= GOALIE_STARTER_GP);
-    const z = (values: number[]) => {
-      const mean = values.reduce((a, b) => a + b, 0) / Math.max(1, values.length);
-      const sd = Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, values.length)) || 1;
-      return (v: number) => (v - mean) / sd;
-    };
-    const zW = z(starters.map(g => g.stats?.wins ?? 0));
-    const zSv = z(starters.map(g => g.stats?.save_percentage ?? 0));
-    const zGaa = z(starters.map(g => g.stats?.goals_against_average ?? 0));
-    const value = (g: NhlPlayer) =>
-      0.4 * zW(g.stats?.wins ?? 0) + 0.35 * zSv(g.stats?.save_percentage ?? 0) - 0.25 * zGaa(g.stats?.goals_against_average ?? 0);
-    const backups = goalies.filter(g => (g.stats?.games_played ?? 0) < GOALIE_STARTER_GP)
-      .sort((a, b) => (b.stats?.games_played ?? 0) - (a.stats?.games_played ?? 0));
-    return [...starters.sort((a, b) => value(b) - value(a)), ...backups];
-  }
 
   /**
    * Rank for the league's categories: players with a category value first, by value; a group the league scores no
@@ -205,6 +187,8 @@ export class DraftKitAnalysis extends AnalysisTemplate {
       this.annotate(p, ownOrder ? index + 1 : groupRank.get(p.player_id)!, window, d.cats)
     );
 
+    const inScope = annotated.filter(p => wanted.includes(p.position));
+
     // Tiers are per position, because "when does C dry up" is the question a
     // draft kit exists to answer.
     const byPosition: Record<string, any> = {};
@@ -235,11 +219,12 @@ export class DraftKitAnalysis extends AnalysisTemplate {
       playoff_window: window,
       unresolved: d.unresolved,
       positions: byPosition,
+      // Signals follow the positions asked for: a goalie-only kit used to recommend targeting Celebrini.
       signals: {
-        shooting_rebounds: this.shootingRebounds(annotated),
-        decline_risk: this.declineRisk(annotated),
-        playoff_schedule_winners: this.playoffWinners(annotated, window),
-        category_specialists: this.categorySpecialists(annotated)
+        shooting_rebounds: this.shootingRebounds(inScope),
+        decline_risk: this.declineRisk(inScope),
+        playoff_schedule_winners: this.playoffWinners(inScope, window),
+        category_specialists: this.categorySpecialists(inScope)
       },
       cheat_sheet: this.cheatSheet(byPosition),
       not_included: [
