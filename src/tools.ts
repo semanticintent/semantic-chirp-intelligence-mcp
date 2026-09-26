@@ -1885,7 +1885,35 @@ export async function callTool(name: string, args: Record<string, unknown> | und
 
   await NHL_STATS.load();
   const pasted: TransientRosters = {};
-  if (rosterText) pasted.roster = RosterStore.asStored(ROSTER_STORE.parseRoster(rosterText).resolved, 'pasted roster');
-  if (opponentText) pasted.opponent = RosterStore.asStored(ROSTER_STORE.parseRoster(opponentText).resolved, 'pasted opponent');
-  return RosterStore.runWith(pasted, () => dispatchTool(name, args));
+  // Lines that match no player, or several, used to vanish here: the analysis ran on a shorter roster and said nothing.
+  const notMatched: string[] = [];
+  const parse = (text: string, who: string) => {
+    const report = ROSTER_STORE.parseRoster(text);
+    notMatched.push(
+      ...report.unresolved.map(u => `${who}: "${u.line}" not matched (${u.reason})`),
+      ...report.ambiguous.map(a => `${who}: "${a.line}" is ambiguous — could be ${a.candidates.join(', ')}; add the team to pick one`),
+    );
+    return report.resolved;
+  };
+  if (rosterText) pasted.roster = RosterStore.asStored(parse(rosterText, 'Roster'), 'pasted roster');
+  if (opponentText) pasted.opponent = RosterStore.asStored(parse(opponentText, 'Opponent'), 'pasted opponent');
+  const result = await RosterStore.runWith(pasted, () => dispatchTool(name, args));
+  // read_ice reports these in its own notes, and its body must match the Sepiola read contract exactly.
+  return notMatched.length && name !== 'read_ice' ? withNotMatched(result, notMatched) : result;
+}
+
+/** Report pasted lines left out of the analysis, inside the JSON when the result is JSON, else as a trailing note. */
+function withNotMatched(result: CallToolResult, notMatched: string[]): CallToolResult {
+  const first = result.content?.[0];
+  if (first?.type === 'text') {
+    try {
+      const body = JSON.parse(first.text);
+      if (body && typeof body === 'object' && !Array.isArray(body)) {
+        const text = JSON.stringify({ ...body, roster_not_matched: notMatched }, null, 2);
+        return { ...result, content: [{ ...first, text }, ...result.content.slice(1)] };
+      }
+    } catch { /* not JSON — fall through to a note */ }
+  }
+  const note = `Left out of this analysis — ${notMatched.join('; ')}`;
+  return { ...result, content: [...(result.content ?? []), { type: 'text', text: note }] };
 }

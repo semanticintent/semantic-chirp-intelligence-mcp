@@ -119,5 +119,56 @@ await probe('goalie order', async () => {
   check('search_players and draft_kit agree on goalies', search.join() === kit.join(), `${search.join(', ')} vs ${kit.join(', ')}`);
 });
 
+await probe('behind on games', async () => {
+  // A 3-day window in season, a one-player roster against three: you are behind, and ICE must name who to add.
+  const win = { start: '2026-10-16', look_ahead_days: 3 };
+  const [ice, gih] = await Promise.all([
+    tool('ice', { roster_text: 'Cale Makar', opponent_text: OPPONENT, ...win }),
+    tool('get_games_in_hand', { roster_text: 'Cale Makar', opponent_text: OPPONENT, ...win }),
+  ]);
+  const edge = ice.body.analysis_insights.schedule_edge;
+  // ICE reads from today, so before opening night nobody is behind and there is nothing to check yet.
+  if (edge.advantage >= 0) console.log(`  ⏭️  ICE behind-path skipped: not behind in the current window (${edge.reading})`);
+  else check('ICE names volume pickups when you are behind', /Close it with volume: \S/.test(ice.body.chirp_intelligence?.analysis_chirp ?? ''),
+    ice.body.chirp_intelligence?.analysis_chirp);
+  check('games-in-hand tells the trailing side to stream', /stream/i.test(gih.text) && !/keep a full lineup/i.test(gih.text));
+});
+
+await probe('read_ice sit', async () => {
+  const read = (await tool('read_ice', { roster_text: ROSTER })).body;
+  check('read_ice never sits a player it says nobody beats', !(read.calls.sit.length && /Nobody on the bench beats him/.test(read.take)), read.take);
+});
+
+await probe('spliced chirps', async () => {
+  const spliced = /(Elite players|The data shows|Analysis indicates|Stats don't lie|Championship strategy|Next level thinking) (the|your|\d)/;
+  const texts = await Promise.all(['analytical', 'championship_coach'].flatMap(personality_mode => [
+    tool('get_games_in_hand', { roster_text: ROSTER, opponent_text: OPPONENT, personality_mode }),
+    tool('get_streaming_recommendations', { roster_text: ROSTER, personality_mode }),
+  ]));
+  check('no chirp splices a personality phrase onto a fragment', texts.every(t => !spliced.test(t.text)));
+});
+
+await probe('unmatched names', async () => {
+  const r = (await tool('get_streaming_recommendations', { roster_text: 'Cale Makar\nNobody Real Atall' })).body;
+  check('pasted names that match nobody are reported', (r.roster_not_matched ?? []).some(x => x.includes('Nobody Real Atall')));
+});
+
+await probe('draft kit depth', async () => {
+  const kit = (await tool('draft_kit', { max_per_position: 2 })).body.analysis_insights.positions;
+  check('draft_kit honours max_per_position below 5',
+    Object.values(kit).every(g => g.tiers.reduce((n, t) => n + t.players.length, 0) <= 2));
+});
+
+await probe('goalie streams', async () => {
+  const g = (await tool('analyze_goalie_streams', {})).body;
+  check('goalie stream score includes save %', /save %/.test(g.method.stream_score) && g.candidates.every(c => 'save_pct_percentile' in c));
+});
+
+await probe('weekend streams', async () => {
+  const w = (await tool('analyze_weekend_streams', { date_range: { start: '2026-10-16', end: '2026-10-18' } })).body;
+  check('weekend streams run without a roster and find genuine plays', !w.error && w.metadata.classification_breakdown.genuine_count > 0,
+    w.error ?? JSON.stringify(w.metadata?.classification_breakdown));
+});
+
 console.log(failures === 0 ? '\n✅ All correctness checks passed.\n' : `\n❌ ${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

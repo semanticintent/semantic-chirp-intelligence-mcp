@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.9.2] — third review
+
+A third test of every hosted tool through Claude, against 4.9.1. The 4.9.1 fixes to `ice`'s sign, `schedule_value` and
+the fallback chirp held; this fixes what it found next — including one thing 4.9.1 claimed and did not do.
+
+### Fixed
+- **`ice` still named nobody when you were behind.** 4.9.1 said it now names real volume candidates; in practice it
+  didn't, because it only considered players whose clubs play three or more games, and a short window rarely has any.
+  It now takes the clubs with the most games in the window, whatever that number is, and names their best producers —
+  and the chirp leads with the edge and the names ("Close it with volume: …"). When you are ahead it says to keep a full
+  lineup rather than suggesting pickups.
+- **`get_games_in_hand` gave the advice backwards**: ahead, it said to stream; behind, to protect. Ahead now says keep
+  every slot filled; behind says stream the busiest clubs. The `read_ice` games-in-hand line follows.
+- **`read_ice` contradicted itself**: it listed a player under `sit` while its own take said "Nobody on the bench beats
+  him, so live with it." A sit call is now made only when a bench player has the better schedule; otherwise the soft
+  spot is named in the take and nobody is sat.
+- **Broken chirp sentences** in `get_games_in_hand`, `get_streaming_recommendations` and others: a personality phrase
+  spliced onto a fragment ("Elite players the schedule advantage situation.", "The data shows 5 streaming
+  opportunities on the wire."). Every fallback is now a whole sentence. `get_games_in_hand`'s tone-specific lines never
+  fired at all — they checked for 'you' / 'opponent' and the tool sends a number — and now do. "On the wire" and
+  "better than what you've got" are gone: league ownership is unknown.
+- **Pasted names that matched nobody vanished.** A misspelt or ambiguous line was dropped and the analysis ran on a
+  shorter roster without saying so. Tools given `roster_text` / `opponent_text` now return `roster_not_matched`,
+  naming each line and why (or the candidates, for an ambiguous one).
+- **`draft_kit` ignored a small `max_per_position`**: anything under 5 was raised to 5. It is now honoured.
+- **`analyze_goalie_streams` ignored how well a goalie stops the puck**: a .880 goalie with a busy week outranked a
+  .920 one with the same week. The stream score now includes last season's save % as a percentile of the league's
+  starters (55% expected starts, 25% opposition, 20% save %), and the method says so.
+- **`analyze_weekend_streams` could never find a "genuine" play**, and crashed without a roster. Its upside score mixed
+  points per game ×10 with raw minutes, topping out near 25 against a bar of 55–60. Production and usage are now each
+  scored 0–100 on the same scales as `analyze_breakout_players` (goalies on save % and share of starts); players with
+  no games in the window are left out; the custom chirp now actually reaches the output, including a plain message when
+  the window has no games.
+
+### Known limitation
+- Pickup suggestions (`ice`, streaming, weekend streams) can name stars who are certainly rostered in your league.
+  League ownership is private; these are candidates to check, and the output says so.
+
 ## [4.9.1] — second review
 
 A second test of every hosted tool through Claude, against 4.9.0. All of 4.9.0's fixes held; this fixes what it found next.
@@ -12,8 +50,8 @@ A second test of every hosted tool through Claude, against 4.9.0. All of 4.9.0's
 - **`ice` reported your advantage as a deficit.** Its `games_disadvantage` field held *your games minus your opponent's*,
   so a +6 edge read as a six-game deficit — the opposite of the right advice, in the flagship tool. It now reports a
   `schedule_edge` with `your_games`, `opponent_games`, a signed `advantage` (positive favours you) and a plain-English
-  `reading`. When you genuinely are behind, it now names real volume candidates; that branch drew from a streaming list
-  that has been empty since v4, so it could never recommend anything.
+  `reading`. The behind-on-games branch was rewired to draw from the real player pool; *correction in 4.9.2: it still
+  named nobody in practice — see 4.9.2.*
 - **`schedule_value` contradicted itself for a short team list.** With three clubs, all three appeared as both best and
   worst, and a club whose own verdict said "break the tie the other way" was recommended as a HIGH-priority target
   because of its place in the list. Best and worst no longer overlap, and each recommendation follows its club's verdict:

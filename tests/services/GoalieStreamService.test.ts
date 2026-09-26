@@ -33,7 +33,7 @@ describe('goalieStreams', () => {
     expect(r.candidates.map((g) => g.id)).toEqual(['daccord', 'woll']); // the 0-GP backup is left out
     const d = r.candidates[0];
     expect(d).toMatchObject({ games: 2, soft_nights: 2, avg_opponent_attack: 13, start_share: 0.67, expected_starts: 1.3 });
-    expect(d.stream_score).toBe(streamScore(1.3, 13));
+    expect(d.stream_score).toBe(streamScore(1.3, 13, d.save_pct_percentile));
     expect(d.reason).toBe("2 games, 2 against weak attacks; started 67% of SEA's games last season");
     expect(r.take).toMatch(/^Daccord \(SEA\): 2 games, 2 against weak attacks/);
   });
@@ -50,9 +50,11 @@ describe('goalieStreams', () => {
     vi.spyOn(NHL_SCHEDULE, 'getUnavailableReason').mockReturnValue('down');
     await expect(goalieStreams({})).rejects.toThrow(/schedule and it is unavailable: down/);
   });
-  it('streamScore: four expected starts against the weakest attacks is 100', () => {
-    expect(streamScore(4, 0)).toBe(100);
-    expect(streamScore(0, 100)).toBe(0);
+  it('streamScore: four expected starts against the weakest attacks by the best save % is 100', () => {
+    expect(streamScore(4, 0, 100)).toBe(100);
+    expect(streamScore(0, 100, 0)).toBe(0);
+    // Same week, same opponents: the better save % ranks higher.
+    expect(streamScore(3, 40, 90)).toBeGreaterThan(streamScore(3, 40, 10));
     expect(streamScore(2, null)).toBe(50);
   });
 });
