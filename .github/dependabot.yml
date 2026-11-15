@@ -1,20 +1,31 @@
 version: 2
 updates:
-  # npm dependencies
+  # npm: monthly, grouped. Security updates are separate and still open their own PRs as soon as a fix exists.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
+      interval: "monthly"
+    open-pull-requests-limit: 3
     labels:
       - "dependencies"
       - "automated"
+    groups:
+      # vitest and its plugins must move together; separate PRs leave mismatched versions and fail.
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+      dev-tooling:
+        dependency-type: "development"
+        exclude-patterns: ["vitest", "@vitest/*"]
+        update-types: ["minor", "patch"]
 
-  # GitHub Actions
+  # GitHub Actions: grouped, monthly.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     labels:
       - "ci"
       - "dependencies"
+    groups:
+      actions:
+        patterns: ["*"]
