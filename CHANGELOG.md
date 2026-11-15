@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.10.5] — security and npx
+
+### Security
+- **`@modelcontextprotocol/sdk` 1.30.0 → 1.32.2**, plus non-breaking fixes to its HTTP dependencies
+  (hono, express, body-parser, qs, path-to-regexp). `npm audit --omit=dev` goes from 9 findings (1 critical,
+  4 high) to 0. 311 tests pass; a stdio handshake lists all tools.
+
+### Fixed
+- **`npx @semanticintent/semantic-chirp-intelligence-mcp` now works.** The README has always shown it, but the
+  package declared no `bin`, so npx had nothing to run. It now points at `build/index.js`.
+
 ## [4.10.4] — directory policy
 
 ### Fixed
